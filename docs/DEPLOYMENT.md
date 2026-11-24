@@ -1471,6 +1471,35 @@ from an email.
       `-H "if-none-match: \"$V\""` on `/api/events/$EVENT_ID/image?v=$V&x=$X`). If an empty body comes back,
       Vercel stored the 304: purge the CDN cache and report it, since every
       visitor would see a broken image for up to an hour.
+- [ ] **Story card** (`docs/architecture.md`, "Story card"). With `$SLUG` a
+      published event that hasn't ended:
+
+      ```sh
+      curl -s -o /dev/null -w '%{http_code} %{content_type} %{size_download}\n' "$SITE/events/$SLUG/story-card?format=story"
+      curl -sI "$SITE/events/$SLUG/story-card?format=story" | grep -iE '^(cache-control|etag|x-vercel-cache|age):'
+      curl -s -o /dev/null -w '%{http_code}\n' "$SITE/events/$SLUG/story-card?format=story&x=1"
+      ```
+
+      The first is `200 image/jpeg` with a size of a few hundred KB (a 500
+      here usually means the fonts didn't reach the function bundle:
+      `outputFileTracingIncludes` in `next.config.ts`). The second (run it
+      twice) shows `public, max-age=0, s-maxage=` at most `3600`, an `etag`,
+      and `x-vercel-cache: HIT` the second time. The third is `400`.
+      Then the 304 check, on the **square** card of an event whose square
+      card no one has fetched yet (a fresh cache key; extra parameters are
+      refused, so pick another event if needed):
+
+      ```sh
+      curl -sI -H 'if-none-match: *' "$SITE/events/$SLUG2/story-card?format=square" | head -1
+      curl -s -o /dev/null -w '%{http_code} %{size_download}\n' "$SITE/events/$SLUG2/story-card?format=square"
+      ```
+
+      The first is a `304`; the second must be `200` with a non-zero size.
+      An empty body means Vercel stored the 304: purge the CDN cache and
+      report it (every visitor would get an empty card for up to an hour).
+      On a demo deployment (no Supabase env), `/events/neon-static/story-card?format=story`
+      is a `200 image/jpeg` with the sample photo in it (the demo photos are
+      bundled the same way).
 - [ ] **Browser reuse of images** (`age`): the image and logo `max-age`
       equals their `s-maxage` (an hour) so a CDN copy with a large `age` is
       still fresh in the browser. On a second `curl -sI` of an image, check

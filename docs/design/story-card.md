@@ -153,19 +153,30 @@ length. Worst case: a pure white photo behind the text, with the grey tone:
 
 ### 4.2 Title size and long titles
 
-The text is `cardText(title, 80)` (whitespace collapsed, cut at a word with an ellipsis), after removing emoji (§7.2).
-Count graphemes in that text, before uppercasing:
+The text is the title after §7.2 (emoji removed, fitted to the fonts, cut at 80 characters at a word with an
+ellipsis). Count graphemes in that text, before uppercasing. The count gives the **largest** size the title may take:
 
-| Characters | Story size | Square size | ≈ characters per line, story / square |
+| Characters | Story, largest | Square, largest | ≈ characters per line, story / square |
 | --- | --- | --- | --- |
 | ≤ 30 | **128** | **104** | 12 / 15 |
 | 31–45 | **112** | **92** | 14 / 18 |
 | 46–60 | **96** | **80** | 16 / 20 |
 | 61–80 | **80** | **68** | 19 / 24 |
 
-- **Characters per line** is an estimate: about 0.59 em per uppercase character with the tracking, measured on
-  "HERE & NOW" (760 px at 128).
-- **The line clamp is the safety net.** Story clamps at 4 lines; square at 3.
+- **Then the size is chosen by estimated wrapping** (`storyCardTitleSize` in `lib/story-card.ts`): from that largest
+  size down through the smaller steps, the first size at which the title is estimated to wrap into the clamp (4 lines
+  on a story, 3 on a square) is used.
+  - The steps: story **128, 112, 96, 80, 72, 64**; square **104, 92, 80, 68, 60, 56, 52, 48**. So the smallest a
+    title can be is **64 px** (story) or **48 px** (square). The two or four extra steps below the length table are
+    for long titles of long words, which the length table alone would leave to the clamp.
+  - The estimate (`estimateTitleLines`): uppercase, broken at spaces, measured with Instrument Sans Bold's own
+    advance widths (from the font's `hmtx`; a test checks the table against the file), the −0.04em tracking, and no
+    kerning (the fonts are loaded without it, §7.3, so the estimate matches the drawing). Each line keeps 1% spare
+    for rasterising and rounding. The line widths are 920 (story) and 960 (square). A word wider than the line counts
+    as broken inside it.
+- **The line clamp is the last resort,** for a title that doesn't fit even at the smallest step: it's cut at the
+  clamp with an ellipsis. Story clamps at 4 lines; square at 3. A title that ends on a word, not cut by the clamp, is
+  the normal case.
 - **The highest the block can rise:**
   - Story: 4 × 128 × 0.92 = 471, so the block's top is at y **859**. That's well below the tag (which ends at y 341),
     and the fade's top lands at y 559.
@@ -318,9 +329,19 @@ changes):
 
 ### 7.2 Text
 
-- **Title:** `cardText(title, 80)`. First, remove pictographic emoji (`\p{Extended_Pictographic}`, ZWJ U+200D and
-  VS16 U+FE0F) and collapse the spaces left behind. If that leaves nothing, keep the original title. Satori's
-  `textTransform: uppercase` does the capitals; don't uppercase in JS (screen readers never see this text anyway).
+- **Title:** `cardText(title, 80)`, after two steps (`storyCardText` in `lib/story-card.ts`):
+  1. Remove pictographic emoji (`\p{Extended_Pictographic}`, skin tones, flags, ZWJ U+200D, VS16 U+FE0F, the keycap
+     and tag characters; ©, ® and ™ stay, as ordinary text in the font) and collapse the spaces left behind.
+  2. Fit what's left to the fonts (`fitToStoryCardFont`): each character the card's fonts draw (in every weight, and
+     as a capital too, since the title is set uppercase) is kept; one they lack loses its accents if the bare letter
+     is there ("Ĉ" becomes "C"); anything else (other scripts, symbols) is dropped. The spaces left are collapsed.
+  - **If that leaves nothing,** the title becomes the venue's name (fitted the same way), and if that's empty too,
+    "Event". The original title is never drawn as is, because its characters would make the renderer fetch fonts
+    (§7.3).
+  - Satori's `textTransform: uppercase` does the capitals; don't uppercase in JS (screen readers never see this text
+    anyway).
+- **Every other line** (the date, time and place) is fitted to the fonts the same way, and the drawing fits whatever
+  it's given again, so nothing outside the fonts ever reaches the renderer.
 - **Facts line 1:** `ticketStubDate(start, zone)` · `ticketStubTime(start, end, zone)` +
   `zoneSuffix(zone, state, start)`.
   - Examples: "Sat 14 Nov · 5–9 pm" and "Sat 21 Nov · 8 pm Perth time".
@@ -338,6 +359,14 @@ changes):
 - **Instrument Sans, static TTFs:** Regular 400, Medium 500, SemiBold 600 and Bold 700, full Latin + Latin Extended,
   in `app/fonts/og/` (OFL, the licence already there).
 - No other face. Bootzy and Plex Mono aren't used on the card.
+- **Loaded without kerning.** The renderer hides each font's kerning tables (`GPOS`, `kern`) in memory when it loads
+  them (`withoutKerning`; the files are unchanged). Satori lays words out without kerning but draws them with it, so a
+  word with many kerned pairs ("INTERNATIONALLY", "SHOWCASE") came out shorter than its slot and left a double gap
+  after it. Without kerning, every word gap is one space, and the title's wrap estimate (§4.2) matches the drawing.
+- **No network fetch at render time.** For a character its fonts lack, next/og fetches a fallback face from Google
+  Fonts (or an emoji from a CDN) while it renders, with no timeout and with failures cached for the process. The text
+  rules (§7.2) mean that never happens: every string is fitted to the fonts first. The renderer reads only the four
+  font files and the photo it's given.
 
 ### 7.4 Never on a card
 
@@ -361,8 +390,9 @@ Link sticker.
 | D5 | "I'm going." (straight apostrophe) | "I’m going." (U+2019) | The site's typography |
 | D6 | Fade stops in % of the fade's height | Stops in px from the block's top (§4.3) | Identical for one-line titles. Darker behind "I’m going." for long ones (contrast) |
 | D7 | CSS `blur(40px) brightness(.7) scale(1.2)` | sharp pre-blur at ¼ size, sigma 10, ×0.7 | Satori's `filter` is unreliable and costly. It looks the same |
-| D8 | — | Long-title steps (§4.2), the no-photo card (§6), emoji stripping | Not drawn in the round |
+| D8 | — | Long-title sizes by estimated wrapping (§4.2), the no-photo card (§6), emoji stripping and font fitting (§7.2) | Not drawn in the round |
 | D9 | Chrome text rendering | resvg text rendering | It differs by design. Compare positions ±2 px and sizes ±1 px, not pixels |
+| D10 | Kerned type (Chrome) | Unkerned type (§7.3) | Even word gaps in Satori. Pairs like "AV" sit a little looser than in the reference |
 
 ## 9. Share UI: `components/StoryCardShare.tsx`
 

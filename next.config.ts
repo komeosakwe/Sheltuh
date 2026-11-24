@@ -80,6 +80,16 @@ export const nextConfig: NextConfig = {
   // indexed read.
   htmlLimitedBots: /.*/,
 
+  // Files a server route reads from disk at a path the build's file tracing can't follow, added
+  // to that route's function bundle on Vercel. The story card (lib/server/story-card-render.tsx,
+  // lib/server/share-card-data.ts readDemoPhoto) reads its four TTFs and, in demo mode, the
+  // sample photo named by the event (a dynamic path). The key is the route path as a picomatch
+  // glob (brackets escaped); the files are from the project root. tests/next-config.test.ts pins
+  // it; `npm run build` then lists them in the route's .nft.json (docs/architecture.md, "Story card").
+  outputFileTracingIncludes: {
+    "/events/\\[slug\\]/story-card": ["./app/fonts/og/InstrumentSans-*.ttf", "./public/events/*.{jpg,jpeg,png,webp}"],
+  },
+
   // Usage analytics' first-party proxy: /ingest goes to PostHog (proxy.ts: only the endpoints the
   // browser needs, with cookies and Referer removed), so ad blockers don't skew the numbers. Only
   // with a key. PostHog's endpoints are slash-terminated (/ingest/e/) and Next's trailing-slash

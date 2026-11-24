@@ -1,6 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 import { sampleEvents } from "@/lib/sample-events";
 import { getSampleGoing } from "@/lib/sample-going";
+import { storyCardPath } from "@/lib/story-card";
 
 /**
  * The demo as the Vercel preview runs it (playwright.config.ts, "demo"
@@ -268,6 +269,37 @@ for (const vp of [
     });
   });
 }
+
+test("the story card draws a sample event as a JPEG a page can show, outside /api", async ({ page }) => {
+  const checkNoApiCalls = noApiCalls(page);
+  await page.goto("/events/neon-static");
+  await expect(page.getByRole("heading", { level: 1 })).toBeVisible({ timeout: 60_000 });
+
+  // Loaded as an image by the page itself (through the service worker, which must let it by).
+  const story = await page.evaluate(async (src) => {
+    const img = new Image();
+    img.src = src;
+    await img.decode();
+    return { width: img.naturalWidth, height: img.naturalHeight };
+  }, storyCardPath("neon-static", "story"));
+  expect(story).toEqual({ width: 1080, height: 1920 });
+
+  const res = await page.request.get(storyCardPath("neon-static", "square"));
+  expect(res.status()).toBe(200);
+  expect(res.headers()["content-type"]).toBe("image/jpeg");
+  expect(res.headers()["content-disposition"]).toBe('inline; filename="sheltuh-neon-static-square.jpg"');
+  expect(res.headers()["cache-control"]).toMatch(/^public, max-age=0, s-maxage=\d+$/);
+  const body = await res.body();
+  expect([...body.subarray(0, 3)]).toEqual([0xff, 0xd8, 0xff]);
+  const etag = res.headers()["etag"];
+  expect(etag).toMatch(/^"[0-9a-z]+"$/);
+
+  const again = await page.request.get(storyCardPath("neon-static", "square"), { headers: { "if-none-match": etag } });
+  expect(again.status()).toBe(304);
+  expect((await page.request.get(`${storyCardPath("neon-static", "square")}&x=1`)).status()).toBe(400);
+  expect((await page.request.get(storyCardPath("never-existed", "story"))).status()).toBe(404);
+  checkNoApiCalls();
+});
 
 test("the demo sends nothing to usage analytics (no /ingest, PostHog or Vercel analytics request)", async ({ page }) => {
   const sent: string[] = [];
