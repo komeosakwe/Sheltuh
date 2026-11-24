@@ -96,6 +96,12 @@
      so never re-scoped in [data-surface=*]. */
   --menu: #ffffff;
   --menu-hover: #fffae7;
+  /* The site footer, as Latte's 1120 "Dash / Site footer" frames draw it: black in both themes, so
+     these are constants, never re-scoped. Footer only. */
+  --footer-label: #999999; /* column labels, "Theme" and the legal row (Mono/S): 7.36:1 on black */
+  --footer-line: #595959; /* the Light / Dark switch's 1px border */
+  --footer-quiet: #bfbfbf; /* the switch's unchosen option: 11.4:1 on black */
+  --footer-icon: #d9d6cf; /* Contact Sheltüh's line icons */
 }
 
 @media (width >= 64rem) {
@@ -376,6 +382,10 @@
   --color-signal-text: var(--signal-text);
   --color-menu: var(--menu);
   --color-menu-hover: var(--menu-hover);
+  --color-footer-label: var(--footer-label);
+  --color-footer-line: var(--footer-line);
+  --color-footer-quiet: var(--footer-quiet);
+  --color-footer-icon: var(--footer-icon);
   --color-lilac: var(--lilac);
   --color-sand: var(--sand);
   --color-night: var(--night);
@@ -835,11 +845,13 @@ h4 {
   border-width: var(--stroke-control);
 }
 
-/* The page's content column (the rules' Layout board): 1312px of content, with margins of 16px
-   on phones, 32px from 768px and 64px from 1280px (Round 2 §1.2). */
+/* The page's content column (the rules' Layout board): margins of 16px on phones, 32px from 768px
+   and 64px from 1280px (Round 2 §1.2), so 1312px of content at 1440. The cap is 1440px of content
+   (owner, 23 Nov 2026: Latte's 1312px left wide screens mostly empty), so a 1920px screen keeps
+   240px each side. */
 @utility page-container {
   width: 100%;
-  max-width: calc(82rem + 2 * var(--page-margin));
+  max-width: calc(90rem + 2 * var(--page-margin));
   margin-inline: auto;
   padding-inline: var(--page-margin);
   --page-margin: 1rem;
