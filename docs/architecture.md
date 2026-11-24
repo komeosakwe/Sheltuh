@@ -4953,11 +4953,58 @@ person (`supabase/migrations/20261120000000_group_tickets.sql`,
 sends only; offers already made can be viewed, accepted, declined and
 cancelled, received tickets keep working at the door, and sent tickets stay
 sent. Built in stages: the database, the API, the door, the redaction, the
-UI (below), the organiser's view and the admin log (below) are in; the emails
-(and the offer link's token minting), reminders to holders and recipients'
-wallet passes follow. Until the emails ship, the transfer jobs wait in the outbox: no
-release leases them (`ticketTransferJobsSoon` is empty, and the cron's drain
-doesn't name their kinds).
+UI, the emails, the organiser's view and the admin log (below) are in;
+reminders to holders and recipients' wallet passes follow.
+
+**The emails** (`lib/server/ticket-transfer-email.ts`, on the shared 1120 kit
+`lib/server/email-kit.ts`, to Latte's frames; the full ticket is the ticket
+email's own orange-outline card, owner decision). Each is an outbox job
+(`transfer_offer`, `transfer_accepted`, `transfer_declined`,
+`transfer_expired`, `transfer_ticket`), drained after the organiser emails in
+the cron and, kind by kind, straight after a send, accept or decline
+(`sendTicketTransferEmailsSoon`: the five kinds share one `DRAIN_BUDGET_MS`,
+30 s, so the routes' `maxDuration` of 60 s covers the whole run). The names
+quoted in them are held to the person-name rules (`parsePersonName`) and,
+for the sender's and the holder's, refused if only Sheltüh may use them
+(`isReserved`, as for member names: "Sheltüh Support", "Admin"):
+- **The offer**, to the address typed: the ticket card *locked* (a faded
+  pattern that doesn't decode, `public/email/ticket/qr-locked.png`, checked
+  with ZXing; no code of any kind), Accept and Decline
+  (`/tickets/accept#token=…`, `&decline=1`), "How it works", "Don't forward
+  this email: whoever accepts first gets the ticket.", the event's details
+  ("View event page"), host and "Before you go" (the organiser's rows as plain
+  lines, "Entry: …", as Latte draws the box). The link's token (32 random bytes) is minted per
+  attempt by the worker, its hash stored first; earlier copies stay valid.
+- **Accepted** (who now holds it, the accepting address masked only when it
+  isn't the one typed), **declined** and **expired** (the QR still works;
+  "Send to a friend" until the cut-off; if the ticket was checked in
+  meanwhile, only "It's been checked in at the door, so it can't be sent
+  on."), to the order's current
+  `buyer_email` (a holder's re-send: the address they accepted with).
+- **The recipient's ticket**, to the accepting account's address, in the
+  offer's pattern: "From {sender}", "Your ticket to {EVENT}.", the live card
+  with their issued code and its QR (`cid:`), "Show this at the door", their
+  received page, the details and "Before you go"; no order, amounts, or
+  "ticket n of N". Its footer, like the offer's, names the sender ("…because
+  {sender} sent you a ticket on Sheltüh.").
+- **The buyer's ticket email** shows a sent ticket as sent ("Sent to {name} ·
+  accepted {date}", "This QR code no longer works"): no code, no QR, no wallet
+  link; the full card is the first ticket still theirs; numbers are kept.
+
+Every kind is checked against its transfer's state when the job is read and
+again straight before the mail provider (`stillToSendTransfer`: the lease,
+and an offer still pending, unexpired and before the cut-off with its order
+paid and event published; a decision still that decision, to the sender's
+current address, and for declined and expired the ticket still the sender's
+(`SENDER_STILL_HOLDS`: the order paid and no current holding but the sender's
+own, so a late notice never says "Your QR code still works" after the ticket
+was sent again and accepted, or refunded) and not sent again since
+(`NOT_SENT_SINCE`: no later offer of the ticket, including a send that
+expired this overdue offer in its own transaction); a ticket still the
+current holding of a paid order): a change meanwhile defers it a minute, and
+the next read skips it. No token is minted for an offer that isn't open: the
+insert itself checks the offer's state. Names are escaped as quoted text; none
+becomes a link. Logs name the job id only.
 
 **The owner's rules** (`TICKET_TRANSFER_RULES`, each passed to the database
 as a parameter, so a change is one line with no migration): paid and free
@@ -5642,10 +5689,10 @@ without one. The UI keeps showing the API's words, which already say when
 | `POST /orders/confirm` `{token}` | public (the emailed token is the credential). 200 `{url}` (also when already confirmed, within 24 hours); 400 malformed; 404 unknown; 410 expired (confirmed or not); 409 sold out, allowance used, or a ticket type no longer free |
 | `GET /orders/by-session/{orderId}` | public (id is the credential). `CustomerOrder` only (see "Payment flow"), `private, no-store`; `wallet: {google, apple}` when the tickets can be added to a wallet (see "Wallet passes"). With the order's token in `x-order-access` (a paid order, the paying browser), also `emailChange`, and `email` until the event ends, except once support has changed the email: then `emailChange: {allowed: false, reason: "changed_by_support"}` and neither `email` nor `maskedEmail`, even before the event ends (expected, not a malformed answer); without it, `maskedEmail` is left out once the order's email has been changed (see "Buyer email checks") |
 | `POST /orders/by-session/{orderId}/email` `{email}` | public, the paying browser only: the order's token in `x-order-access` (and optionally the buyer's bearer token: their own confirmed address is allowed). 200 `OrderEmailChangeResult` `{result: "changed" \| "unchanged", order}`; 404 malformed (no query), unknown, not a card order, or a missing or wrong token (one body for all); 400 `fieldErrors.email`, or `code: "email_typo"` / `"email_no_mail"` with `suggestion`; 409 `order_not_paid`, `changed_by_support` ("Contact support to change this email again"), `event_ended`, `ticket_scanned`, `email_already_changed`, `email_has_account` ("Contact support to use this address"), `email_change_busy` (Retry-After 2); 429 `rate_limited` over 10 an hour from this client or 5 a day for this order. `private, no-store`. See "Buyer email checks" |
-| `POST /orders/by-session/{orderId}/ticket-transfers` `{ticket, name, email, senderName}` | public, with control of the order: the paying browser (`x-order-access`) or a signed-in, verified account whose email is the order's `buyer_email` exactly (ignoring case). Sends ticket number `ticket` (see "Ticket transfers"). 404 malformed (no query), sending off (`NEXT_PUBLIC_TICKET_TRANSFERS`) or unknown; 429 per client (20 an hour) and per order (10 a day); 400 `fieldErrors` (every field at once), or `email_typo` / `email_no_mail`; 403 `order_owner_only` (naming the buying address masked); 409 `order_not_paid`, `event_unlisted`, `transfers_closed`, `ticket_type_not_transferable`, `ticket_checked_in`, `transfer_pending`, `ticket_already_sent`, `own_email` (with `fieldErrors.email`), `transfer_attempts_used`, `transfer_pending_cap`; 429 `rate_limited` (the account's, the recipient address's or the platform's daily allowance). 201 `TicketTransferCreated` `{transferId, order}`, `private, no-store` |
+| `POST /orders/by-session/{orderId}/ticket-transfers` `{ticket, name, email, senderName}` | public, with control of the order: the paying browser (`x-order-access`) or a signed-in, verified account whose email is the order's `buyer_email` exactly (ignoring case). Sends ticket number `ticket` (see "Ticket transfers"). 404 malformed (no query), sending off (`NEXT_PUBLIC_TICKET_TRANSFERS`) or unknown; 429 per client (20 an hour) and per order (10 a day); 400 `fieldErrors` (every field at once; `senderName` also refuses a name only Sheltüh may use), or `email_typo` / `email_no_mail`; 403 `order_owner_only` (naming the buying address masked); 409 `order_not_paid`, `event_unlisted`, `transfers_closed`, `ticket_type_not_transferable`, `ticket_checked_in`, `transfer_pending`, `ticket_already_sent`, `own_email` (with `fieldErrors.email`), `transfer_attempts_used`, `transfer_pending_cap`; 429 `rate_limited` (the account's, the recipient address's or the platform's daily allowance). 201 `TicketTransferCreated` `{transferId, order}`, `private, no-store` |
 | `POST /orders/by-session/{orderId}/ticket-transfers/{transferId}/cancel` | as the send's control, whatever the flag. 200 `{order}`; 403 `order_owner_only`; 404 not this order's; 409 `transfer_not_pending`, `cancel_not_allowed`; 429 per client |
 | `POST /ticket-transfers/view` `{token}` | public, read-only (the link's token, in the body, is the credential). 200 `TicketOffer`: `open` (the names, the recipient's address masked, the expiry, the event while published, the ticket's type, seat and group place) or, for the account that accepted it, `{status: "accepted", transferId}`; 404 "This ticket offer has expired or was already used." for everything else; 429 per client (60 an hour, every attempt) |
-| `POST /ticket-transfers/accept` `{token, holderName}` | any verified account (401 / 403). 200 `{transferId}` (also again by the same account); 404 the uniform answer; 400 `fieldErrors.holderName`; 409 `transfers_closed`, `ticket_unavailable`, `own_ticket`, `received_cap`; 429 per client (30 an hour) or `rate_limited` (the account's 10 an hour) |
+| `POST /ticket-transfers/accept` `{token, holderName}` | any verified account (401 / 403). 200 `{transferId}` (also again by the same account); 404 the uniform answer; 400 `fieldErrors.holderName` (also a name only Sheltüh may use); 409 `transfers_closed`, `ticket_unavailable`, `own_ticket`, `received_cap`; 429 per client (30 an hour) or `rate_limited` (the account's 10 an hour) |
 | `POST /ticket-transfers/decline` `{token}` | public. 200 `{status: "declined"}`; 404 the uniform answer; 429 per client |
 | `GET /me/received-tickets/{transferId}` | verified, the account that accepted it (404 otherwise). `ReceivedTicket`, `private, no-store`: the recipient's own code only while valid (order paid, not sent on), never the order's id or reference, the buyer, amounts or other tickets |
 | `POST /me/received-tickets/{transferId}/ticket-transfers` | verified. 409 `resend_not_allowed` while recipients may not re-send (the owner's rule); the route exists so the rule is a one-line change |

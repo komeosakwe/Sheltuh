@@ -1284,8 +1284,7 @@ Git → Ignored Build Step. GitHub Actions CI is unaffected.
        declined or cancelled, and received tickets keep working, so turning
        it off strands no one. Turn it on only once file 62 is applied and
        the transfer emails, the organiser's Orders view, reminders to
-       holders and the UI are deployed (until the emails ship, an offer's
-       email is never sent). Redeploy after changing it (it's baked in at
+       holders and the UI are deployed. Redeploy after changing it (it's baked in at
        build time). Once a ticket has been accepted, roll forward only:
        never redeploy a build from before ticket transfers (it would show
        the sender the dead code and offer its wallet pass).
