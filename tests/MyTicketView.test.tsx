@@ -207,7 +207,9 @@ describe("MyTicketView (Latte's My ticket page around the orange-outline ticket)
     expect(within(sheet).getAllByRole("button", { name: "Close" })).toHaveLength(2);
     fireEvent.click(within(sheet).getAllByRole("button", { name: "Close" })[0]);
 
-    rerender(<MyTicketView order={ORDER} sessionId="ord_1" onSendTicket={onSend} />);
+    // The API says this ticket can be sent now.
+    const sendable: CustomerOrder = { ...ORDER, tickets: ORDER.tickets.map((t) => ({ ...t, canSend: true })) };
+    rerender(<MyTicketView order={sendable} sessionId="ord_1" onSendTicket={onSend} />);
     fireEvent.click(screen.getByRole("button", { name: "Manage order" }));
     sheet = screen.getByRole("dialog", { name: "Manage order" });
     fireEvent.click(within(sheet).getByRole("button", { name: /Send ticket to a friend/ }));
@@ -462,11 +464,67 @@ describe("the full-screen ticket (phones)", () => {
 
   it("Send shows in the bar once the page can send, for the ticket in view", () => {
     const onSend = vi.fn();
-    render(<MyTicketView order={TWO} sessionId="ord_1" onSendTicket={onSend} />);
+    render(<MyTicketView order={{ ...TWO, tickets: TWO.tickets.map((t) => ({ ...t, canSend: true })) }} sessionId="ord_1" onSendTicket={onSend} />);
     fireEvent.click(pagePager("Next ticket"));
     fireEvent.click(screen.getByRole("button", { name: "Show ticket 2 of 2" }));
     fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Send" }));
     expect(onSend).toHaveBeenCalledWith(2);
+  });
+
+  it("no Send in the bar for a ticket that can't be sent now (on offer, checked in, or the API says no)", () => {
+    const order: CustomerOrder = {
+      ...TWO,
+      tickets: [
+        { ...TWO.tickets[0], canSend: false, transfer: { status: "pending", expiresAt: "2027-01-01T00:00:00.000Z", canCancel: false } },
+        { ...TWO.tickets[1], canSend: true },
+      ],
+    };
+    render(<MyTicketView order={order} sessionId="ord_1" onSendTicket={vi.fn()} />);
+    fireEvent.click(screen.getByRole("button", { name: "Show ticket 1 of 2" }));
+    const dialog = screen.getByRole("dialog");
+    expect(within(dialog).queryByRole("button", { name: "Send" })).toBeNull();
+    fireEvent.click(within(dialog).getByRole("button", { name: "Next ticket" }));
+    expect(within(dialog).getByRole("button", { name: "Send" })).toBeInTheDocument();
+  });
+
+  it("with ticket 1 of 2 sent on, the full-screen ticket says 'Ticket 2 of 2' (the order's count, not the slides')", () => {
+    const order: CustomerOrder = {
+      ...TWO,
+      tickets: [{ ...TWO.tickets[1], ticketNumber: 2 }],
+      transferredTickets: [{ ticketNumber: 1, ticketTypeName: "Second release", acceptedAt: "2026-11-13T01:00:00.000Z" }],
+    };
+    render(<MyTicketView order={order} sessionId="ord_1" />);
+    fireEvent.click(pagePager("Next ticket"));
+    fireEvent.click(screen.getByRole("button", { name: "Show ticket 2 of 2" }));
+    // The bar's count (said politely as it changes).
+    expect(screen.getByRole("dialog").querySelector('p[aria-live="polite"]')).toHaveTextContent("Ticket 2 of 2");
+  });
+
+  it("showTicket brings that ticket into view once (a ?send=n link), and the buyer's own moves stay theirs", () => {
+    const { rerender } = render(<MyTicketView order={TWO} sessionId="ord_1" showTicket={2} />);
+    expect(screen.getByRole("region", { name: "Your tickets" })).toHaveTextContent("Ticket 2 of 2");
+    fireEvent.click(pagePager("Previous ticket"));
+    rerender(<MyTicketView order={TWO} sessionId="ord_1" showTicket={2} />);
+    expect(screen.getByRole("region", { name: "Your tickets" })).toHaveTextContent("Ticket 1 of 2");
+  });
+
+  it("signed in with another email: Manage order's send row says so (Switch account)", () => {
+    const onSignIn = vi.fn();
+    render(<MyTicketView order={ORDER} sessionId="ord_1" onSignInToSend={onSignIn} signedInAsOther />);
+    fireEvent.click(screen.getByRole("button", { name: "Manage order" }));
+    const row = within(screen.getByRole("dialog", { name: "Manage order" })).getByRole("button", { name: /Send ticket to a friend/ });
+    expect(row).toHaveTextContent(/You’re signed in with another email\. Switch to .+ to send it/);
+    fireEvent.click(row);
+    expect(onSignIn).toHaveBeenCalledWith(1);
+  });
+
+  it("the toast shows over the full-screen ticket too (the page behind a modal is inert)", () => {
+    render(<MyTicketView order={ORDER} sessionId="ord_1" toast={(placement) => <p data-test-toast={placement}>Sent to Sam.</p>} />);
+    expect(document.querySelectorAll("[data-test-toast]")).toHaveLength(1);
+    expect(document.querySelector("[data-test-toast]")).toHaveAttribute("data-test-toast", "page");
+    fireEvent.click(screen.getByRole("button", { name: "Show ticket" }));
+    // Over the full-screen ticket it's placed below the top bar.
+    expect(within(screen.getByRole("dialog")).getByText("Sent to Sam.")).toHaveAttribute("data-test-toast", "screen");
   });
 });
 

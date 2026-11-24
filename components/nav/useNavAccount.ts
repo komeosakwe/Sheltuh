@@ -72,6 +72,11 @@ export function useNavAccount(): NavAccount {
   return account;
 }
 
+/** useNavAccount where there may be no provider (a component rendered on its own, in a test): null then. */
+export function useOptionalNavAccount(): NavAccount | null {
+  return useContext(NavAccountContext);
+}
+
 function useLoadNavAccount(): NavAccount {
   const auth = useAuth();
   const pathname = usePathname();

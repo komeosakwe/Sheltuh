@@ -725,7 +725,12 @@ admin and message times) is in the platform's zone, Australia/Melbourne.
      Sans and IBM Plex Mono self-hosted, `mso-padding-alt` on the buttons,
      the preheader hidden with `mso-hide:all`, so the emails can't drift
      apart; `tests/server/email-brand.test.ts` holds every builder to it.
-     The admin review emails stay on `lib/server/email-layout.ts`.
+     The admin review and ops alert emails use the same kit in Latte's
+     organiser shell (no admin email was drawn): the grey page, the black
+     hero, the organiser's own text (or the alert's details) in an outlined
+     box, the button and the footer line saying why the reader got it. No
+     email is left on the classic ivory page of `lib/server/email-layout.ts`
+     (only its helpers, `escapeHtml` and the wordmark, are still shared).
      Organiser emails A4 (7 days after approval) and A5 (the morning after
      each event) are built (`lib/server/onboarding-email.ts`) but not sent:
      their triggers need new onboarding / outbox kinds, a migration.
@@ -1812,6 +1817,14 @@ old address's holder doesn't learn the new one. The browser forgets its
 token (`forgetOrderAccessIfFinal`, `lib/order-access.ts`) as soon as the
 server says `event_ended`, `ticket_scanned` or `changed_by_support`, in a
 read or a change's 409: none of them can ever be changed from there again.
+One exception (see "Ticket transfers"): the token is also the paying
+browser's proof of control for sending the order's tickets, so after
+`ticket_scanned` it's kept while the order still says this browser may send
+a ticket (`transfers.canSend`) or cancel an offer (an offer's `canCancel`):
+`neededForTickets` in the ticket page's `needsAccessForTickets`. A buyer of
+four who's been scanned in can still send the other three from that phone.
+`event_ended` and `changed_by_support` still end it (the server stops
+honouring it for sends then anyway).
 The change's own 200 is the same `CustomerOrder` as the read (`withWallet`
 included), so the page keeps its wallet buttons.
 
@@ -3201,6 +3214,90 @@ name and email under the buyers' rules).
   `daily_limit`): far beyond any event's size today. A buyer's name is checked for links, "@" and invisible
   characters but not for rude words.
 
+## Organiser dashboard summaries
+
+The organiser dashboard's Overview and Events tab read two summaries of the
+caller's own events (`lib/server/handlers/organiser-summary.ts`, routes
+`app/api/organisers/me/overview/route.ts` and
+`app/api/organisers/me/events/summary/route.ts`, client
+`lib/api/organiser-summary.ts`, types `OrganiserOverview`,
+`OrganiserEventSummaryPage` and friends in `lib/api/types.ts`). No migration:
+they read existing tables through existing indexes.
+
+- **Access.** `requireCaller`, then the caller's own approved organiser
+  (`requireApprovedOrganiser`): signed out 401; a member, an applicant, a
+  suspended organiser or an admin with no organiser of their own 403. The
+  routes take no organiser or event id, so another organiser's events can't
+  be named; the queries filter on the caller's `organiser_id` (and the gross
+  query on both the event ids and the organiser). Every response, errors
+  included, is `private, no-store`.
+- **Rate limit.** The two reads share 60 a minute per account
+  (`take_rate_limit` bucket `organiser_summary`, `ORGANISER_SUMMARY_LIMIT`),
+  taken after the organiser check and before any summary query: room for a
+  dashboard that refreshes and pages, while bounding how often one account
+  makes the database walk all its events. Past it: 429 `code: "rate_limited"`
+  with `Retry-After` 60.
+- **No buyer data.** Counts and money only: no names, emails, order ids or
+  references (tests check the JSON). Followers are a count of members who
+  followed in the week and still follow, never who (as "Following
+  organisers": organisers see counts only; showing who is owner question 34).
+- **Stage** (`OrganiserEventStage`, derived in SQL, never stored): `live`
+  (published, not ended; any external event), `sold_out` (published, not
+  ended, Sheltüh-ticketed, every ticket type's `quantity_sold >=
+  quantity_available`; a tier waiting for the one above isn't sold out, as
+  the public `soldOut`), `ended` (published, `ends_at` passed), `in_review`
+  (`pending_review`), `changes_needed` (`rejected`), `unpublished` (a draft
+  with an `approved` log entry: live once, then taken down, as the
+  dashboard's `ticketingLocked` reads it) and `draft`. Filters: `live` =
+  live + sold out, `drafts` = draft + unpublished + in review + changes
+  needed, `past` = ended; each event is in `all` and exactly one other.
+  `rejectionReason` only on `changes_needed` and `unpublished`.
+- **Numbers per event.** `ticketsSold` and `capacity` are the ticket types'
+  own counters (`quantity_sold`, `quantity_available`, in people), the same
+  numbers as `EventRecord.ticketsSold`; a full refund gives tickets back.
+  `grossCents` is the analytics gross over the event's whole life: every
+  `paid` order's `total_cents − support_cents` (refunded, refund-pending,
+  pending and failed orders left out), and `netCents` that less the orders'
+  `application_fee_cents` (the organiser's expected share before refunds and
+  disputes, as analytics' net), in one
+  grouped read for the page's events (`orders_event_paid_created_idx`). Which
+  of the two the cards show is owner question 39 (built: gross, as drawn and
+  as the analytics pages label it). Like analytics, neither subtracts a
+  partial refund (`amount_refunded_cents` on a still-`paid` order) or flags a
+  disputed payment: owner question 45. `free`: Sheltüh-ticketed with ticket
+  types all priced 0, or external with `externalFree`. External events have
+  no Sheltüh sales: 0 tickets, capacity and gross.
+- **The Overview.** `thisWeek` is the last 7 Melbourne days (today
+  included): `ticketsSold`, `views` and `viewsUnreliable` from the analytics
+  overview's own period query (`organiserPeriod`, so they equal
+  `GET …/analytics/overview?from=today−6&to=today`), `viewsComplete` (false
+  while part of the week is before view counting began) and `newFollowers`
+  (`organiser_follows.created_at` in those days, `organiser_follows_organiser_idx`).
+  `highlight` (the banner): the soonest `live` Sheltüh-ticketed event that
+  hasn't started, has tickets left and has sold at least one; null otherwise.
+  `upcoming`: the first two live or sold-out events of any ticketing.
+  `draftsCount`: the `drafts` filter's count. `performance`: up to 10 live or
+  sold-out Sheltüh-ticketed events, soonest first, with lifetime gross and
+  tickets sold this week against the 7 days before (`deltaPct` rounded; null
+  when the week before sold nothing). The Overview returns rows for at most
+  the 100 soonest live events: that caps what is returned, not the work (the
+  stage of every one of the organiser's events is still derived to sort and
+  filter, and the counts read them all).
+- **The Events tab.** Not-ended events soonest first, then ended ones most
+  recent first (the analytics overview's order); `limit` 20 (at most 50) and
+  a cursor like every list; `counts` (per filter and per stage) on every page.
+- **Cost.** Overview: ten reads in parallel (the analytics period query's
+  three for each week, the views start date, the follower count, the live
+  events and the grouped counts), then one gross read; Events: a page read
+  and a grouped count in parallel, then one gross read. No read per event,
+  but the events read and the counts cover every one of the organiser's
+  events, so the cost grows with how many events the organiser has (the rate
+  limit bounds how often). The events read goes through
+  `events_organiser_created_idx` with per-event lookups by primary key (ticket
+  types, photo) and `event_moderation_log_event_idx`;
+  `tests/server/organiser-summary.test.ts` checks the plans with sequential
+  scans discouraged.
+
 ## Trending
 
 The home page's Trending section (`lib/server/handlers/trending.ts`,
@@ -4170,8 +4267,8 @@ an approved organiser's event went live without one
   inbox previews are fixed text: the organiser's title and name appear only
   in the body, under "As submitted by the organiser:", so they can't be used
   to phish admins from our own signed address. Nothing else: no
-  description, contact details, venue address or buyer data; no images, no
-  tracking. An approved organiser's event goes live on their own publish
+  description, contact details, venue address or buyer data; no remote
+  images (the only image is the inline wordmark), no tracking. An approved organiser's event goes live on their own publish
   (`event_published`, queued by `private.publish_event`; see "Publishing
   events"): "Event published by an organiser", "It went live without review.
   Check it, and unpublish it if it shouldn't be on Sheltüh.", the same
@@ -4855,10 +4952,10 @@ person (`supabase/migrations/20261120000000_group_tickets.sql`,
 `NEXT_PUBLIC_TICKET_TRANSFERS` (`lib/ticket-transfers-flag.ts`): off stops new
 sends only; offers already made can be viewed, accepted, declined and
 cancelled, received tickets keep working at the door, and sent tickets stay
-sent. Built in stages: the database, the API, the door and the redaction;
-the organiser's view and the admin log (below); the emails (and the offer
-link's token minting), reminders to holders, the UI and recipients' wallet
-passes follow. Until the emails ship, the transfer jobs wait in the outbox: no
+sent. Built in stages: the database, the API, the door, the redaction, the
+UI (below), the organiser's view and the admin log (below) are in; the emails
+(and the offer link's token minting), reminders to holders and recipients'
+wallet passes follow. Until the emails ship, the transfer jobs wait in the outbox: no
 release leases them (`ticketTransferJobsSoon` is empty, and the cron's drain
 doesn't name their kinds).
 
@@ -4982,6 +5079,35 @@ let the old address's account through. `tests/server/ticket-transfer-races.test.
 (real Postgres) races accept against accept, cancel, decline, a check-in, a
 refund, an opt-in and the sweep, two accepts of one account at the cap less
 one, and two sends.
+
+**The UI** (Latte's 1120 frames; owner rule: the full ticket is the orange-outline one everywhere):
+- **Sending**, on the ticket page (`/checkout/success`, `components/CheckoutConfirmation.tsx` and
+  `components/tickets/MyTicketView.tsx`): Manage order's "Send ticket to a friend" and the full-screen ticket's
+  Send, for a ticket the API says `canSend`, open `components/tickets/SendTicketDialog.tsx` (the 480 dialog
+  from 768, the bottom sheet below: their name, their email, the sender's own name, and a Privacy Policy link).
+  A ticket on offer keeps its QR with a "Waiting for Sam to accept" strip and Cancel; a sent one is the
+  Transferred ticket card (no code). A toast (`components/ui/Toast.tsx`) confirms a send or cancel. Signed in,
+  the page's `GET /orders/by-session/{id}` also sends the account's bearer token (`getOrderBySession`'s
+  `getToken`), so the buyer signed in with the buying email gets control, and the order is read again
+  (quietly) when an account signs in after it was read. Without control, Manage order's row says to sign in
+  (or switch account) with the buying email; the order id waits in this tab's sessionStorage under
+  `sheltuh:return-order` (`lib/ticket-transfer-return.ts`), and the sign-in's `next` carries only
+  `/checkout/success?send={n}` (never the order id: OAuth puts `next` in Supabase's redirect URL). `?send={n}`
+  brings ticket n into view and opens Send for it once the order says it can be sent.
+- **Accepting**, `/tickets/accept#token=…` (`app/(account)/tickets/accept`, `AcceptTicketFlow`), in the
+  account frame: the token is read from the fragment (`useFragmentToken`, `lib/link-token.ts`; `&decline=1`
+  from the email's Decline opens the decline question) and taken out of the address bar, then kept only in
+  this tab's sessionStorage under `sheltuh:ticket-offer` for the sign-in round trip: never a query string,
+  cookie or localStorage. It's forgotten once used, once the server says it can't be, and on the person's own
+  Sign out (`AuthContext.signOut`, global); the page's Switch account signs out locally and keeps it. Opening
+  only reads (`POST /ticket-transfers/view`). The full ticket shows with its QR locked (a placeholder that
+  encodes nothing, and no code of any kind). Signed in: "Your name" (shared with the organiser, said so) and
+  Accept, then `/tickets/received/{transferId}` (`ReceivedTicket`, account-gated: the recipient's own QR, no
+  order data, the transfer's reference).
+- **Headers and analytics**: `next.config.ts` sends `Referrer-Policy: no-referrer` and
+  `X-Robots-Tag: noindex, nofollow` for `/tickets/accept` and `/tickets/received/:path*` (and their pages'
+  metadata says the same). Analytics never keeps a fragment, and replaces the id in
+  `/tickets/received/{id}` with `[transferId]` (`sanitizePathname`, `lib/analytics-privacy.ts`).
 
 ### Accepted risks (ticket transfers)
 
@@ -5480,7 +5606,7 @@ limiters (`take_rate_limit`, `take_client_rate_limit`,
 started by their first hit that answer only allowed or not, so the value is
 the window's length (`windowSeconds(limit.window)`), the longest the reset
 can be: 60 for the per-minute ones (payment page, GA checkout per minute,
-wallet passes, invite resend cooldown), 300 check-ins (and an email resent
+wallet passes, invite resend cooldown, organiser dashboard summaries), 300 check-ins (and an email resent
 in the last 5 minutes), 600 the per-10-minute ones (checkout per client,
 seat-hold attempts, Who's Going list, member profiles and photos, Orders
 view reads), 3600 the hourly ones, 86400 the 24-hour and 1-day ones. When
@@ -5606,6 +5732,8 @@ without one. The UI keeps showing the API's words, which already say when
 | `GET /organisers/me/events/{id}/orders?cursor&limit` · `POST …/orders/search` `{q, cursor, limit}` · `GET …/orders.csv` | organiser (own events), or admin (platform-managed organisers' events only; anything else 404); 403 suspended or not approved. The event's orders with buyers' names and emails for 12 months after it ends (`EventOrders`), and each order's tickets sent on with their holders (`holders`); see "Organiser orders". `GET …/orders?q=` is 400 (search is the POST, so the text is never in a URL). 429 `rate_limited` (reads 240 per 10 minutes; exports 10 an hour, each logged) or `daily_limit` (25,000 rows per account per event per day, list and export together); the CSV is 409 over 20,000 orders, decided on a count before anything is logged. `private, no-store` |
 | `POST /organisers/me/events/{id}/check-ins` `{code, requestId}` · `GET …/check-ins` · `POST …/check-ins/{checkInId}/undo` `{reason}` | organiser (own events), or admin (platform-managed organisers' events only; anything else 404); see "Check-in". Every ticket outcome is 200; 400 bad body, 404, 409 request id reused for another code, 413, 429. `checkInId`s are uuids |
 | `GET /organisers/me/analytics/overview?from&to&compare` · `…/overview.csv` | organiser: all own events. 400 bad range |
+| `GET /organisers/me/overview` | organiser: own events only. `OrganiserOverview` (this week's tickets, views, new followers; the banner's event; the next two events; drafts count; Performance). `private, no-store`; 60 a minute per account with the other summary read (429 `rate_limited`). See "Organiser dashboard summaries" |
+| `GET /organisers/me/events/summary?filter&cursor&limit` | organiser: own events only. `OrganiserEventSummaryPage` (`filter` `all` (default), `live`, `drafts`, `past`; 400 `fieldErrors.filter` otherwise; counts per filter on every page). `private, no-store`; 60 a minute per account with the other summary read (429 `rate_limited`). See "Organiser dashboard summaries" |
 | `GET /admin/organisers?status&q&limit&cursor` · `POST /admin/organisers/{id}/approve` · `…/reject` | admin. Items (and the decision responses) are `AdminOrganiserRecord`: the full record plus `recentEdits` (newest 20 log entries), most recently updated first. `q` (optional, at most 100 characters used): name, contact email or social handle containing it, ignoring case and accents (NFKD, combining marks removed; a leading `@` is ignored for handles; LIKE wildcards match literally); no index (a substring of a folded expression), it scans one status's organisers. Control characters in `q` are dropped. `limit` 20 by default, at most 50. The admin event editor's organiser picker searches with it. Approve/reject: 409 unless pending |
 | `POST /admin/organisers/{id}/event-review` `{required, reason}` | admin (see "Publishing events"). Turns review of the organiser's events on or off, any status; logged as a `profile_edit` with the reason. 200 `AdminOrganiserRecord` (`eventReviewRequired`; unchanged and nothing logged if it already was so); 400 `fieldErrors.required` (not a boolean) or `fieldErrors.reason` (1–500 characters, cleaned like a message); 404 |
 | `POST /admin/organisers/{id}/suspend` `{reason}` | admin. Takedown of an approved organiser (see "Organiser profiles"). 200 `{organiser, eventsUnpublished, submissionsRejected}`; 400 reason missing, over 500 characters or with control/invisible characters; 404 unknown; 409 not approved |
@@ -5756,6 +5884,16 @@ What that means:
   in `lib/api/types.ts`, index in
   `supabase/migrations/20261201000000_member_upcoming_index.sql`; tests
   `tests/server/me.test.ts`.
+- Organiser dashboard summaries (`GET /api/organisers/me/overview`,
+  `GET /api/organisers/me/events/summary`):
+  `lib/server/handlers/organiser-summary.ts` (`getMyOverview`,
+  `getMyEventsSummary`; reuses `organiserPeriod` and `viewsTrackedSince` from
+  `handlers/analytics.ts`), routes `app/api/organisers/me/overview/route.ts`
+  and `app/api/organisers/me/events/summary/route.ts`, client
+  `lib/api/organiser-summary.ts`, types `OrganiserOverview`,
+  `OrganiserEventSummaryPage`, `OrganiserEventSummary`,
+  `OrganiserEventPerformance`, `OrganiserEventStage` in `lib/api/types.ts`;
+  tests `tests/server/organiser-summary.test.ts`.
 - Delayed payouts: `supabase/migrations/20261119000000_delayed_payouts.sql`;
   `lib/server/order-transfers.ts` (the job), `lib/server/handlers/payouts.ts`
   (cron, organiser and admin routes), the session shape in
@@ -7360,7 +7498,8 @@ ad pixels: it is PostHog (above) with campaign tags on links.
   checkout page's Report-Only policy would need their hosts); (4) a server-side
   Conversions API option so hashed buyer details never need to reach the browser;
   (5) organiser sign-off, since buyer data is organisers' data; (6) keeping the
-  tags off `/checkout/*`, `/auth/*` and the emailed-link pages; (7) a legal check
+  tags off `/checkout/*`, `/auth/*` and the emailed-link pages (among them `/tickets/accept`, whose
+  fragment carries a sent ticket's token, and `/tickets/received/*`); (7) a legal check
   against the Privacy Act / APPs and the Spam Act for any email matching. Until
   then, UTM links plus PostHog answer "which campaign brought signups and sales".
 

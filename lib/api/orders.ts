@@ -135,10 +135,24 @@ export async function confirmFreeOrder(token: string) {
  * the full `email` and `emailChange`. Without it (any other device, or the
  * ticket email's link), the masked email only, and none once the email has
  * been changed.
+ *
+ * `getToken`: pass it when signed in. Signed in with a verified account
+ * whose email is the order's, the answer says this request may send the
+ * order's tickets (CustomerOrder.transfers) and who they went to. A token
+ * that can't be had is left off (the order reads as any other visitor's).
  */
-export async function getOrderBySession(sessionId: string, orderAccess?: string) {
+export async function getOrderBySession(sessionId: string, orderAccess?: string, getToken?: GetToken) {
+  let token: string | undefined;
+  if (getToken) {
+    try {
+      token = await getToken();
+    } catch {
+      token = undefined;
+    }
+  }
   return apiFetch<CustomerOrderLookup>(`/orders/by-session/${encodeURIComponent(sessionId)}`, {
     ...(orderAccess ? { headers: { [ORDER_ACCESS_HEADER]: orderAccess } } : {}),
+    ...(token ? { token } : {}),
   });
 }
 

@@ -57,6 +57,7 @@ const rules = vi.hoisted(() => ({ overrides: {} as Record<string, unknown> }));
 vi.mock("@/lib/ticket-transfer-rules", async (importOriginal) => {
   const real = await importOriginal<typeof import("@/lib/ticket-transfer-rules")>();
   return {
+    ...real,
     TICKET_TRANSFER_RULES: new Proxy(real.TICKET_TRANSFER_RULES, {
       get: (target, key) => (typeof key === "string" && key in rules.overrides ? rules.overrides[key] : Reflect.get(target, key)),
     }),

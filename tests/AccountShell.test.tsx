@@ -174,6 +174,18 @@ describe("AccountShell", () => {
     expect(currentItem[0]).toHaveClass("text-signal");
   });
 
+  it.each(["/tickets/accept", "/tickets/received/0b5c2f8e-7d6a-4c1b-9e3f-2a1d4c5b6e7f"])(
+    "under My tickets (%s): its place, as aria-current=\"location\" (the link goes elsewhere)",
+    async (path) => {
+      pathname = path;
+      const { tabs, sidebar } = await renderShell();
+      expect(tabs.querySelectorAll("[aria-current]")).toHaveLength(1);
+      expect(tabs.querySelector('[aria-current="location"]')).toHaveAttribute("data-account-tab", "tickets");
+      expect(sidebar.querySelector('[aria-current="location"]')).toHaveAttribute("data-account-nav", "tickets");
+      expect(sidebar.querySelector('[aria-current="page"]')).toBeNull();
+    },
+  );
+
   it("shows no pill for a count that's unknown or zero", async () => {
     unread = 0;
     saved = undefined;
