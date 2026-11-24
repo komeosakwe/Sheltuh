@@ -863,6 +863,15 @@ h4 {
   }
 }
 
+/* Inside the organiser dashboard's frame (components/dashboard/OrganiserShell.tsx, DashFrame) the
+   frame's main column spaces the page, so the page's own container (ui/Section `Page`) gives up its
+   gutters, padding and width cap. Unlayered, so it wins over the container's utilities. */
+[data-organiser-main] > [data-page] {
+  max-width: none;
+  margin-inline: 0;
+  padding: 0;
+}
+
 /* The active-nav "umlaut" (brand-direction-one.md §5 #2; the rules' Navigation board): two rounded
    squares over the label, orange under the pointer and on the current page (which also gets a 2px
    underline). `umlaut-lg` is the phone menu's

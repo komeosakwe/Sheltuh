@@ -3,6 +3,7 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-li
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { draftErrors, type DraftCheckInput } from "@/components/dashboard/editor/draft";
 import EventEditor from "@/components/dashboard/EventEditor";
+import { DashFrameContext } from "@/components/dashboard/ui/DashFrameContext";
 import type { EventRecord } from "@/lib/api/types";
 import { currentStep, showStep } from "./test-utils/editorSteps";
 import { fakeAuthValue, FakeAuthProvider } from "./test-utils/fakeAuth";
@@ -387,6 +388,35 @@ describe("the preview", () => {
     expect(show).not.toHaveAttribute("aria-expanded");
     expect(show).not.toHaveAttribute("aria-controls");
     expect(panel.querySelector("iframe")).toBeNull();
+  });
+
+  it("inside the organiser dashboard's frame it stays in the sheet at every width (the frame's column is too narrow for three)", () => {
+    window.matchMedia = ((query: string) => ({
+      matches: query === "(min-width: 80rem)",
+      media: query,
+      onchange: null,
+      addEventListener: () => {},
+      removeEventListener: () => {},
+      addListener: () => {},
+      removeListener: () => {},
+      dispatchEvent: () => false,
+    })) as unknown as typeof window.matchMedia;
+    render(
+      <FakeAuthProvider value={fakeAuthValue({ email: "owner@example.com" })}>
+        <DashFrameContext.Provider value="organiser">
+          <EventEditor getToken={vi.fn().mockResolvedValue("token")} initial={EVENT} onSaved={vi.fn()} />
+        </DashFrameContext.Provider>
+      </FakeAuthProvider>,
+    );
+    expect(screen.queryByRole("complementary", { name: "Event page preview" })).toBeNull();
+    const button = screen.getByRole("button", { name: "Preview" });
+    // Never hidden from 1280px here, nor the row it sits in.
+    expect(button).not.toHaveClass("xl:hidden");
+    expect(button.closest(".xl\\:hidden")).toBeNull();
+    fireEvent.click(button);
+    expect(within(screen.getByRole("dialog", { name: "Preview" })).getByTitle("Event page preview")).toBeInTheDocument();
+    // The save bar reaches the frame's column edges, not the page container's.
+    expect(document.querySelector("[data-edit-bar]")).toHaveClass("-mx-4", "md:-mx-6", "lg:-ml-12", "lg:-mr-10");
   });
 
   it("opens in a sheet from the Preview button (below 1280px), with the page in a phone-width frame, and closes", () => {

@@ -2,7 +2,7 @@ import type { ReactNode } from "react";
 
 /**
  * The editor's columns (docs/design/event-editor.md §3): one column below lg; from lg the rail (the summary and
- * the steps, sticky on viewports 48rem tall or more: on a shorter one it would sit under the save bar) beside the main column; from xl the preview panel as a third column. Flex, so the main
+ * the steps, sticky on viewports 48rem tall or more: on a shorter one it would sit under the save bar) beside the main column; from xl the preview panel as a third column (not inside the organiser dashboard's frame: editor/PreviewPanel.tsx). Flex, so the main
  * column takes what's left (592px at 1280 with the panel, 768px at most without it).
  */
 export default function EditorShell({

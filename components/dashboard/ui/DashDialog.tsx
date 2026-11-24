@@ -12,9 +12,9 @@ import { CloseIcon } from "./icons";
  * its right, a Body/S text/secondary line under it. Then the content (fields: label Body/S Strong over a 48px input) and, last, `action`
  * (the full-width 48px black button: `<DashButton variant="dark" block>`).
  *
- * A native modal `<dialog>` (components/ui/useModalDialog.ts): focus stays inside while it's open,
- * the page behind is inert and still, Escape, the ✕ and a press on the scrim close it, and focus
- * goes back to what opened it. The content mounts only while it's open, so each opening starts fresh.
+ * A native modal `<dialog>` (components/ui/useModalDialog.ts): focus stays inside while it's open
+ * (Tab goes round), the page behind is inert and still, Escape, the ✕ and a press on the scrim
+ * close it, and focus goes back to what opened it. The content mounts only while it's open, so each opening starts fresh.
  */
 export default function DashDialog({
   open,
@@ -32,7 +32,7 @@ export default function DashDialog({
   action?: ReactNode;
   children?: ReactNode;
 }) {
-  const { ref, scrimProps, close } = useModalDialog(open);
+  const { ref, scrimProps, close, keepFocusIn } = useModalDialog(open);
   const titleId = useId();
   const subtitleId = useId();
 
@@ -43,6 +43,7 @@ export default function DashDialog({
       aria-describedby={subtitle ? subtitleId : undefined}
       onClose={onClose}
       {...scrimProps}
+      onKeyDown={keepFocusIn}
       data-dash-dialog=""
       className="m-auto max-h-[calc(100dvh-2rem)] w-120 max-w-[calc(100vw-2rem)] overflow-y-auto rounded-card bg-card p-0 text-foreground backdrop:bg-ink/60 motion-safe:open:transition-transform motion-safe:open:duration-200 motion-safe:open:ease-out motion-safe:starting:open:translate-y-4"
     >

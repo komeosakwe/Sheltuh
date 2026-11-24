@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, type MouseEvent, type PointerEvent, type RefObject } from "react";
+import { useEffect, useRef, type KeyboardEvent, type MouseEvent, type PointerEvent, type RefObject } from "react";
 
 export interface ModalDialog {
   ref: RefObject<HTMLDialogElement | null>;
@@ -12,6 +12,34 @@ export interface ModalDialog {
   };
   /** Closes it as Escape would (the dialog's own close event then calls the owner's onClose). */
   close: () => void;
+  /**
+   * The dialog's onKeyDown: Tab from its last control goes to its first, and Shift+Tab from its
+   * first to its last. A modal dialog already makes the page behind inert, but browsers let Tab
+   * step out of it into their own toolbar; this keeps focus going round inside it.
+   */
+  keepFocusIn: (event: KeyboardEvent<HTMLDialogElement>) => void;
+}
+
+const FOCUSABLE =
+  'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+
+function keepFocusIn(event: KeyboardEvent<HTMLDialogElement>) {
+  if (event.key !== "Tab") return;
+  const dialog = event.currentTarget;
+  const controls = Array.from(dialog.querySelectorAll<HTMLElement>(FOCUSABLE)).filter(
+    (element) => element.getClientRects().length > 0,
+  );
+  if (controls.length === 0) return;
+  const first = controls[0];
+  const last = controls[controls.length - 1];
+  const active = document.activeElement;
+  if (event.shiftKey && (active === first || active === dialog)) {
+    event.preventDefault();
+    last.focus();
+  } else if (!event.shiftKey && active === last) {
+    event.preventDefault();
+    first.focus();
+  }
 }
 
 /**
@@ -63,5 +91,6 @@ export function useModalDialog(open: boolean): ModalDialog {
       },
     },
     close: () => ref.current?.close(),
+    keepFocusIn,
   };
 }

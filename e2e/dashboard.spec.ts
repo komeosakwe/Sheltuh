@@ -2,7 +2,7 @@ import { expect, test, type Page } from "@playwright/test";
 
 /**
  * The organiser's dashboard (/dashboard) at phone and desktop widths: the
- * organiser sub-nav marks where they are, New event is an action beside the
+ * organiser nav (the sidebar, or the rail on a phone) marks where they are, New event is an action beside the
  * heading (never marked current), and every event row says its status in
  * words and offers only the actions that apply. Live mode, signed in with a
  * stored test session (no network: the Supabase URL is a local placeholder),
@@ -111,7 +111,7 @@ for (const vp of [
   test.describe(`/dashboard at ${vp.width}×${vp.height}`, () => {
     test.use({ viewport: vp });
 
-    test("the sub-nav marks Events; New event is an action; rows show status and actions, 44px, no sideways scroll", async ({ page }) => {
+    test("the organiser nav marks Events; New event is an action; rows show status and actions, 44px, no sideways scroll", async ({ page }) => {
       await signedInWithEvents(page, DASHBOARD_EVENTS, { payoutsEnabled: false });
       await page.goto("/dashboard");
       const main = page.getByRole("main");
@@ -122,9 +122,9 @@ for (const vp of [
       for (const name of ["Payouts", "Analytics", "Profile"]) {
         await expect(nav.getByRole("link", { name, exact: true })).not.toHaveAttribute("aria-current");
       }
-      // The four tabs fit on one row, even at 320px.
-      const tops = await Promise.all((await nav.getByRole("link").all()).map(async (link) => (await link.boundingBox())?.y ?? -1));
-      expect(new Set(tops).size).toBe(1);
+      // One nav is shown: the 64px rail on a phone, the sidebar on a desktop (e2e/organiser-shell.spec.ts).
+      await expect(page.locator(vp.width < 1024 ? "[data-organiser-rail]" : "[data-organiser-sidebar]")).toBeVisible();
+      await expect(page.locator(vp.width < 1024 ? "[data-organiser-sidebar]" : "[data-organiser-rail]")).toBeHidden();
       const newEvent = main.getByRole("link", { name: "New event" });
       await expect(newEvent).not.toHaveAttribute("aria-current");
       await expect(newEvent).toHaveAttribute("href", "/dashboard/new");
@@ -178,12 +178,15 @@ for (const vp of [
   });
 }
 
-test("keyboard: the sub-nav, then New event, then each row's actions, with a visible focus ring", async ({ page }) => {
+test("keyboard: the organiser nav and its Log out, then New event, then each row's actions, with a visible focus ring", async ({ page }) => {
   await signedInWithEvents(page, DASHBOARD_EVENTS);
   await page.goto("/dashboard");
   await expect(page.getByRole("heading", { level: 2, name: "dad" })).toBeVisible({ timeout: 30_000 });
 
   await page.getByRole("navigation", { name: "Organiser" }).getByRole("link", { name: "Profile", exact: true }).focus();
+  // The sidebar's last control, then the page.
+  await page.keyboard.press("Tab");
+  await expect(page.getByRole("complementary", { name: "Organiser account" }).getByRole("button", { name: "Log out" })).toBeFocused();
   await page.keyboard.press("Tab");
   const newEvent = page.getByRole("main").getByRole("link", { name: "New event" });
   await expect(newEvent).toBeFocused();
@@ -210,14 +213,15 @@ test("an organiser with no events is invited to create their first (and only the
   await expect(page.getByRole("main").getByRole("link", { name: "New event" })).toHaveCount(0);
 });
 
-test("no sub-nav until the organiser is approved", async ({ page }) => {
+test("no organiser frame or nav until the organiser is approved", async ({ page }) => {
   await signedInWithEvents(page, [], { status: "pending" });
   await page.goto("/dashboard");
   await expect(page.getByText("Your organiser application is still pending review.")).toBeVisible({ timeout: 30_000 });
   await expect(page.getByRole("navigation", { name: "Organiser" })).toHaveCount(0);
+  await expect(page.locator("[data-organiser-shell]")).toHaveCount(0);
 });
 
-test("the sub-nav is on the other organiser pages, marking where you are, and not at the door", async ({ page }) => {
+test("the organiser nav is on the other organiser pages, marking where you are, and not at the door", async ({ page }) => {
   // Five pages in one test: on a cold dev server each compiles on first visit.
   test.slow();
   await signedInWithEvents(page, DASHBOARD_EVENTS);
@@ -237,6 +241,7 @@ test("the sub-nav is on the other organiser pages, marking where you are, and no
   await page.goto("/dashboard/evt-live/check-in");
   await expect(page.locator("[data-door]")).toBeVisible({ timeout: 30_000 });
   await expect(page.getByRole("navigation", { name: "Organiser" })).toHaveCount(0);
+  await expect(page.locator("[data-organiser-shell]")).toHaveCount(0);
 });
 
 test("a published event's page lists sold / total and releases more tickets (phone width, 44px controls)", async ({ page }) => {

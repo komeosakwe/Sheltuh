@@ -30,9 +30,9 @@ interface BareDrawer extends DrawerBase {
 
 /**
  * The dashboard's drawers, as native modal `<dialog>`s (components/ui/useModalDialog.ts): focus
- * stays inside while open, the page behind is inert and still, Escape and a press on the scrim
- * close it, and focus goes back to what opened it. Full height, sliding in from its side for
- * people who don't prefer reduced motion. The content mounts only while it's open.
+ * stays inside while open (Tab goes round), the page behind is inert and still, Escape and a press
+ * on the scrim close it, and focus goes back to what opened it. Full height, sliding in from its
+ * side for people who don't prefer reduced motion. The content mounts only while it's open.
  *
  * - `side="right"` (the Tickets drawer, 499:21419): 520 wide (the whole screen on a phone), white,
  *   32px inside (24 on a phone), 16px between parts, over a 40% scrim: the title (Heading/H2) with
@@ -42,7 +42,7 @@ interface BareDrawer extends DrawerBase {
  */
 export default function DashDrawer(props: TitledDrawer | BareDrawer) {
   const { open, onClose, children } = props;
-  const { ref, scrimProps, close } = useModalDialog(open);
+  const { ref, scrimProps, close, keepFocusIn } = useModalDialog(open);
   const titleId = useId();
   const subtitleId = useId();
 
@@ -53,6 +53,7 @@ export default function DashDrawer(props: TitledDrawer | BareDrawer) {
         aria-label={props.label}
         onClose={onClose}
         {...scrimProps}
+        onKeyDown={keepFocusIn}
         data-surface="ink"
         data-dash-drawer="left"
         {...(props.name ? { [`data-${props.name}`]: "" } : {})}
@@ -71,6 +72,7 @@ export default function DashDrawer(props: TitledDrawer | BareDrawer) {
       aria-describedby={subtitle ? subtitleId : undefined}
       onClose={onClose}
       {...scrimProps}
+      onKeyDown={keepFocusIn}
       data-dash-drawer="right"
       className="m-0 ml-auto h-dvh max-h-none w-130 max-w-full overflow-y-auto bg-card p-0 text-foreground backdrop:bg-ink/40 motion-safe:open:transition-transform motion-safe:open:duration-200 motion-safe:open:ease-out motion-safe:starting:open:translate-x-8"
     >
