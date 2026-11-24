@@ -1,28 +1,29 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState, useSyncExternalStore, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import EventArt from "@/components/EventArt";
+import EventLocationMap from "@/components/events/EventLocationMap";
 import FullTicket from "@/components/tickets/FullTicket";
+import TicketCard from "@/components/tickets/TicketCard";
 import TicketFullScreen from "@/components/tickets/TicketFullScreen";
 import TicketPagerButton from "@/components/tickets/TicketPagerButton";
+import TicketCalendarCard, { ticketCardClass, ticketCardTitleClass, useTicketCalendar } from "@/components/tickets/TicketCalendarCard";
 import {
-  AddToCalendarSheet,
   DirectionsSheet,
   ManageOrderSheet,
   OrderReceiptSheet,
-  type CalendarLinks,
   type ManageOrderRow,
 } from "@/components/tickets/TicketSheets";
 import WalletButtons from "@/components/tickets/WalletButtons";
-import { ButtonLink, buttonClass } from "@/components/ui/Button";
-import type { CustomerOrder } from "@/lib/api/types";
-import { googleCalendarUrl, icsFilename, outlookCalendarUrl, type CalendarEvent } from "@/lib/calendar";
+import { ButtonLink } from "@/components/ui/Button";
+import type { ToastPlacement } from "@/components/ui/Toast";
+import type { CustomerOrder, CustomerTicket, TicketSeat, TransferredTicket } from "@/lib/api/types";
 import { SUPPORT_EMAIL } from "@/lib/contact";
-import { eventCalendarPath, publicEventUrl } from "@/lib/event-url";
-import { eventZone, formatAud } from "@/lib/format";
+import { eventZone, formatAud, formatDayMonth } from "@/lib/format";
 import { appleMapsHref, directionsHref, type VenueLinkTarget } from "@/lib/maps";
 import { addressNamesPlace, bareSuburb, placeNameParts, venueLines } from "@/lib/place";
+import { firstName } from "@/lib/person-name";
 import { REFUND_ACL_STATEMENT, refundTermsLine } from "@/lib/refund-policy";
 import { compareSeats } from "@/lib/seating/format";
 import { SUPPORT_REFUND_NOTE } from "@/lib/support";
@@ -30,13 +31,29 @@ import { ticketStubDate, ticketStubTime, ticketWhenLine } from "@/lib/ticket-tim
 import type { SheltuhEvent } from "@/lib/types";
 import { appleWalletDeviceNote } from "@/lib/wallet-badges";
 
-/** Each ticket with its number in the API's (and the email's) order, seated ones sorted by seat. */
-export function sortTicketsBySeat(tickets: CustomerOrder["tickets"]) {
-  const numbered = tickets.map((ticket, i) => ({ ticket, number: i + 1 }));
-  if (!tickets.some((ticket) => ticket.seat)) return numbered;
-  return [...numbered].sort((a, b) =>
-    a.ticket.seat && b.ticket.seat ? compareSeats(a.ticket.seat, b.ticket.seat) : a.ticket.seat ? -1 : b.ticket.seat ? 1 : a.number - b.number,
-  );
+function bySeatThenNumber(aSeat: TicketSeat | undefined, aNumber: number, bSeat: TicketSeat | undefined, bNumber: number) {
+  return aSeat && bSeat ? compareSeats(aSeat, bSeat) : aSeat ? -1 : bSeat ? 1 : aNumber - bNumber;
+}
+
+/**
+ * One of the order's tickets as the page shows it: one the buyer holds (`live`, with its code, maybe on
+ * offer to someone), or one they sent that was accepted (`sent`: no code, ever).
+ */
+export type OrderTicketEntry =
+  | { kind: "live"; ticket: CustomerTicket; number: number }
+  | { kind: "sent"; sent: TransferredTicket; number: number };
+
+/**
+ * The order's tickets, held and sent, each with its own number (the email's and the door's), in that order;
+ * seated ones by section, row, then seat.
+ */
+export function orderTicketEntries(order: CustomerOrder): OrderTicketEntry[] {
+  const entries: OrderTicketEntry[] = [
+    ...order.tickets.map((ticket, i): OrderTicketEntry => ({ kind: "live", ticket, number: ticket.ticketNumber ?? i + 1 })),
+    ...(order.transferredTickets ?? []).map((sent): OrderTicketEntry => ({ kind: "sent", sent, number: sent.ticketNumber })),
+  ];
+  const seatOf = (entry: OrderTicketEntry) => (entry.kind === "live" ? entry.ticket.seat : entry.sent.seat);
+  return entries.sort((a, b) => bySeatThenNumber(seatOf(a), a.number, seatOf(b), b.number));
 }
 
 interface MyTicketViewProps {
@@ -51,19 +68,38 @@ interface MyTicketViewProps {
   event?: SheltuhEvent | null;
   /** The order's email line and its change form (components/checkout/OrderEmail.tsx), under the title. */
   emailSlot?: ReactNode;
-  /** Send a ticket to a friend (the ticket's number in the order). Left out until tickets can be sent: no Send anywhere. */
+  /**
+   * Send a ticket to a friend (the ticket's number in the order): Manage order's "Send ticket to a friend" and
+   * the full-screen ticket's Send, for a ticket the API says can be sent now (CustomerTicket.canSend). Left
+   * out (sending is off, or this visitor can't send): no Send anywhere.
+   */
   onSendTicket?: (ticketNumber: number) => void;
+  /**
+   * Sending needs the buyer signed in (CustomerOrder.transfers.reason `sign_in`): Manage order's row says so
+   * and this goes to sign in, coming back to the ticket (its number).
+   */
+  onSignInToSend?: (ticketNumber: number) => void;
+  /** With onSignInToSend: someone is signed in, with an email that isn't the order's (Switch account), rather than no one. */
+  signedInAsOther?: boolean;
+  /**
+   * Show this ticket (its number) in the pager: the one a `?send=n` link opened Send for. Each new number moves
+   * the pager once; the buyer's own moves stay theirs.
+   */
+  showTicket?: number | null;
+  /** Takes back an offer of a ticket (the "Waiting for Sam to accept" strip's Cancel). */
+  onCancelTransfer?: (ticketNumber: number, transferId: string) => void;
+  /** The ticket whose offer is being cancelled now. */
+  cancelling?: number | null;
+  /** Why a ticket's offer couldn't be cancelled, said under its strip. */
+  transferError?: { ticketNumber: number; message: string } | null;
+  /** The page's toast (components/ui/Toast.tsx), for where it's shown: the page, and over the full-screen ticket while that's open. */
+  toast?: (placement: ToastPlacement) => ReactNode;
 }
 
-/** The page's own origin, for the calendar entries' link back to the event: only known in the browser. */
-const noStore = () => () => {};
-const useOrigin = () => useSyncExternalStore<string | null>(noStore, () => window.location.origin, () => null);
-
-const cardClass = "flex flex-col gap-4 rounded-control border border-surface-border bg-card p-6";
-const cardTitleClass = "text-xl leading-7 font-semibold text-foreground";
+const cardClass = ticketCardClass;
+const cardTitleClass = ticketCardTitleClass;
 const detailLabelClass = "font-mono text-xs leading-4 text-muted uppercase";
 const quietLinkClass = "body-s inline-flex min-h-11 items-center font-semibold text-foreground underline-offset-4 hover:underline";
-const calendarButtonClass = buttonClass("outline", "sm", "min-w-0 flex-1 px-2");
 const pagerButtonClass = "inline-flex min-h-11 min-w-11 items-center justify-center rounded-control text-foreground hover:bg-surface";
 const showTicketClass =
   "label-button flex min-h-14 w-full items-center justify-center gap-2 rounded-control bg-signal p-4 text-ink motion-safe:transition-colors motion-safe:duration-200 hover:bg-ink hover:text-signal focus-visible:bg-ink focus-visible:text-signal active:bg-ink active:text-signal md:hidden print:hidden";
@@ -87,10 +123,25 @@ const showTicketClass =
  *
  * Rows the frames draw whose data doesn't exist yet are left out, not shown
  * empty: PURCHASED (no order date), the receipt's placed-at / card line, GST
- * line and PDF, and Manage order's send, rename, resend and contact rows.
+ * line and PDF, and Manage order's rename, resend and contact rows. Sending a ticket (when the API
+ * says it can be sent) is Manage order's first row and the full-screen ticket's Send; a ticket on offer has
+ * a "Waiting for Sam to accept" strip under it, and one sent and accepted is Latte's Transferred card.
  */
-export default function MyTicketView({ order, sessionId, event = null, emailSlot, onSendTicket }: MyTicketViewProps) {
-  const [sheet, setSheet] = useState<"calendar" | "directions" | "receipt" | "manage" | null>(null);
+export default function MyTicketView({
+  order,
+  sessionId,
+  event = null,
+  emailSlot,
+  onSendTicket,
+  onSignInToSend,
+  signedInAsOther = false,
+  showTicket = null,
+  onCancelTransfer,
+  cancelling = null,
+  transferError = null,
+  toast,
+}: MyTicketViewProps) {
+  const [sheet, setSheet] = useState<"directions" | "receipt" | "manage" | null>(null);
   const [fullScreen, setFullScreen] = useState<{ open: boolean; start: number }>({ open: false, start: 0 });
   // The ticket shown (by its place in `tickets`, the seat order): one at a time, at every width.
   const [shownIndex, setShownIndex] = useState(0);
@@ -103,10 +154,39 @@ export default function MyTicketView({ order, sessionId, event = null, emailSlot
   const startsAt = unlisted ? undefined : order.eventStartsAt;
   const suburb = order.suburb ? bareSuburb(order.suburb, order.eventState) : "";
   const venueLine = unlisted ? "" : [order.venueName?.trim() ?? "", suburb].filter(Boolean).join(" · ");
-  const tickets = sortTicketsBySeat(order.tickets);
-  const count = order.tickets.length;
-  const index = Math.min(shownIndex, Math.max(tickets.length - 1, 0));
-  const current = tickets[index];
+  const entries = orderTicketEntries(order);
+  // The full-screen ticket's slides: the tickets the buyer holds, in the page's order.
+  const tickets = entries.flatMap((entry) => (entry.kind === "live" ? [{ ticket: entry.ticket, number: entry.number }] : []));
+  const count = entries.length;
+  const index = Math.min(shownIndex, Math.max(entries.length - 1, 0));
+  const shown = entries[index];
+  const current = shown?.kind === "live" ? { ticket: shown.ticket, number: shown.number } : null;
+  const currentSlide = current ? tickets.findIndex(({ number }) => number === current.number) : -1;
+  const canSend = (ticket: CustomerTicket) => Boolean(onSendTicket) && ticket.canSend === true && !ticket.transfer && !ticket.checkedInAt;
+
+  // A `?send=n` link's ticket comes into view (adjusting state while rendering, once per number).
+  const [shownFor, setShownFor] = useState<number | null>(null);
+  if (showTicket !== null && showTicket !== shownFor) {
+    setShownFor(showTicket);
+    const at = entries.findIndex((entry) => entry.number === showTicket);
+    if (at >= 0) setShownIndex(at);
+  }
+
+  // The "Waiting for Sam to accept" strip goes once its offer is taken back (or accepted): focus was on its
+  // Cancel, so it would fall to the page. A frame later, if it's nowhere, it comes to the tickets.
+  const ticketsRef = useRef<HTMLElement>(null);
+  const stripFor = current?.ticket.transfer ? current.number : null;
+  const hadStrip = useRef(stripFor);
+  useEffect(() => {
+    const gone = hadStrip.current !== null && stripFor === null;
+    hadStrip.current = stripFor;
+    if (!gone) return;
+    const frame = requestAnimationFrame(() => {
+      const active = document.activeElement;
+      if (!active || active === document.body) ticketsRef.current?.focus();
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [stripFor]);
   const hasWallet = Boolean(sessionId && !unlisted && (order.wallet?.apple || order.wallet?.google));
   const paid = order.totalCents > 0;
   // The refund policy: only where something was paid (a free order has nothing to refund) and the event is listed.
@@ -136,38 +216,46 @@ export default function MyTicketView({ order, sessionId, event = null, emailSlot
   const googleHref = venue ? directionsHref(venue) : null;
   const appleHref = venue ? appleMapsHref(venue) : null;
 
-  const origin = useOrigin();
-  const calendar: CalendarLinks | null = useMemo(() => {
-    if (!order.eventSlug || !startsAt || origin === null) return null;
-    const entry: CalendarEvent = {
-      id: listedEvent?.id ?? order.eventSlug,
-      slug: order.eventSlug,
-      title: order.eventTitle,
-      description: listedEvent?.description ?? "",
-      venueName: listedEvent?.venueName ?? order.venueName ?? "",
-      venueAddress: listedEvent?.venueAddress ?? "",
-      startsAt,
-      endsAt: order.eventEndsAt,
-    };
-    const url = publicEventUrl(order.eventSlug, origin);
-    const google = googleCalendarUrl(entry, url);
-    const outlook = outlookCalendarUrl(entry, url);
-    if (google === null || outlook === null) return null;
-    return { google, outlook, ics: eventCalendarPath(order.eventSlug), icsName: icsFilename(entry) };
-  }, [order.eventSlug, order.eventTitle, order.venueName, order.eventEndsAt, startsAt, listedEvent, origin]);
+  const calendar = useTicketCalendar({
+    slug: order.eventSlug,
+    id: listedEvent?.id,
+    title: order.eventTitle,
+    description: listedEvent?.description,
+    venueName: listedEvent?.venueName ?? order.venueName,
+    venueAddress: listedEvent?.venueAddress,
+    startsAt,
+    endsAt: order.eventEndsAt,
+  });
 
   // One kind of ticket (and no group tickets, whose people each hold one): "2 × Second release". Otherwise the plain label.
-  const types = new Set(order.tickets.map((ticket) => ticket.ticketTypeName));
-  const oneKind = types.size === 1 && !order.tickets.some((ticket) => ticket.group);
-  const ticketsLabel = oneKind ? `${count} × ${order.tickets[0].ticketTypeName}` : "Ticket subtotal";
+  const kinds = entries.map((entry) => (entry.kind === "live" ? entry.ticket : entry.sent));
+  const types = new Set(kinds.map((ticket) => ticket.ticketTypeName));
+  const oneKind = types.size === 1 && !kinds.some((ticket) => ticket.group);
+  const ticketsLabel = oneKind ? `${count} × ${kinds[0].ticketTypeName}` : "Ticket subtotal";
   const ticketSummary = oneKind
-    ? `${order.tickets[0].ticketTypeName} · ${count === 1 ? "1 of 1" : `${count} tickets`}`
+    ? `${kinds[0].ticketTypeName} · ${count === 1 ? "1 of 1" : `${count} tickets`}`
     : `${count} ${count === 1 ? "ticket" : "tickets"}`;
 
+  // Send ticket to a friend (Latte's Manage order row), for the ticket shown: when it can be sent now, or
+  // (signed out) to sign in first. Never for a ticket on offer, checked in or sent already.
+  const sendable = current && !current.ticket.transfer && !current.ticket.checkedInAt ? current : null;
+  const sendSub = (rest: string) => (count > 1 && sendable ? `Ticket ${sendable.number} of ${count}. ${rest}` : rest);
+  const sendRow: ManageOrderRow | null =
+    sendable && onSendTicket && canSend(sendable.ticket)
+      ? { title: "Send ticket to a friend", sub: sendSub("They get their own QR code; yours stops working"), onClick: () => onSendTicket(sendable.number) }
+      : sendable && onSignInToSend
+        ? {
+            title: "Send ticket to a friend",
+            sub: sendSub(
+              signedInAsOther
+                ? `You’re signed in with another email. Switch to ${order.maskedEmail ?? "the email you bought with"} to send it`
+                : `Sign in with ${order.maskedEmail ?? "the email you bought with"} to send it`,
+            ),
+            onClick: () => onSignInToSend(sendable.number),
+          }
+        : null;
   const manageRows: ManageOrderRow[] = [
-    ...(onSendTicket && count === 1
-      ? [{ title: "Send ticket to a friend", sub: "They get their own QR code; yours stops working", onClick: () => onSendTicket(1) }]
-      : []),
+    ...(sendRow ? [sendRow] : []),
     ...(paid ? [{ title: "Request a refund", sub: "Only if eligible under the policy", href: "/refunds" }] : []),
   ];
 
@@ -203,15 +291,18 @@ export default function MyTicketView({ order, sessionId, event = null, emailSlot
         (the event's name, as the h1) isn't a heading. A group ticket's people each have one: the name counts them.
       */}
       <section
+        ref={ticketsRef}
+        // Focus comes here (by script only) when the control that had it goes: Cancel on an offer.
+        tabIndex={-1}
         aria-label={order.tickets.some((ticket) => ticket.group) ? `Your tickets (${count})` : "Your tickets"}
-        className="flex min-w-0 flex-col gap-4 md:w-74 md:shrink-0 lg:w-90"
+        className="flex min-w-0 flex-col gap-4 outline-offset-4 md:w-74 md:shrink-0 lg:w-90"
       >
         {count > 1 && (
           <div className="-my-2 flex items-center justify-between gap-3 print:hidden" data-ticket-pager="">
             <TicketPagerButton direction="previous" atEnd={index === 0} onMove={() => setShownIndex(index - 1)} className={pagerButtonClass} />
             {/* Its own number in the order (the email's and the door's), even where seats set the order shown. */}
             <p className="font-mono text-sm leading-5 font-medium text-foreground" aria-live="polite" aria-atomic="true">
-              <span className="uppercase">Ticket</span> {current.number} of {count}
+              <span className="uppercase">Ticket</span> {shown.number} of {count}
             </p>
             <TicketPagerButton direction="next" atEnd={index === count - 1} onMove={() => setShownIndex(index + 1)} className={pagerButtonClass} />
           </div>
@@ -220,15 +311,44 @@ export default function MyTicketView({ order, sessionId, event = null, emailSlot
           {/* Numbered as in the ticket email and at the door (ticket type, then code, as the API returns them);
               seated tickets are listed by section, row, then seat, keeping those numbers. One shows at a time;
               the rest are hidden on screen but all print, each on its own. */}
-          {tickets.map(({ ticket, number }, i) => (
-            <li key={ticket.ticketCode} className={i === index ? undefined : "hidden print:block"}>
-              <FullTicket {...ticketProps(ticket, number)} headingLevel={null} />
+          {entries.map((entry, i) => (
+            <li key={`${entry.kind}-${entry.number}`} className={i === index ? undefined : "hidden print:block"}>
+              {entry.kind === "live" ? (
+                <FullTicket {...ticketProps(entry.ticket, entry.number)} headingLevel={null} />
+              ) : (
+                // Sent and accepted (Latte's Ticket card, Transferred): no QR, no code, ever.
+                <TicketCard
+                  state="transferred"
+                  headingLevel={null}
+                  when={startsAt ? `${ticketStubDate(startsAt, order.eventTimeZone)} · ${ticketStubTime(startsAt, order.eventEndsAt, order.eventTimeZone)}` : ""}
+                  eventTitle={order.eventTitle}
+                  venue={unlisted ? undefined : order.venueName || undefined}
+                  image={art}
+                  holder={`${entry.sent.holderName ? `Sent to ${entry.sent.holderName}` : "Sent"} · accepted ${formatDayMonth(entry.sent.acceptedAt, zone)}`}
+                  count={`${entry.number} of ${count}`}
+                />
+              )}
             </li>
           ))}
         </ul>
+        {current?.ticket.transfer && (
+          <TransferPendingStrip
+            ticketNumber={current.number}
+            toName={current.ticket.transfer.toName}
+            transferId={current.ticket.transfer.canCancel ? current.ticket.transfer.transferId : undefined}
+            onCancel={onCancelTransfer}
+            busy={cancelling === current.number}
+            error={transferError?.ticketNumber === current.number ? transferError.message : null}
+          />
+        )}
+        {shown?.kind === "sent" && shown.sent.acceptedByMaskedEmail && (
+          <p className="body-s break-words text-muted">
+            Accepted with {shown.sent.acceptedByMaskedEmail}, not the address you sent it to.
+          </p>
+        )}
         {current && (
           <>
-            <button type="button" onClick={() => setFullScreen({ open: true, start: index })} className={showTicketClass}>
+            <button type="button" onClick={() => setFullScreen({ open: true, start: Math.max(currentSlide, 0) })} className={showTicketClass}>
               Show ticket <span aria-hidden="true">→</span>
               {count > 1 && <span className="sr-only"> {current.number} of {count}</span>}
             </button>
@@ -238,10 +358,12 @@ export default function MyTicketView({ order, sessionId, event = null, emailSlot
         )}
         {/* Apple's badge rules: say how to add the pass from a device without Wallet. */}
         {hasWallet && order.wallet?.apple && <p className="text-xs leading-4 text-muted print:hidden">{appleWalletDeviceNote("page", count)}</p>}
-        <div className="flex flex-col gap-1 text-xs leading-4 text-muted">
-          <p>Screenshot your codes in case signal drops at the venue.</p>
-          <p>Each code works once. Don&rsquo;t share it.</p>
-        </div>
+        {tickets.length > 0 && (
+          <div className="flex flex-col gap-1 text-xs leading-4 text-muted">
+            <p>Screenshot your codes in case signal drops at the venue.</p>
+            <p>{order.transfers ? "Each code works once. To give a ticket away, send it from Manage order." : "Each code works once. Don’t share it."}</p>
+          </div>
+        )}
       </section>
 
       <div className="flex min-w-0 flex-1 flex-col gap-6">
@@ -260,26 +382,10 @@ export default function MyTicketView({ order, sessionId, event = null, emailSlot
         </div>
 
         {calendar && (
-          <section aria-labelledby="ticket-calendar" className={`${cardClass} print:hidden`}>
-            <h2 id="ticket-calendar" className={cardTitleClass}>
-              Add to calendar
-            </h2>
-            {/* Three equal buttons from 360 wide (the frames). Narrower, they don't fit: one button opens the list. */}
-            <div className="flex gap-2 max-[359px]:hidden">
-              <a href={calendar.google} target="_blank" rel="noopener noreferrer" className={calendarButtonClass}>
-                Google<span className="sr-only"> Calendar (opens in a new tab)</span>
-              </a>
-              <a href={calendar.ics} className={calendarButtonClass}>
-                Apple<span className="sr-only"> Calendar</span>
-              </a>
-              <a href={calendar.outlook} target="_blank" rel="noopener noreferrer" className={calendarButtonClass}>
-                Outlook<span className="sr-only"> (opens in a new tab)</span>
-              </a>
-            </div>
-            <button type="button" onClick={() => setSheet("calendar")} className={buttonClass("outline", "sm", "w-full min-[360px]:hidden")}>
-              Choose a calendar
-            </button>
-          </section>
+          <TicketCalendarCard
+            links={calendar}
+            subtitle={startsAt ? `${order.eventTitle} · ${ticketStubDate(startsAt, order.eventTimeZone)}, ${ticketStubTime(startsAt, order.eventEndsAt, order.eventTimeZone)}` : order.eventTitle}
+          />
         )}
 
         {venue && lines && (
@@ -287,15 +393,30 @@ export default function MyTicketView({ order, sessionId, event = null, emailSlot
             <h2 id="ticket-venue" className={cardTitleClass}>
               Getting there
             </h2>
-            {/* The frames' map placeholder (the page has no map of its own yet): it opens the directions. */}
-            <button
-              type="button"
-              onClick={() => setSheet("directions")}
-              aria-label={`Directions to ${lines.first}`}
-              className="flex h-50 w-full items-center justify-center rounded-control bg-surface print:hidden"
+            {/* The frames' map box opens the directions sheet (Apple / Google Maps, Copy address). Once the event has
+                loaded, the event page's map sits under it with the venue pinned (decorative and out of the tab order;
+                the button on top takes the tap); until then, the frames' placeholder dot. */}
+            <div
+              className={
+                listedEvent && googleHref
+                  ? "relative min-h-52 overflow-hidden rounded-card bg-surface print:hidden lg:min-h-64"
+                  : "relative print:hidden"
+              }
             >
-              <span aria-hidden="true" className="size-4 rounded-full bg-signal" />
-            </button>
+              {listedEvent && googleHref && <EventLocationMap event={listedEvent} directions={googleHref} />}
+              <button
+                type="button"
+                onClick={() => setSheet("directions")}
+                aria-label={`Directions to ${lines.first}`}
+                className={
+                  listedEvent && googleHref
+                    ? "absolute inset-0 z-10 rounded-card"
+                    : "flex h-50 w-full items-center justify-center rounded-control bg-surface"
+                }
+              >
+                {!(listedEvent && googleHref) && <span aria-hidden="true" className="size-4 rounded-full bg-signal" />}
+              </button>
+            </div>
             <div className="body-m flex flex-col gap-1">
               <p className="font-semibold break-words text-foreground">{lines.first}</p>
               {address && <p className="break-words text-muted">{address}</p>}
@@ -395,14 +516,6 @@ export default function MyTicketView({ order, sessionId, event = null, emailSlot
         </div>
       </div>
 
-      {calendar && (
-        <AddToCalendarSheet
-          open={sheet === "calendar"}
-          onClose={() => setSheet(null)}
-          subtitle={startsAt ? `${order.eventTitle} · ${ticketStubDate(startsAt, order.eventTimeZone)}, ${ticketStubTime(startsAt, order.eventEndsAt, order.eventTimeZone)}` : order.eventTitle}
-          links={calendar}
-        />
-      )}
       {venue && lines && (
         <DirectionsSheet
           open={sheet === "directions"}
@@ -438,7 +551,59 @@ export default function MyTicketView({ order, sessionId, event = null, emailSlot
         numbers={tickets.map(({ number }) => number)}
         footer={hasWallet ? (index) => walletFor(tickets[index].number, "justify-center") : undefined}
         onSend={onSendTicket ? (index) => onSendTicket(tickets[index].number) : undefined}
+        canSend={(index) => canSend(tickets[index].ticket)}
+        total={count}
+        overlay={toast?.("screen")}
       />
+      {toast?.("page")}
+    </div>
+  );
+}
+
+/**
+ * A ticket on offer (my-ticket.md §5.10 state 2; Latte's Ticket card "Transfer pending" status bar): its QR
+ * still works until the friend accepts. "Waiting for Sam to accept" and, for the buyer, Cancel (no confirm
+ * step: sending again undoes it), a real button with a 44px target. A failed cancel says why under it.
+ */
+function TransferPendingStrip({
+  ticketNumber,
+  toName,
+  transferId,
+  onCancel,
+  busy,
+  error,
+}: {
+  ticketNumber: number;
+  toName?: string;
+  /** Set only when this visitor may cancel it. */
+  transferId?: string;
+  onCancel?: (ticketNumber: number, transferId: string) => void;
+  busy: boolean;
+  error: string | null;
+}) {
+  const who = toName ? firstName(toName) : "them";
+  return (
+    <div className="flex flex-col gap-2 print:hidden">
+      <div data-ticket-status="" className="flex items-center justify-between gap-3 rounded-control bg-surface px-3 py-2 text-foreground">
+        <p className="body-s min-w-0 font-semibold break-words">Waiting for {who} to accept</p>
+        {transferId && onCancel && (
+          <button
+            type="button"
+            onClick={busy ? undefined : () => onCancel(ticketNumber, transferId)}
+            aria-disabled={busy || undefined}
+            // The visible word first (the name starts with what's seen), then what it cancels.
+            aria-label={busy ? undefined : "Cancel sending this ticket"}
+            className="body-s -my-3 inline-flex min-h-11 shrink-0 items-center font-semibold underline underline-offset-2 aria-disabled:text-muted"
+          >
+            {busy ? "Cancelling…" : "Cancel"}
+          </button>
+        )}
+      </div>
+      {error && (
+        <p role="alert" className="body-s text-danger">
+          {error}
+        </p>
+      )}
     </div>
   );
 }

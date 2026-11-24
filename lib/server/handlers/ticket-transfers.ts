@@ -7,7 +7,7 @@ import {
   type TicketSeat,
   type TicketTransferErrorCode,
 } from "@/lib/api/types";
-import { TICKET_TRANSFER_RULES } from "@/lib/ticket-transfer-rules";
+import { MAX_HELD_TICKETS_PER_EVENT, TICKET_TRANSFER_RULES } from "@/lib/ticket-transfer-rules";
 import { ticketTransfersEnabled } from "@/lib/ticket-transfers-flag";
 import { requireAdmin, requireVerifiedCaller } from "../auth";
 import { orderKey } from "../client-key";
@@ -83,7 +83,7 @@ export const TICKET_TRANSFER_LIMITS = {
   /** Offers waiting to be accepted per signed-in sender. */
   maxPendingPerAccount: 20,
   /** Tickets an account holds by transfer, per event. */
-  maxHeldPerAccountPerEvent: 10,
+  maxHeldPerAccountPerEvent: MAX_HELD_TICKETS_PER_EVENT,
 } as const satisfies Record<string, KeyedLimit | { hits: number; window: RateWindow } | number>;
 
 const OFFER_NOT_FOUND = "Ticket offer not found.";

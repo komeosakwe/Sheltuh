@@ -91,7 +91,7 @@ function orderSums(row: Row | undefined): OrderSums {
  * started, or the 25-month retention horizon if that's later. Null if view
  * counting was never set up.
  */
-async function viewsTrackedSince(db: Db): Promise<string | null> {
+export async function viewsTrackedSince(db: Db): Promise<string | null> {
   const [row] = await db.query<{ since: string }>(
     `select greatest(s.views_tracked_since, ((now() at time zone '${TZ}')::date - interval '25 months')::date)::text as since
        from private.analytics_settings s`,
@@ -352,7 +352,7 @@ export const adminGetEventAnalyticsCsv: Handler<{ eventId: string }> = async (re
 // Overview: every event of the organiser's
 // ---------------------------------------------------------------------------
 
-interface OrganiserPeriod {
+export interface OrganiserPeriod {
   /** Days any of the organiser's events reached its view cap, and the days per event. */
   capDays: Set<string>;
   capDaysByEvent: Map<string, Set<string>>;
@@ -364,7 +364,7 @@ interface OrganiserPeriod {
   ordersByDay: Map<string, OrderSums>;
 }
 
-async function organiserPeriod(db: Db, organiserId: string, range: DateRange): Promise<OrganiserPeriod> {
+export async function organiserPeriod(db: Db, organiserId: string, range: DateRange): Promise<OrganiserPeriod> {
   const [views, orders, capped] = await Promise.all([
     db.query(
       `select v.event_id, v.day::text as day, sum(v.views)::bigint as views,
