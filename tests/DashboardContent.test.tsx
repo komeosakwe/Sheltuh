@@ -359,32 +359,6 @@ describe("DashboardContent — payouts before publishing paid events", () => {
   });
 });
 
-describe("DashboardContent — the welcome after joining with an organiser link", () => {
-  afterEach(() => window.history.replaceState(null, "", "/"));
-
-  it("says welcome once (?welcome=organiser), focused, and takes the parameter out of the address bar", async () => {
-    organiser = { organiserId: "org-1", status: "approved", displayName: "Neon Collective" };
-    listMyEvents.mockResolvedValue({ items: [] });
-    window.history.replaceState(null, "", "/dashboard?welcome=organiser");
-    renderDashboard();
-    const welcome = await screen.findByText("Welcome to Sheltüh, Neon Collective.");
-    const box = welcome.closest("[tabindex='-1']");
-    await waitFor(() => expect(box).toHaveFocus());
-    expect(box).toHaveTextContent(/set up payouts before selling paid tickets\. Your first paid event is checked/);
-    expect(within(box as HTMLElement).getByRole("link", { name: "your profile" })).toHaveAttribute("href", "/dashboard/profile");
-    expect(window.location.search).toBe("");
-    expect(window.location.pathname).toBe("/dashboard");
-  });
-
-  it("says nothing without it", async () => {
-    listMyEvents.mockResolvedValue({ items: [] });
-    window.history.replaceState(null, "", "/dashboard");
-    renderDashboard();
-    await screen.findByText("No events yet");
-    expect(screen.queryByText(/Welcome to Sheltüh/)).toBeNull();
-  });
-});
-
 describe("DashboardContent — the logo prompt", () => {
   it("asks an approved organiser with no logo to add one, linking to the Profile page's logo field", async () => {
     listMyEvents.mockResolvedValue({ items: [] });

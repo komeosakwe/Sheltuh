@@ -181,7 +181,7 @@ describe("check-in gate", () => {
     await renderPage();
     expect(screen.getByRole("heading", { level: 1, name: "Event not found" })).toBeInTheDocument();
     expect(screen.getByText(/Only the organiser who owns an event can check people in\./)).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Back to your events" })).toHaveAttribute("href", "/dashboard");
+    expect(screen.getByRole("link", { name: "Back to your events" })).toHaveAttribute("href", "/dashboard/events");
   });
 
   it("403 from the API: the not-approved copy", async () => {
@@ -228,7 +228,7 @@ describe("header and counters", () => {
     expect(toCome).toHaveTextContent("140 to come · capacity 300");
     expect(within(toCome).getByText("· capacity 300", { exact: false })).toHaveClass("sm:hidden");
     expect(within(count).getByText("Capacity 300")).toHaveClass("hidden", "sm:block");
-    expect(screen.getByRole("link", { name: "← Your events" })).toHaveAttribute("href", "/dashboard");
+    expect(screen.getByRole("link", { name: "← Your events" })).toHaveAttribute("href", "/dashboard/events");
     // The date is in the eyebrow at every width: its own line under "Door check-in" on phones (inside the
     // 44px row, so no extra height), after a dot from md.
     const eyebrow = screen.getByText("Door check-in", { exact: false });
@@ -520,7 +520,7 @@ describe("outcomes", () => {
     await typeAndCheck("7KQM-2HXD");
     const s = within(slot());
     expect(s.getByText("This account can’t check people in for this event. Nothing was marked.")).toBeInTheDocument();
-    expect(s.getByRole("link", { name: "Back to your events" })).toHaveAttribute("href", "/dashboard");
+    expect(s.getByRole("link", { name: "Back to your events" })).toHaveAttribute("href", "/dashboard/events");
     await nextFrame();
     expect(resultAnnouncer()).toHaveTextContent("Not verified. Don’t let in yet. This account can’t check people in for this event.");
   });

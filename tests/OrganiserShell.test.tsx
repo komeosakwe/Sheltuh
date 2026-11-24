@@ -84,9 +84,10 @@ function current(nav: HTMLElement) {
 }
 
 describe("organiser nav places", () => {
-  it("are the built pages, in the frames' order (Events, the Orders slot's Analytics, Payouts, the Settings slot's Profile)", () => {
+  it("are the built pages, in the frames' order (Overview, Events, the Orders slot's Analytics, Payouts, the Settings slot's Profile)", () => {
     expect(ORGANISER_NAV.map((link) => [link.label, link.href])).toEqual([
-      ["Events", "/dashboard"],
+      ["Overview", "/dashboard"],
+      ["Events", "/dashboard/events"],
       ["Analytics", "/dashboard/analytics"],
       ["Payouts", "/dashboard/payouts"],
       ["Profile", "/dashboard/profile"],
@@ -94,7 +95,9 @@ describe("organiser nav places", () => {
   });
 
   it("map each page to its place", () => {
-    expect(organiserSectionFor("/dashboard")).toBe("events");
+    expect(organiserSectionFor("/dashboard")).toBe("overview");
+    expect(organiserSectionFor("/dashboard/")).toBe("overview");
+    expect(organiserSectionFor("/dashboard/events")).toBe("events");
     expect(organiserSectionFor("/dashboard/new")).toBe("events");
     expect(organiserSectionFor("/dashboard/evt-1")).toBe("events");
     expect(organiserSectionFor("/dashboard/events/evt-1/orders")).toBe("events");
@@ -107,9 +110,13 @@ describe("organiser nav places", () => {
   });
 
   it("say page on a place's own page and true on a page inside it", () => {
-    const [events, analytics] = ORGANISER_NAV;
-    expect(organiserCurrent(events, "/dashboard")).toBe("page");
+    const [overview, events, analytics] = ORGANISER_NAV;
+    expect(organiserCurrent(overview, "/dashboard")).toBe("page");
+    expect(organiserCurrent(overview, "/dashboard/events")).toBe(false);
+    expect(organiserCurrent(events, "/dashboard")).toBe(false);
+    expect(organiserCurrent(events, "/dashboard/events")).toBe("page");
     expect(organiserCurrent(events, "/dashboard/evt-1")).toBe("true");
+    expect(organiserCurrent(events, "/dashboard/events/evt-1/orders")).toBe("true");
     expect(organiserCurrent(analytics, "/dashboard/events/evt-1/analytics")).toBe("true");
     expect(organiserCurrent(analytics, "/dashboard")).toBe(false);
   });
@@ -145,7 +152,7 @@ describe("OrganiserShell — an approved organiser", () => {
     expect(within(aside).getByText("Here & Now Collective")).toBeInTheDocument();
     expect(within(aside).getByText("Organiser")).toBeInTheDocument();
     const nav = within(aside).getByRole("navigation", { name: "Organiser" });
-    expect(within(nav).getAllByRole("link").map((link) => link.textContent)).toEqual(["Events", "Analytics", "Payouts", "Profile"]);
+    expect(within(nav).getAllByRole("link").map((link) => link.textContent)).toEqual(["Overview", "Events", "Analytics", "Payouts", "Profile"]);
     const logOut = within(aside).getByRole("button", { name: "Log out" });
     expect(logOut).toHaveClass("text-foreground");
     expect(logOut).not.toHaveClass("text-signal");
@@ -164,7 +171,8 @@ describe("OrganiserShell — an approved organiser", () => {
   });
 
   it.each([
-    ["/dashboard", "Events", "page"],
+    ["/dashboard", "Overview", "page"],
+    ["/dashboard/events", "Events", "page"],
     ["/dashboard/payouts", "Payouts", "page"],
     ["/dashboard/profile", "Profile", "page"],
     ["/dashboard/analytics", "Analytics", "page"],
@@ -191,7 +199,8 @@ describe("OrganiserShell — an approved organiser", () => {
     expect(aside).toHaveAccessibleName("Organiser account");
     const links = within(within(aside).getByRole("navigation", { name: "Organiser" })).getAllByRole("link");
     expect(links.map((link) => [link.textContent, link.getAttribute("href"), link.getAttribute("data-organiser-rail-item")])).toEqual([
-      ["Events", "/dashboard", "events"],
+      ["Overview", "/dashboard", "overview"],
+      ["Events", "/dashboard/events", "events"],
       ["Analytics", "/dashboard/analytics", "analytics"],
       ["Payouts", "/dashboard/payouts", "payouts"],
       ["Profile", "/dashboard/profile", "profile"],
@@ -336,7 +345,7 @@ describe("OrganiserShell — anyone else gets the page alone", () => {
     organiserLoading = true;
     renderShell("/dashboard", fakeAuthValue({ userId: "user-1" }));
     expect(document.querySelector("[data-organiser-shell]")).not.toBeNull();
-    expect(within(sidebar()).getAllByRole("link").map((link) => link.textContent)).toEqual(["Events", "Analytics", "Payouts", "Profile"]);
+    expect(within(sidebar()).getAllByRole("link").map((link) => link.textContent)).toEqual(["Overview", "Events", "Analytics", "Payouts", "Profile"]);
     expect(sidebar().querySelector("[data-organiser-mark]")).toHaveTextContent("");
     cleanup();
     renderShell("/dashboard", fakeAuthValue({ userId: "user-2" }));

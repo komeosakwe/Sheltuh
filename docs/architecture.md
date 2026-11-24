@@ -3178,6 +3178,12 @@ caller's own events (`lib/server/handlers/organiser-summary.ts`, routes
 `OrganiserEventSummaryPage` and friends in `lib/api/types.ts`). No migration:
 they read existing tables through existing indexes.
 
+The pages: the Overview is the dashboard's home, `/dashboard`
+(`components/dashboard/overview/*`), and the events list is the Events tab,
+`/dashboard/events`; the nav (`lib/organiser-nav.ts`) lists both. Both show
+only what the summaries say: no stand-in numbers, and what they can't say
+(Latte's unexplained "3", who follows) is left out.
+
 - **Access.** `requireCaller`, then the caller's own approved organiser
   (`requireApprovedOrganiser`): signed out 401; a member, an applicant, a
   suspended organiser or an admin with no organiser of their own 403. The

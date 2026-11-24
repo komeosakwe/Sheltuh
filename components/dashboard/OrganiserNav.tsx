@@ -10,6 +10,7 @@ import {
   ChartIcon,
   CollapseIcon,
   ExpandIcon,
+  GridIcon,
   LogOutIcon,
   StoreIcon,
   WalletIcon,
@@ -20,6 +21,7 @@ import { ORGANISER_NAV, organiserCurrent, type OrganiserNavIcon } from "@/lib/or
 import OrganiserAvatar from "./OrganiserAvatar";
 
 const ICONS: Record<OrganiserNavIcon, ComponentType<{ className?: string }>> = {
+  grid: GridIcon,
   calendar: CalendarIcon,
   chart: ChartIcon,
   wallet: WalletIcon,
@@ -87,7 +89,7 @@ const RAIL_BUTTON =
  * place fills #1f1f1f with the orange dot, so the two never look alike.
  */
 function railItemClass(current: boolean) {
-  return `relative flex min-h-14 w-14 flex-col items-center justify-center gap-0.5 rounded-control px-0.5 py-1.5 text-center text-foreground motion-safe:transition-colors motion-safe:duration-200 motion-safe:ease-out ${
+  return `relative flex min-h-14 w-14 flex-col items-center justify-center gap-0.5 rounded-control px-0 py-1.5 text-center text-foreground motion-safe:transition-colors motion-safe:duration-200 motion-safe:ease-out ${
     current ? "bg-surface" : "hover:bg-surface-border focus-visible:bg-surface-border"
   }`;
 }

@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import BackLink from "@/components/ui/BackLink";
+import { EVENTS_HREF } from "@/lib/organiser-nav";
 import { Page } from "@/components/ui/Section";
 import EditEventPageContent from "@/components/dashboard/EditEventPageContent";
 
@@ -10,7 +11,7 @@ export default function EditEventPage() {
   return (
     <Page width="full" padding="subNav" className="max-w-7xl">
       <div className="flex flex-col gap-8">
-        <BackLink href="/dashboard">Back to your events</BackLink>
+        <BackLink href={EVENTS_HREF}>Back to your events</BackLink>
         <EditEventPageContent />
       </div>
     </Page>
