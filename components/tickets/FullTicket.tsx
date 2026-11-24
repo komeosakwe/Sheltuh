@@ -84,8 +84,15 @@ export type FullTicketProps = LiveTicketProps | LockedTicketProps;
 const LOCKED_SIDE = 25;
 /** Inside a finder square or the blank row and column round it. */
 const inFinder = (x: number, y: number) => (x < 8 && y < 8) || (x > LOCKED_SIDE - 9 && y < 8) || (x < 8 && y > LOCKED_SIDE - 9);
+/** A fixed scatter (MurmurHash3's finaliser of the cell's index): the same placeholder every time. */
+function scatter(n: number): number {
+  let h = Math.imul(n + 1, 0x9e3779b1);
+  h = Math.imul(h ^ (h >>> 16), 0x85ebca6b);
+  h = Math.imul(h ^ (h >>> 13), 0xc2b2ae35);
+  return (h ^ (h >>> 16)) >>> 0;
+}
 const LOCKED_MODULES: readonly (readonly [number, number])[] = Array.from({ length: LOCKED_SIDE * LOCKED_SIDE }, (_, i) => [i % LOCKED_SIDE, Math.floor(i / LOCKED_SIDE)] as const).filter(
-  ([x, y]) => !inFinder(x, y) && (Math.imul(x + 1, 73856093) ^ Math.imul(y + 1, 19349663)) >>> 0 >= 0x80000000,
+  ([x, y]) => !inFinder(x, y) && (scatter(y * LOCKED_SIDE + x) & 1) === 1,
 );
 
 function LockedQr({ size }: { size: FullTicketSize }) {
