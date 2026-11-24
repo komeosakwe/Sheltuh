@@ -2876,14 +2876,17 @@ export interface OrganiserEventSummary {
   capacity: number;
   /**
    * What buyers have paid for the event so far, in cents: every `paid`
-   * order, all time, booking fees they paid included, never Support Sheltüh.
+   * order, all time, booking fees they paid included, never Support Sheltüh,
+   * before any partial refund (as analytics).
    * The analytics `grossCents` over the event's whole life.
    */
   grossCents: number;
   /**
-   * The organiser's share of it: `grossCents` less Sheltüh's booking fees
-   * (whoever paid them), what Stripe pays out. The analytics `netCents` over
-   * the event's whole life.
+   * The organiser's expected share before refunds and disputes: `grossCents`
+   * less Sheltüh's booking fees (whoever paid them). Not what Stripe pays out:
+   * a partial refund (`amount_refunded_cents` on a still-`paid` order) isn't
+   * subtracted and a disputed payment isn't flagged, as in analytics. The
+   * analytics `netCents` over the event's whole life.
    */
   netCents: number;
   /** `changes_needed` and `unpublished` only, when Sheltüh gave a reason. */

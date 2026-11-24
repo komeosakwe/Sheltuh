@@ -3,13 +3,21 @@ import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { OrganiserEventSummary } from "@/lib/api/types";
 import { calculateBookingFeeCents } from "@/lib/fees";
 import { addDays, melbourneDateOf } from "@/lib/server/analytics-range";
-import { adminRejectEvent, adminUnpublishEvent } from "@/lib/server/handlers/admin";
+import { adminRejectEvent, adminSuspendOrganiser, adminUnpublishEvent } from "@/lib/server/handlers/admin";
 import { getAnalyticsOverview, getEventAnalytics } from "@/lib/server/handlers/analytics";
 import { putEventImage } from "@/lib/server/handlers/event-images";
 import { recordEventView } from "@/lib/server/handlers/event-views";
 import { getMyEvent, submitEventForReview } from "@/lib/server/handlers/events";
 import { followOrganiser, unfollowOrganiser } from "@/lib/server/handlers/follows";
-import { EVENTS_WITH_STAGE, deltaPct, getMyEventsSummary, getMyOverview, LIFETIME_GROSS_SQL, NEW_FOLLOWERS_SQL } from "@/lib/server/handlers/organiser-summary";
+import {
+  EVENTS_WITH_STAGE,
+  deltaPct,
+  getMyEventsSummary,
+  getMyOverview,
+  LIFETIME_GROSS_SQL,
+  NEW_FOLLOWERS_SQL,
+  ORGANISER_SUMMARY_LIMIT,
+} from "@/lib/server/handlers/organiser-summary";
 import { applyAsOrganiser } from "@/lib/server/handlers/organisers";
 import { createCheckout, stripeWebhook } from "@/lib/server/handlers/orders";
 import type { EventRecord } from "@/lib/server/types";
@@ -228,6 +236,22 @@ describe("access", () => {
         expect(res.status).toBe(403);
         expect(res.headers.get("cache-control")).toBe("private, no-store");
       }
+    }
+  });
+
+  it("a suspended organiser is a 403 on both, private, with none of their events", async () => {
+    const event = await publishedEvent(api, organiser, admin, { title: "Before the takedown", ticketTypes: PAID });
+    expect((await summary(organiser.token)).status).toBe(200);
+    const suspended = await api.call(adminSuspendOrganiser, {
+      token: admin.token,
+      params: { organiserId: organiser.organiserId },
+      body: { reason: "Fake venue." },
+    });
+    expect(suspended.status).toBe(200);
+    for (const res of [await overview(organiser.token), await summary(organiser.token)]) {
+      expect(res.status).toBe(403);
+      expect(res.headers.get("cache-control")).toBe("private, no-store");
+      expect(JSON.stringify(res.body)).not.toContain(event.eventId);
     }
   });
 
@@ -582,6 +606,55 @@ describe("GET /organisers/me/overview", () => {
       ["On now", "live"],
       ["Sold out", "sold_out"],
     ]);
+  });
+});
+
+describe("rate limit", () => {
+  const usedUp = (userId: string, hits: number) =>
+    api.db.query(
+      `insert into private.rate_limits (user_id, bucket, window_started_at, hits) values ($1, $2, now(), $3)
+       on conflict (user_id, bucket) do update set window_started_at = now(), hits = excluded.hits`,
+      [userId, ORGANISER_SUMMARY_LIMIT.bucket, hits],
+    );
+
+  it("60 reads a minute per account across both, then 429 rate_limited with Retry-After; other accounts unaffected", async () => {
+    expect(ORGANISER_SUMMARY_LIMIT).toEqual({ bucket: "organiser_summary", hits: 60, window: "1 minute" });
+    const event = await publishedEvent(api, organiser, admin, { title: "Mine", ticketTypes: PAID });
+    // Both reads take from the same allowance.
+    expect((await overview(organiser.token)).status).toBe(200);
+    expect((await summary(organiser.token)).status).toBe(200);
+    const [row] = await api.db.query<{ hits: number }>(
+      `select hits from private.rate_limits where user_id = $1 and bucket = 'organiser_summary'`,
+      [organiser.userId],
+    );
+    expect(row.hits).toBe(2);
+
+    await usedUp(organiser.userId, ORGANISER_SUMMARY_LIMIT.hits - 1);
+    expect((await summary(organiser.token)).status).toBe(200);
+    for (const res of [await overview(organiser.token), await summary(organiser.token)]) {
+      expect([res.status, res.body.code]).toEqual([429, "rate_limited"]);
+      expect(res.headers.get("retry-after")).toBe("60");
+      expect(res.headers.get("cache-control")).toBe("private, no-store");
+      expect(JSON.stringify(res.body)).not.toContain(event.eventId);
+    }
+
+    const rival = await approvedOrganiser(api, admin, { displayName: "Rival" });
+    expect((await overview(rival.token)).status).toBe(200);
+
+    // A new window starts a minute later.
+    await api.db.query(
+      `update private.rate_limits set window_started_at = now() - interval '61 seconds' where user_id = $1 and bucket = 'organiser_summary'`,
+      [organiser.userId],
+    );
+    expect((await overview(organiser.token)).status).toBe(200);
+  });
+
+  it("is taken only after the organiser check: refused callers use no allowance", async () => {
+    const member = await api.signUp();
+    expect((await overview(undefined)).status).toBe(401);
+    expect((await summary(member.token)).status).toBe(403);
+    const rows = await api.db.query(`select 1 from private.rate_limits where bucket = 'organiser_summary'`);
+    expect(rows).toEqual([]);
   });
 });
 

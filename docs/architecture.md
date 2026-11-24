@@ -3172,6 +3172,12 @@ they read existing tables through existing indexes.
   be named; the queries filter on the caller's `organiser_id` (and the gross
   query on both the event ids and the organiser). Every response, errors
   included, is `private, no-store`.
+- **Rate limit.** The two reads share 60 a minute per account
+  (`take_rate_limit` bucket `organiser_summary`, `ORGANISER_SUMMARY_LIMIT`),
+  taken after the organiser check and before any summary query: room for a
+  dashboard that refreshes and pages, while bounding how often one account
+  makes the database walk all its events. Past it: 429 `code: "rate_limited"`
+  with `Retry-After` 60.
 - **No buyer data.** Counts and money only: no names, emails, order ids or
   references (tests check the JSON). Followers are a count of members who
   followed in the week and still follow, never who (as "Following
@@ -3193,10 +3199,13 @@ they read existing tables through existing indexes.
   `grossCents` is the analytics gross over the event's whole life: every
   `paid` order's `total_cents − support_cents` (refunded, refund-pending,
   pending and failed orders left out), and `netCents` that less the orders'
-  `application_fee_cents` (the organiser's share, as analytics' net), in one
+  `application_fee_cents` (the organiser's expected share before refunds and
+  disputes, as analytics' net), in one
   grouped read for the page's events (`orders_event_paid_created_idx`). Which
   of the two the cards show is owner question 39 (built: gross, as drawn and
-  as the analytics pages label it). `free`: Sheltüh-ticketed with ticket
+  as the analytics pages label it). Like analytics, neither subtracts a
+  partial refund (`amount_refunded_cents` on a still-`paid` order) or flags a
+  disputed payment: owner question 45. `free`: Sheltüh-ticketed with ticket
   types all priced 0, or external with `externalFree`. External events have
   no Sheltüh sales: 0 tickets, capacity and gross.
 - **The Overview.** `thisWeek` is the last 7 Melbourne days (today
@@ -3211,15 +3220,20 @@ they read existing tables through existing indexes.
   `draftsCount`: the `drafts` filter's count. `performance`: up to 10 live or
   sold-out Sheltüh-ticketed events, soonest first, with lifetime gross and
   tickets sold this week against the 7 days before (`deltaPct` rounded; null
-  when the week before sold nothing). The Overview considers at most the 100
-  soonest live events.
+  when the week before sold nothing). The Overview returns rows for at most
+  the 100 soonest live events: that caps what is returned, not the work (the
+  stage of every one of the organiser's events is still derived to sort and
+  filter, and the counts read them all).
 - **The Events tab.** Not-ended events soonest first, then ended ones most
   recent first (the analytics overview's order); `limit` 20 (at most 50) and
   a cursor like every list; `counts` (per filter and per stage) on every page.
 - **Cost.** Overview: ten reads in parallel (the analytics period query's
   three for each week, the views start date, the follower count, the live
   events and the grouped counts), then one gross read; Events: a page read
-  and a grouped count in parallel, then one gross read. No read per event. The events read goes through
+  and a grouped count in parallel, then one gross read. No read per event,
+  but the events read and the counts cover every one of the organiser's
+  events, so the cost grows with how many events the organiser has (the rate
+  limit bounds how often). The events read goes through
   `events_organiser_created_idx` with per-event lookups by primary key (ticket
   types, photo) and `event_moderation_log_event_idx`;
   `tests/server/organiser-summary.test.ts` checks the plans with sequential
@@ -5494,7 +5508,7 @@ limiters (`take_rate_limit`, `take_client_rate_limit`,
 started by their first hit that answer only allowed or not, so the value is
 the window's length (`windowSeconds(limit.window)`), the longest the reset
 can be: 60 for the per-minute ones (payment page, GA checkout per minute,
-wallet passes, invite resend cooldown), 300 check-ins (and an email resent
+wallet passes, invite resend cooldown, organiser dashboard summaries), 300 check-ins (and an email resent
 in the last 5 minutes), 600 the per-10-minute ones (checkout per client,
 seat-hold attempts, Who's Going list, member profiles and photos, Orders
 view reads), 3600 the hourly ones, 86400 the 24-hour and 1-day ones. When
@@ -5620,8 +5634,8 @@ without one. The UI keeps showing the API's words, which already say when
 | `GET /organisers/me/events/{id}/orders?cursor&limit` · `POST …/orders/search` `{q, cursor, limit}` · `GET …/orders.csv` | organiser (own events), or admin (platform-managed organisers' events only; anything else 404); 403 suspended or not approved. The event's orders with buyers' names and emails for 12 months after it ends (`EventOrders`); see "Organiser orders". `GET …/orders?q=` is 400 (search is the POST, so the text is never in a URL). 429 `rate_limited` (reads 240 per 10 minutes; exports 10 an hour, each logged) or `daily_limit` (25,000 rows per account per event per day, list and export together); the CSV is 409 over 20,000 orders, decided on a count before anything is logged. `private, no-store` |
 | `POST /organisers/me/events/{id}/check-ins` `{code, requestId}` · `GET …/check-ins` · `POST …/check-ins/{checkInId}/undo` `{reason}` | organiser (own events), or admin (platform-managed organisers' events only; anything else 404); see "Check-in". Every ticket outcome is 200; 400 bad body, 404, 409 request id reused for another code, 413, 429. `checkInId`s are uuids |
 | `GET /organisers/me/analytics/overview?from&to&compare` · `…/overview.csv` | organiser: all own events. 400 bad range |
-| `GET /organisers/me/overview` | organiser: own events only. `OrganiserOverview` (this week's tickets, views, new followers; the banner's event; the next two events; drafts count; Performance). `private, no-store`. See "Organiser dashboard summaries" |
-| `GET /organisers/me/events/summary?filter&cursor&limit` | organiser: own events only. `OrganiserEventSummaryPage` (`filter` `all` (default), `live`, `drafts`, `past`; 400 `fieldErrors.filter` otherwise; counts per filter on every page). `private, no-store`. See "Organiser dashboard summaries" |
+| `GET /organisers/me/overview` | organiser: own events only. `OrganiserOverview` (this week's tickets, views, new followers; the banner's event; the next two events; drafts count; Performance). `private, no-store`; 60 a minute per account with the other summary read (429 `rate_limited`). See "Organiser dashboard summaries" |
+| `GET /organisers/me/events/summary?filter&cursor&limit` | organiser: own events only. `OrganiserEventSummaryPage` (`filter` `all` (default), `live`, `drafts`, `past`; 400 `fieldErrors.filter` otherwise; counts per filter on every page). `private, no-store`; 60 a minute per account with the other summary read (429 `rate_limited`). See "Organiser dashboard summaries" |
 | `GET /admin/organisers?status&q&limit&cursor` · `POST /admin/organisers/{id}/approve` · `…/reject` | admin. Items (and the decision responses) are `AdminOrganiserRecord`: the full record plus `recentEdits` (newest 20 log entries), most recently updated first. `q` (optional, at most 100 characters used): name, contact email or social handle containing it, ignoring case and accents (NFKD, combining marks removed; a leading `@` is ignored for handles; LIKE wildcards match literally); no index (a substring of a folded expression), it scans one status's organisers. Control characters in `q` are dropped. `limit` 20 by default, at most 50. The admin event editor's organiser picker searches with it. Approve/reject: 409 unless pending |
 | `POST /admin/organisers/{id}/event-review` `{required, reason}` | admin (see "Publishing events"). Turns review of the organiser's events on or off, any status; logged as a `profile_edit` with the reason. 200 `AdminOrganiserRecord` (`eventReviewRequired`; unchanged and nothing logged if it already was so); 400 `fieldErrors.required` (not a boolean) or `fieldErrors.reason` (1–500 characters, cleaned like a message); 404 |
 | `POST /admin/organisers/{id}/suspend` `{reason}` | admin. Takedown of an approved organiser (see "Organiser profiles"). 200 `{organiser, eventsUnpublished, submissionsRejected}`; 400 reason missing, over 500 characters or with control/invisible characters; 404 unknown; 409 not approved |

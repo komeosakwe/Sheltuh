@@ -16,7 +16,7 @@ import { addDays, melbourneDateOf, previousPeriod } from "../analytics-range";
 import { NO_ORDERS, viewsComplete } from "../analytics-report";
 import type { Db } from "../db";
 import type { Deps } from "../deps";
-import { HttpError, okPrivate } from "../http";
+import { HttpError, okPrivate, tooManyRequests, windowSeconds } from "../http";
 import { decodeCursor, parseLimit, toPage } from "../pagination";
 import type { Handler } from "../route";
 import type { TicketingMode } from "../types";
@@ -29,7 +29,9 @@ import { requireApprovedOrganiser } from "./organiser-guard";
  * events. Only an approved organiser (403 otherwise, 401 signed out), and
  * only their own organiser's events: the routes take no organiser or event
  * id, so another organiser's events can't be named, let alone read. Admins
- * get nothing extra. Every response is `private, no-store`.
+ * get nothing extra. Every response is `private, no-store`. Both reads share
+ * one per-account rate limit (ORGANISER_SUMMARY_LIMIT), taken after the
+ * organiser check and before any summary query.
  *
  * No buyer data: counts and money only. Followers are a count, never who
  * (docs/architecture.md, "Following organisers"). Sales use the analytics
@@ -47,11 +49,25 @@ export const OVERVIEW_UPCOMING = 2;
 /** Events on the Overview's Performance panel. */
 export const OVERVIEW_PERFORMANCE_LIMIT = 10;
 /**
- * Live events the Overview reads to choose the banner, the upcoming cards
- * and the Performance panel (soonest first). An organiser with more live
- * events than this still gets a correct Overview for the soonest ones.
+ * Live events the Overview returns rows for when choosing the banner, the
+ * upcoming cards and the Performance panel (soonest first). It caps what is
+ * returned, not the work: the database still derives every one of the
+ * organiser's events' stages to sort and filter them (and the grouped counts
+ * read them all), so a summary's cost grows with the organiser's event count.
+ * An organiser with more live events than this still gets a correct Overview
+ * for the soonest ones.
  */
 const OVERVIEW_LIVE_SCAN = 100;
+
+/**
+ * Reads of the Overview and the Events tab together, per account (bucket
+ * 'organiser_summary', private.take_rate_limit): room for a dashboard that
+ * refreshes and pages, while bounding how often one account can make the
+ * database walk all its events. Past it: 429 `rate_limited` with Retry-After.
+ */
+export const ORGANISER_SUMMARY_LIMIT = { bucket: "organiser_summary", hits: 60, window: "1 minute" } as const;
+
+const RATE_LIMITED = "Too many requests for your dashboard. Wait a moment, then try again.";
 
 const STAGES: readonly OrganiserEventStage[] = ["live", "sold_out", "ended", "in_review", "changes_needed", "unpublished", "draft"];
 
@@ -217,9 +233,18 @@ async function eventCounts(db: Db, organiserId: string): Promise<OrganiserEventC
   };
 }
 
+/** The caller's approved organiser (401 / 403 first), then one hit of ORGANISER_SUMMARY_LIMIT. */
 async function requireOrganiser(req: Request, deps: Deps) {
   const caller = await requireCaller(req, deps.verifyAccessToken);
-  return requireApprovedOrganiser(deps.db, caller);
+  const organiser = await requireApprovedOrganiser(deps.db, caller);
+  const [{ allowed }] = await deps.db.query<{ allowed: boolean }>(
+    `select private.take_rate_limit($1, $2, $3, $4::interval) as allowed`,
+    [caller.userId, ORGANISER_SUMMARY_LIMIT.bucket, ORGANISER_SUMMARY_LIMIT.hits, ORGANISER_SUMMARY_LIMIT.window],
+  );
+  if (!allowed) {
+    throw tooManyRequests(RATE_LIMITED, windowSeconds(ORGANISER_SUMMARY_LIMIT.window), undefined, { code: "rate_limited" });
+  }
+  return organiser;
 }
 
 function parseFilter(raw: string | null): OrganiserEventFilter {
