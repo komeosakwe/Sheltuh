@@ -51,8 +51,11 @@ interface TicketCardProps {
   statusAction?: TicketCardAction & { label: string };
   /** "Show ticket →": current tickets only (never drawn on a past card). Left out, the card has no button (the Accept page). */
   showTicket?: TicketCardAction;
-  /** The title's heading level where the card sits (the list's sections are h2, so h3 by default). */
-  headingLevel?: 2 | 3 | 4;
+  /**
+   * The title's heading level where the card sits (the list's sections are h2, so h3 by default), or null for no
+   * heading: the My ticket page, where the tickets come before the page's h1, which names the same event.
+   */
+  headingLevel?: 2 | 3 | 4 | null;
   className?: string;
 }
 
@@ -107,7 +110,7 @@ export default function TicketCard({
   className = "",
 }: TicketCardProps) {
   const past = PAST_STATES.includes(state);
-  const Heading = `h${headingLevel}` as const;
+  const Heading = `h${headingLevel ?? 3}` as const;
   const statusText = state === "active" ? null : (status ?? DEFAULT_STATUS[state]);
   const soft = past ? "text-muted" : "text-foreground";
   const statusLook =
@@ -125,7 +128,7 @@ export default function TicketCard({
         </div>
         <div className="flex min-w-0 flex-1 flex-col gap-1">
           <p className={`truncate font-mono text-xs leading-4 ${soft}`}>{when}</p>
-          <Heading className="line-clamp-2 text-xl leading-7 font-semibold break-words text-foreground">{eventTitle}</Heading>
+          <Heading role={headingLevel === null ? "none" : undefined} className="line-clamp-2 text-xl leading-7 font-semibold break-words text-foreground">{eventTitle}</Heading>
           {venue && <p className={`body-s truncate ${soft}`}>{venue}</p>}
         </div>
       </div>

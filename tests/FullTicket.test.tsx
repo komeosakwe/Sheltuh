@@ -184,3 +184,39 @@ describe("FullTicket (the site's version of the email ticket)", () => {
     expect(ticket().querySelector("[data-ticket-stamp]")).not.toHaveClass("absolute");
   });
 });
+
+describe("FullTicket: a ticket on offer (locked) and one someone was sent", () => {
+  // The event's side of `base`, with no code or numbering.
+  const event = { eventTitle: base.eventTitle, venueLine: base.venueLine, date: base.date, time: base.time, typeName: base.typeName };
+
+  it("locked: the same ticket with a faint placeholder for the QR and the words, and no code of any kind anywhere", () => {
+    const { container } = render(<FullTicket {...event} locked holderName="Sam Lee" />);
+    const card = ticket();
+    expect(card).toHaveClass("bg-signal");
+    expect(within(card).getByText("Accept the ticket to get your QR code")).toBeInTheDocument();
+    expect(within(card).getByText("Sam Lee")).toBeInTheDocument();
+    // The placeholder is decoration: hidden from screen readers, faint, and no QR image.
+    const placeholder = card.querySelector("[data-qr-locked]");
+    expect(placeholder).toHaveAttribute("aria-hidden", "true");
+    expect(placeholder?.parentElement).toHaveClass("opacity-15");
+    expect(within(card).queryByRole("img")).toBeNull();
+    expect(card.querySelector('[data-qr="modules"]')).toBeNull();
+    // No backup code, "Show this at the door", check-in stamp or brightness hint.
+    expect(container.innerHTML).not.toMatch(/[A-HJ-NP-Z2-9]{4}-[A-HJ-NP-Z2-9]{4}/);
+    expect(within(card).queryByText(/Show this at the door/)).toBeNull();
+    expect(within(card).queryByText("Backup code")).toBeNull();
+    expect(within(card).queryByText(HINT)).toBeNull();
+  });
+
+  it("locked ignores a check-in time: no stamp (nothing is the viewer's yet)", () => {
+    render(<FullTicket {...event} locked checkedInAt="2026-11-14T08:42:00.000Z" />);
+    expect(ticket().querySelector("[data-ticket-stamp]")).toBeNull();
+  });
+
+  it("without a number (a ticket someone was sent): Show this at the door, with no 'ticket n of N'", () => {
+    render(<FullTicket {...event} code="K9QD-4XRT" holderName="Sam Lee" />);
+    expect(within(ticket()).getByText("Show this at the door")).toBeInTheDocument();
+    expect(within(ticket()).queryByText(/ticket \d+ of \d+/)).toBeNull();
+    expect(within(ticket()).getByRole("img", { name: /K9QD-4XRT/ })).toBeInTheDocument();
+  });
+});

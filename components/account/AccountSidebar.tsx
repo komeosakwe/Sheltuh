@@ -66,7 +66,7 @@ export default function AccountSidebar({
             <li key={item.key}>
               <Link
                 href={item.href}
-                aria-current={item.current ? "page" : undefined}
+                aria-current={item.current ? (item.currentKind ?? "page") : undefined}
                 data-account-nav={item.key}
                 className={`label-button flex min-h-12 items-center gap-3 rounded-card px-4 py-3 hover:bg-surface focus-visible:bg-surface motion-safe:transition-colors motion-safe:duration-200 motion-safe:ease-out ${
                   item.current ? "bg-surface text-signal" : "text-foreground"

@@ -7,9 +7,10 @@ import { EMAIL_WORDMARK } from "./email-wordmark";
  * column (the cream of the owner's email banner, so the footer banner sits on
  * it seamlessly), framed by a slightly darker warm page, and Signal Orange
  * only ever as a fill carrying black text (6.18:1; white on orange fails for
- * text) or as the wordmark, never as text. Used by the ticket, free-ticket confirmation,
- * waitlist, follower, admin review and invite emails, so they can't drift
- * apart.
+ * text) or as the wordmark, never as text. No email renders with this
+ * layout's page any more: every one is on the 1120 kit (./email-kit), which
+ * still imports escapeHtml from here, as do the email builders and the
+ * scripts' previews (WORDMARK_CID, the footer image and font paths).
  *
  * Email-client safe: table layout, inline styles, `bgcolor` attributes beside
  * `background-color` (the body's too), an Outlook (mso) 600px width wrapper,

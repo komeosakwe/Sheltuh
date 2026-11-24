@@ -1,4 +1,4 @@
-import { escapeHtml, INK, MUTED, SANS } from "./email-layout";
+import { kitTellAFriend } from "./email-kit";
 
 /**
  * "Tell a friend" in the emails a ticket holder gets (the ticket email and the
@@ -36,13 +36,11 @@ export function tellAFriendLinks(title: string, date: string, link: string): Tel
   ];
 }
 
-/** The HTML block: a small heading and the three links on one line. */
-export function tellAFriendHtml(links: readonly TellAFriendLink[], marginTopPx = 24): string {
-  const anchors = links
-    .map(
-      (l) =>
-        `<a href="${escapeHtml(l.href)}" style="color:${INK};text-decoration:underline;font-weight:bold">${escapeHtml(l.label)}</a>`,
-    )
-    .join(`<span style="color:${MUTED}"> &middot; </span>`);
-  return `<p style="margin:${marginTopPx}px 0 0 0;font-family:${SANS};font-size:15px;line-height:22px;color:${INK}"><span style="font-weight:bold">Tell a friend:</span> ${anchors}</p>`;
+/**
+ * The HTML block: Latte's 1120 "Going with friends?" box (kitTellAFriend in
+ * ./email-kit: a cream box with the links as outlined chips). The ticket email
+ * builds its own (with a "Share page" chip); nothing else uses this yet.
+ */
+export function tellAFriendHtml(links: readonly TellAFriendLink[]): string {
+  return kitTellAFriend(links);
 }

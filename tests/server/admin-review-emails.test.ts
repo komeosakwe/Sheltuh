@@ -10,7 +10,9 @@ import {
   parseAdminNotifyEmails,
   reviewEventStart,
 } from "@/lib/server/admin-review-email";
+import { SUPPORT_EMAIL } from "@/lib/contact";
 import { mailOptions } from "@/lib/server/email";
+import { WORDMARK_CID } from "@/lib/server/email-layout";
 import { drainEmailOutbox } from "@/lib/server/email-outbox";
 import {
   adminApproveEvent,
@@ -136,10 +138,14 @@ describe("an event submitted for review", () => {
       expect(part).not.toContain(organiser.email);
       expect(part).not.toContain("Four bands"); // the description
       expect(part).not.toContain("71 Johnston St"); // the venue address
-      expect(part).not.toContain("<img"); // no tracking pixel, no remote image
     }
-    // No address anywhere in the text (not even the recipient's).
-    expect(message.text).not.toMatch(/@/);
+    // No tracking pixel, no remote image: the only image is the inline (cid) wordmark, in the header and the footer.
+    expect([...message.html.matchAll(/<img [^>]*src="([^"]*)"/g)].map((m) => m[1])).toEqual([
+      `cid:${WORDMARK_CID}`,
+      `cid:${WORDMARK_CID}`,
+    ]);
+    // No address in the text but the shared "Need help?" line's support address (not even the recipient's).
+    expect(message.text.replaceAll(SUPPORT_EMAIL, "")).not.toMatch(/@/);
     const rows = await api.db.query<{ job: string }>(
       `select row_to_json(j)::text as job from private.email_outbox j where j.kind = 'event_review'`,
     );

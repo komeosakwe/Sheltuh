@@ -15,11 +15,18 @@ export function encodeCursor(offset: number): string {
   return Buffer.from(JSON.stringify({ o: offset }), "utf-8").toString("base64url");
 }
 
+/**
+ * The largest row offset a cursor may carry: 50,000 pages of 20, far past any
+ * real list. Anything above (a forged cursor such as 1e300, which is an
+ * integer to JavaScript but not to a bigint) is a 400, not a database error.
+ */
+export const MAX_CURSOR_OFFSET = 1_000_000;
+
 export function decodeCursor(raw: string | null): number {
   if (!raw) return 0;
   try {
     const { o } = JSON.parse(Buffer.from(raw, "base64url").toString("utf-8")) as { o?: unknown };
-    if (typeof o === "number" && Number.isInteger(o) && o >= 0) return o;
+    if (typeof o === "number" && Number.isInteger(o) && o >= 0 && o <= MAX_CURSOR_OFFSET) return o;
   } catch {
     // fall through
   }
