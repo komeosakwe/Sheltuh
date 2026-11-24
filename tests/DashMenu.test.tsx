@@ -125,6 +125,30 @@ describe("DashMenu", () => {
     expect(screen.queryByRole("menu")).toBeNull();
   });
 
+  it("keeps the question in the button's name when it answers one (2.5.3)", () => {
+    render(
+      <>
+        <span id="who">Who can find this event?</span>
+        <DashMenu radio label="Public" triggerLabelledBy="who" items={[{ key: "public", label: "Public", checked: true }]} />
+      </>,
+    );
+    expect(screen.getByRole("button", { name: "Who can find this event? Public" })).toBeInTheDocument();
+  });
+
+  it("never runs off a narrow screen: at most the screen less 16px a side, slid back in past the margin", () => {
+    const rect = vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue(DOMRect.fromRect({ x: -40, y: 0, width: 336, height: 200 }));
+    try {
+      render(<DashMenu radio width="lg" label="Public" items={[{ key: "public", label: "Public", checked: true }]} />);
+      fireEvent.click(screen.getByRole("button", { name: "Public" }));
+      const menu = screen.getByRole("menu");
+      expect(menu).toHaveClass("max-w-[calc(100vw-2rem)]");
+      // 40px past the left edge, plus the 16px margin.
+      expect(menu.style.translate).toBe("56px 0");
+    } finally {
+      rect.mockRestore();
+    }
+  });
+
   it("a radio menu checks the chosen option and opens on it", () => {
     const choose = vi.fn();
     render(

@@ -6,7 +6,8 @@ import Toggle from "./Toggle";
 /**
  * "Dash / Setting row" (Latte's dashboard Components 465:7337; Settings' Notifications): the
  * setting's name (Body/S Strong) over a line about it (Label/Tag, text/secondary), its switch on
- * the right. The switch is named by the title and described by the line.
+ * the right. The switch is named by the title and described by the line, and the title is its
+ * label: pressing the words toggles it too (a far bigger target than the 44 × 24 switch).
  */
 export default function SettingRow({
   title,
@@ -27,9 +28,9 @@ export default function SettingRow({
   return (
     <div data-setting-row="" className="flex items-center justify-between gap-4">
       <div className="flex min-w-0 flex-col">
-        <p id={titleId} className="body-s font-semibold break-words">
+        <label id={titleId} htmlFor={`${id}-switch`} className="body-s cursor-pointer font-semibold break-words">
           {title}
-        </p>
+        </label>
         {description && (
           <p id={descriptionId} className="label-tag break-words text-muted">
             {description}
@@ -37,6 +38,7 @@ export default function SettingRow({
         )}
       </div>
       <Toggle
+        id={`${id}-switch`}
         checked={checked}
         onCheckedChange={onCheckedChange}
         disabled={disabled}

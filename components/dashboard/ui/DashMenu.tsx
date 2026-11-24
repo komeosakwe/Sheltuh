@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useId, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
+import { useEffect, useId, useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import { dashButtonClass } from "./DashButton";
 import { CheckIcon } from "./icons";
 
@@ -31,10 +31,15 @@ export interface DashMenuItem {
  * Space or ↓ opens it on the first row (the chosen one in a radio menu), ↑ on the last; inside, ↑ ↓
  * move round, Home / End jump, a letter moves to the next row starting with it, Enter or Space
  * picks, Escape closes back to the button, Tab closes and moves on. A press outside closes it.
+ *
+ * The list never runs off the screen: it's at most the screen less 16px a side, and slides back in
+ * when its edge would pass that margin (a 336px list on a 320px phone). Under the pointer and
+ * keyboard focus a row fills surface/muted; the chosen option keeps the drawn cream.
  */
 export default function DashMenu({
   label,
   triggerLabel,
+  triggerLabelledBy,
   triggerClassName,
   items,
   menuLabel,
@@ -47,6 +52,11 @@ export default function DashMenu({
   label: ReactNode;
   /** The button's name when `label` isn't words (an icon). */
   triggerLabel?: string;
+  /**
+   * The id of what the button answers ("Who can find this event?"): it's named by that and then its
+   * own visible label ("Who can find this event? Public"), so a spoken label still matches (2.5.3).
+   */
+  triggerLabelledBy?: string;
   /** Replaces the button's look (default: the Outline Dash button). */
   triggerClassName?: string;
   items: DashMenuItem[];
@@ -66,6 +76,7 @@ export default function DashMenu({
   const menuId = `${id}-menu`;
   const rootRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
   const itemRefs = useRef<(HTMLElement | null)[]>([]);
 
   const enabled = items.map((item, index) => (item.disabled ? -1 : index)).filter((index) => index >= 0);
@@ -74,6 +85,19 @@ export default function DashMenu({
   useEffect(() => {
     if (open) itemRefs.current[active]?.focus();
   }, [open, active]);
+
+  // Kept on screen: slid back in when an edge would pass 16px from the window's.
+  useLayoutEffect(() => {
+    const menu = menuRef.current;
+    if (!open || !menu) return;
+    menu.style.translate = "";
+    const margin = 16;
+    const rect = menu.getBoundingClientRect();
+    let shift = 0;
+    if (rect.right > window.innerWidth - margin) shift = window.innerWidth - margin - rect.right;
+    if (rect.left + shift < margin) shift = margin - rect.left;
+    if (shift !== 0) menu.style.translate = `${shift}px 0`;
+  }, [open]);
 
   // A press anywhere outside closes it (focus stays where the press put it).
   useEffect(() => {
@@ -170,7 +194,8 @@ export default function DashMenu({
         aria-haspopup="menu"
         aria-expanded={open}
         aria-controls={open ? menuId : undefined}
-        aria-label={triggerLabel}
+        aria-label={triggerLabelledBy ? undefined : triggerLabel}
+        aria-labelledby={triggerLabelledBy ? `${triggerLabelledBy} ${triggerId}` : undefined}
         onClick={() => (open ? close(false) : openAt("first"))}
         onKeyDown={onTriggerKeyDown}
         className={triggerClassName ?? dashButtonClass("outline")}
@@ -179,18 +204,19 @@ export default function DashMenu({
       </button>
       {open && (
         <div
+          ref={menuRef}
           id={menuId}
           role="menu"
           aria-label={menuLabel}
           aria-labelledby={menuLabel ? undefined : triggerId}
           onKeyDown={onMenuKeyDown}
-          className={`absolute top-full z-30 mt-2 flex ${width === "lg" ? "w-84" : "w-70"} flex-col gap-1 rounded-card border-control border-foreground bg-card p-2 text-foreground ${
+          className={`absolute top-full z-30 mt-2 flex ${width === "lg" ? "w-84" : "w-70"} max-w-[calc(100vw-2rem)] flex-col gap-1 rounded-card border-control border-foreground bg-card p-2 text-foreground ${
             align === "end" ? "right-0" : "left-0"
           }`}
         >
           {items.map((item, index) => {
             const role = radio ? "menuitemradio" : "menuitem";
-            const rowClass = `flex w-full min-h-11 items-center gap-3 rounded-control px-4 py-2 text-left hover:bg-hover focus-visible:bg-hover focus-visible:-outline-offset-2 aria-disabled:cursor-not-allowed aria-disabled:text-disabled aria-disabled:hover:bg-transparent ${
+            const rowClass = `flex w-full min-h-11 items-center gap-3 rounded-control px-4 py-2 text-left hover:bg-surface focus-visible:bg-surface focus-visible:-outline-offset-2 aria-disabled:cursor-not-allowed aria-disabled:text-disabled aria-disabled:hover:bg-transparent ${
               item.checked ? "bg-hover" : ""
             }`;
             const body = (
