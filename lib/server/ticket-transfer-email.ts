@@ -37,7 +37,7 @@ import type { EventRecord, TicketGroup, TicketSeat } from "./types";
  * transfers"), on the shared 1120 layout (./email-kit.ts) to Latte's frames
  * "Ticket received (sent by a friend)", "Transfer accepted" and "Transfer
  * declined" (the expired one built like declined; the recipient's own ticket
- * email like the ticket email). The full ticket is the ticket email's own
+ * email in the offer's pattern, with its live ticket). The full ticket is the ticket email's own
  * orange-outline card (owner decision): locked (a placeholder that doesn't
  * decode, never any code) in the offer, live with the recipient's issued code
  * in theirs. Transactional, about one ticket (Spam Act): no promotion, no
@@ -61,7 +61,8 @@ export interface TransferTicket {
 }
 
 const NOT_FORWARD = "Don’t forward this email: whoever accepts first gets the ticket.";
-const OFFER_REASON = (from: string) => `You’re getting this email because ${from} sent you a ticket on Sheltüh.`;
+/** The reason line of the two emails to the recipient (Latte's offer frame), naming the sender; escaped by kitFooter. */
+const SENT_REASON = (from: string) => `You’re getting this email because ${from} sent you a ticket on Sheltüh.`;
 const BUYER_REASON = "You’re getting this email because you bought a ticket on Sheltüh.";
 const HOLDER_REASON = "You’re getting this email because you accepted a ticket on Sheltüh.";
 
@@ -85,16 +86,19 @@ export function receivedTicketLink(siteUrl: string, transferId: string): string 
   return `${site(siteUrl)}/tickets/received/${encodeURIComponent(transferId)}`;
 }
 
-/** "Before you go", Latte's box under the details, when the organiser wrote one and the event is listed. */
+/**
+ * "Before you go", Latte's box under the details, when the organiser wrote one
+ * and the event is listed: one plain line per row, as Latte draws them (no
+ * bold label): "Entry: Doors open 5:00 pm". The label stays, as plain text,
+ * because a value alone ("7:30 pm – 10:30 pm") doesn't say what it is.
+ */
 function beforeYouGo(event: EventRecord): { html: string; text: string[] } {
   const items = listed(event) ? (event.beforeYouGo ?? []) : [];
   if (items.length === 0) return { html: "", text: [] };
+  const lines = items.map((i) => `${i.label}: ${i.value}`);
   return {
-    html: kitNotice(
-      BEFORE_YOU_GO_TITLE,
-      items.map((i) => `<span style="color:${KIT.black};font-weight:600">${escapeHtml(i.label)}</span>&nbsp;&nbsp;${escapeHtml(i.value)}`),
-    ),
-    text: ["", BEFORE_YOU_GO_TITLE.toUpperCase(), ...items.map((i) => `${i.label}: ${i.value}`)],
+    html: kitNotice(BEFORE_YOU_GO_TITLE, lines.map(escapeHtml)),
+    text: ["", BEFORE_YOU_GO_TITLE.toUpperCase(), ...lines],
   };
 }
 
@@ -165,7 +169,7 @@ export function buildTransferOfferEmail(input: TransferOfferEmailInput): EmailMe
     lockedCaption: "Accept the ticket to get your QR code",
   });
   const blocks = eventBlocks(event, siteUrl);
-  const footer = { siteUrl, tone: "customer" as const, reason: OFFER_REASON(from) };
+  const footer = { siteUrl, tone: "customer" as const, reason: SENT_REASON(from) };
   const html = page(subject, "Accept it to get your own QR code", siteUrl, [
     kitHeader(),
     kitIntro(eyebrow, heading),
@@ -272,6 +276,8 @@ export interface TransferBackEmailInput {
   event: EventRecord;
   /** Past the cut-off: it can't be sent again. */
   closed: boolean;
+  /** The ticket was checked in at the door meanwhile: its QR code has been used, and it can't be sent. */
+  checkedIn?: boolean;
 }
 
 export function buildTransferBackEmail(kind: "transfer_declined" | "transfer_expired", input: TransferBackEmailInput): EmailMessage {
@@ -280,19 +286,22 @@ export function buildTransferBackEmail(kind: "transfer_declined" | "transfer_exp
   const buyer = input.senderKind === "buyer";
   const declined = kind === "transfer_declined";
   const subject = subjectLine(declined ? `${toFirst} declined your ticket` : `${toFirst} didn’t accept your ticket in time`);
-  const preheader = declined ? "It’s back with you — your QR code still works" : "It’s still yours — your QR code still works";
+  const preheader = `${declined ? "It’s back with you" : "It’s still yours"}${input.checkedIn === true ? "" : " — your QR code still works"}`;
   const reference = buyer ? `Order ${orderReference(input.orderId)}` : `Ticket ${transferReference(input.fromTransferId ?? "")}`;
   const eyebrow = `${reference} · ${declined ? "Transfer declined" : "Transfer expired"}`;
   const heading = declined ? `${toFirst} declined, so the ticket is back with you.` : `${toFirst} didn’t accept in time, so the ticket is still yours.`;
-  const canResend = buyer && !input.closed;
-  const lines = [
-    "Your QR code still works.",
-    canResend
-      ? "You can send it to someone else from your ticket."
-      : buyer
-        ? `Tickets can be sent until ${TICKET_TRANSFER_RULES.cutoffBeforeStart} before the event starts.`
-        : "Show it at the door as before.",
-  ];
+  const checkedIn = input.checkedIn === true;
+  const canResend = buyer && !input.closed && !checkedIn;
+  const lines = checkedIn
+    ? ["It’s been checked in at the door, so it can’t be sent on."]
+    : [
+        "Your QR code still works.",
+        canResend
+          ? "You can send it to someone else from your ticket."
+          : buyer
+            ? `Tickets can be sent until ${TICKET_TRANSFER_RULES.cutoffBeforeStart} before the event starts.`
+            : "Show it at the door as before.",
+      ];
   const link = buyer ? ticketPageLink(site(siteUrl), input.orderId) : receivedTicketLink(siteUrl, input.fromTransferId ?? "");
   const buttons: KitButton[] = [
     { label: "View your ticket", href: link, kind: "primary" },
@@ -331,8 +340,9 @@ export function buildTransferTicketEmail(input: TransferTicketEmailInput): Email
   const from = subjectLine(input.senderName);
   const caps = eventCaps(event.title);
   const subject = subjectLine(`Your ticket to ${caps}`);
+  // The offer frame's intro, in its pattern: the sender, then the event in capitals.
   const eyebrow = `From ${from}`;
-  const heading = "You’re in. Here’s your ticket.";
+  const heading = `Your ticket to ${caps}.`;
   const qr = ticketQr(input.code, 0);
   const cardEvent = ticketCardEvent(event, siteUrl);
   const card = ticketCard({
@@ -349,7 +359,7 @@ export function buildTransferTicketEmail(input: TransferTicketEmailInput): Email
   });
   const buttons: KitButton[] = [{ label: "View your ticket", href: receivedTicketLink(siteUrl, input.transferId), kind: "primary" }];
   const blocks = eventBlocks(event, siteUrl);
-  const footer = { siteUrl, tone: "customer" as const, reason: HOLDER_REASON };
+  const footer = { siteUrl, tone: "customer" as const, reason: SENT_REASON(from) };
   const preheader = [cardEvent?.date ?? "", listed(event) ? (event.venueName?.trim() ?? "") : "", `From ${firstName(from)}`]
     .filter(Boolean)
     .join(" · ");

@@ -337,6 +337,17 @@ describe("sending", () => {
     expect(res.body.fieldErrors.email).toBe("Enter a valid email");
   });
 
+  it("refuses a sender name only Sheltüh may use (the emails quote it), confusables included: 400 fieldErrors.senderName", async () => {
+    const order = await paidOrder(api, world.eventId);
+    for (const senderName of ["Sheltüh Support", "SHELTUH", "\u0405h\u0435ltuh Team", "Admin", "the support crew", "Moderator"]) {
+      const res = await send(api, order.orderId, { ...OFFER, senderName }, { access: order.access });
+      expect([senderName, res.status, res.body.fieldErrors]).toEqual([senderName, 400, { senderName: "That name is reserved. Choose another." }]);
+    }
+    // Words that merely contain one are fine; the recipient's name (the sender's own typing, never quoted to others as Sheltüh's) isn't held to it.
+    expect((await send(api, order.orderId, { ...OFFER, senderName: "Adminah Supporta", name: "Support Desk" }, { access: order.access })).status).toBe(201);
+    expect(await api.db.query(`select count(*)::int as n from private.ticket_transfers`)).toEqual([{ n: 1 }]);
+  });
+
   it("refuses the buyer's own address, ignoring case: 409 own_email with fieldErrors.email", async () => {
     const order = await paidOrder(api, world.eventId);
     const res = await send(api, order.orderId, { ...OFFER, email: BUYER.toUpperCase() }, { access: order.access });
@@ -715,6 +726,10 @@ describe("accept", () => {
     expect((await accept(api, token, await member(api, { emailVerified: false }))).status).toBe(403);
     const res = await accept(api, token, await member(api), "@sam");
     expect([res.status, Object.keys(res.body.fieldErrors)]).toEqual([400, ["holderName"]]);
+    // A name only Sheltüh may use (the sender's email quotes it): refused, and the offer stays open.
+    const reserved = await accept(api, token, await member(api), "Sheltüh Admin");
+    expect([reserved.status, reserved.body.fieldErrors]).toEqual([400, { holderName: "That name is reserved. Choose another." }]);
+    expect((await api.db.query<{ status: string }>(`select status from private.ticket_transfers`))[0].status).toBe("pending");
   });
 
   it("not by the buyer (own_ticket): their account by email, or the account that sent it", async () => {

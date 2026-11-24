@@ -43,10 +43,11 @@ const event = {
   imageUrl: PREVIEW_IMAGE_PATH,
   organiserId: "00000000-0000-4000-8000-00000000a001",
   organiserName: "Here & Now Collective",
+  // Latte's three lines, as an organiser's rows (each value at most 80 characters).
   beforeYouGo: [
     { label: "Entry", value: "Doors open 5:00 pm · last entry 8:00 pm." },
-    { label: "Age", value: "18+ event: bring photo ID that matches the ticket holder name." },
-    { label: "Extras", value: "Phone-free night: your phone goes into a locked pouch until you leave." },
+    { label: "Age", value: "18+ event — bring photo ID that matches the ticket holder name." },
+    { label: "Phones", value: "Phone-free night: your phone goes into a locked pouch until you leave." },
   ],
 } as EventRecord;
 

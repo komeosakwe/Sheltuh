@@ -808,8 +808,9 @@ export function ticketDetails(event: EventRecord, siteUrl: string): { rows: KitD
           },
         ]
       : []),
+    // "View event page": Latte's offer frame (its 375 frame overrides the row's "View event info"; owner, 24 Nov).
     ...(eventLink
-      ? [{ icon: "info" as const, title: "Event info", lines: ["Line-up, door times and what to bring"], linkHtml: anchor(eventLink, "View event info") }]
+      ? [{ icon: "info" as const, title: "Event info", lines: ["Line-up, door times and what to bring"], linkHtml: anchor(eventLink, "View event page") }]
       : []),
     ...(host && hostLink
       ? [{ icon: "info" as const, title: `Hosted by ${host}`, lines: ["Questions about the event? Ask the organiser."], linkHtml: anchor(hostLink, "Contact organiser") }]

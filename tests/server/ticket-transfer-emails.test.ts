@@ -4,6 +4,8 @@ import type { EmailMessage } from "@/lib/server/email";
 import { adminResendEmailJob } from "@/lib/server/handlers/email-outbox";
 import { cancelTicketTransfer, declineTicketOffer, viewTicketOffer } from "@/lib/server/handlers/ticket-transfers";
 import { orderReference } from "@/lib/server/order-reference";
+import { buildTransferOfferEmail, buildTransferTicketEmail } from "@/lib/server/ticket-transfer-email";
+import type { EventRecord } from "@/lib/server/types";
 import { hashTransferToken } from "@/lib/server/ticket-transfers";
 import { SITE_URL, TestApi } from "./helpers/api";
 import { member } from "./helpers/members";
@@ -12,6 +14,7 @@ import {
   accept,
   backdate,
   BUYER,
+  checkIn,
   codesOf,
   OFFER,
   offer,
@@ -141,6 +144,27 @@ describe("the offer (to the address typed)", () => {
     expect(await api.db.query(`select status from private.email_outbox where ticket_transfer_id = $1`, [transferId])).toEqual([{ status: "failed" }]);
   });
 
+  it("mints no token when the offer closes between the worker's check and the mint (the insert checks it): not sent", async () => {
+    const order = await paidOrder(api, world.eventId);
+    const transferId = await offer(api, order);
+    const query = api.db.query.bind(api.db);
+    vi.spyOn(api.db, "query").mockImplementation(async (sql: string, params?: unknown[]) => {
+      if (sql.includes("insert into private.ticket_transfer_tokens")) {
+        // The sender cancels just before the mint.
+        await query(
+          `update private.ticket_transfers set status = 'cancelled', decided_at = now(), cancelled_by = 'sender' where id = $1`,
+          [transferId],
+        );
+      }
+      return query(sql, params);
+    });
+    expect(await sent()).toEqual([]);
+    expect(await query(`select 1 from private.ticket_transfer_tokens`)).toEqual([]);
+    expect(await query(`select status from private.email_outbox where ticket_transfer_id = $1 and kind = 'transfer_offer'`, [transferId])).toEqual([
+      { status: "failed" },
+    ]);
+  });
+
   it("escapes typed names as text", async () => {
     const order = await paidOrder(api, world.eventId);
     await offer(api, order, { senderName: "Alex <b>Chen</b>" });
@@ -183,7 +207,12 @@ describe("after an accept", () => {
 
     expect(toRecipient.subject).toBe("Your ticket to NEON STATIC");
     expectShell(toRecipient);
-    expect(toRecipient.html).toContain("You’re in. Here’s your ticket.");
+    // The offer frame's intro pattern: the sender, then the event in capitals; the footer names the sender.
+    expect(toRecipient.html).toContain("From Alex Chen");
+    expect(toRecipient.html).toContain(">Your ticket to NEON STATIC.</h1>");
+    expect(toRecipient.html).not.toContain("You’re in.");
+    expect(toRecipient.html).toContain("You’re getting this email because Alex Chen sent you a ticket on Sheltüh.");
+    expect(toRecipient.text).toContain("You're getting this email because Alex Chen sent you a ticket on Sheltüh.");
     expect(toRecipient.html).toContain(row.issued_code as string);
     expect(toRecipient.text).toContain(`Show this code at the door: ${row.issued_code}`);
     expect(toRecipient.html).toContain(`${SITE_URL}/tickets/received/${transferId}`);
@@ -310,6 +339,37 @@ describe("declined and expired (to the sender)", () => {
     ).toEqual([{ status: "failed" }]);
   });
 
+  it("a send that expires an overdue offer: the new offer goes out, the old one's expiry notice doesn't (it'd say send it again)", async () => {
+    const order = await paidOrder(api, world.eventId);
+    const first = await offer(api, order);
+    await sent();
+    await backdate(api, first, "73 hours");
+    await offer(api, order, { name: "Kim Ng", email: "kim@example.org" });
+    expect((await transferRow(api, first)).status).toBe("expired");
+    expect((await sent()).map((m) => [m.to, m.subject])).toEqual([["kim@example.org", "Alex sent you a ticket to NEON STATIC"]]);
+    expect(
+      await api.db.query(`select status from private.email_outbox where ticket_transfer_id = $1 and kind = 'transfer_expired'`, [first]),
+    ).toEqual([{ status: "failed" }]);
+  });
+
+  it("a ticket checked in meanwhile: the notice says so, with no 'QR code still works' and no Send to a friend", async () => {
+    const order = await paidOrder(api, world.eventId);
+    const transferId = await offer(api, order);
+    const token = tokenOf((await sent())[0]);
+    const [code] = await codesOf(api, order.orderId);
+    expect((await checkIn(api, world, code)).status).toBe(200);
+    expect((await api.call(declineTicketOffer, { body: { token } })).status).toBe(200);
+    const [message, ...rest] = await sent();
+    expect(rest).toEqual([]);
+    expect((await transferRow(api, transferId)).status).toBe("declined");
+    expect(message.html).toContain("It’s been checked in at the door, so it can’t be sent on.");
+    for (const body of [message.html, message.text]) {
+      expect(body).not.toContain("still works");
+      expect(body).not.toContain("Send to a friend");
+      expect(body).not.toContain("send it to someone else");
+    }
+  });
+
   it("goes to the order's current address: an email change since the decision is followed", async () => {
     const order = await paidOrder(api, world.eventId);
     await offer(api, order);
@@ -321,8 +381,91 @@ describe("declined and expired (to the sender)", () => {
   });
 });
 
+describe("the run after a response", () => {
+  it("the five kinds share one 30 s budget: once it's spent, no later kind starts (the cron sends the rest)", async () => {
+    const { sendTicketTransferEmailsSoon } = await import("@/lib/server/email-outbox");
+    const { mintToken } = await import("./helpers/ticket-transfers");
+    const order = await paidOrder(api, world.eventId);
+    // Ticket 1 declined (its declined job due), ticket 2 offered (its offer job due); nothing sent yet.
+    const declinedId = await offer(api, order);
+    expect((await api.call(declineTicketOffer, { body: { token: await mintToken(api, declinedId) } })).status).toBe(200);
+    await offer(api, order, { ticket: 2, name: "Kim Ng", email: "kim@example.org" });
+    api.deferred.length = 0;
+    // Each send takes 31 s of the clock: the offer (the first kind) spends the whole budget.
+    const realNow = Date.now.bind(Date);
+    let offset = 0;
+    vi.spyOn(Date, "now").mockImplementation(() => realNow() + offset);
+    api.sendEmail.mockImplementation(async () => {
+      offset += 31_000;
+    });
+    sendTicketTransferEmailsSoon(api.deps);
+    expect((await sent()).map((m) => m.to)).toEqual(["kim@example.org"]);
+    expect(
+      await api.db.query(`select status from private.email_outbox where ticket_transfer_id = $1 and kind = 'transfer_declined'`, [declinedId]),
+    ).toEqual([{ status: "pending" }]);
+  });
+});
+
 it("a send through the API with the flag on queues exactly one offer email per offer", async () => {
   const order = await paidOrder(api, world.eventId);
   expect((await send(api, order.orderId, OFFER, { access: order.access })).status).toBe(201);
   expect(await sent()).toHaveLength(1);
+});
+
+describe("the layout around the ticket (Latte's offer frame)", () => {
+  const event = {
+    eventId: "00000000-0000-4000-8000-00000000e001",
+    slug: "here-and-now",
+    title: "Here & Now",
+    venueName: "Interconnect Studio",
+    venueAddress: "16 Catherine St",
+    suburb: "Coburg North",
+    state: "VIC",
+    startsAt: "2026-11-14T06:00:00.000Z",
+    endsAt: "2026-11-14T10:00:00.000Z",
+    status: "published",
+    beforeYouGo: [
+      { label: "Entry", value: "Doors open 5:00 pm · last entry 8:00 pm." },
+      { label: "Age <18>", value: "18+ & photo ID" },
+    ],
+  } as EventRecord;
+  const ticket = { typeName: "Second release" };
+  const offerEmail = (senderName = "Alex Chen") =>
+    buildTransferOfferEmail({ to: "sam@example.com", siteUrl: SITE_URL, token: "t".repeat(43), senderName, event, ticket });
+  const ticketEmail = (senderName = "Alex Chen") =>
+    buildTransferTicketEmail({ to: "sam@example.com", siteUrl: SITE_URL, transferId: "3f2b9c4e-8a1d-4f6b-9e0c-7a5d2b8e1f43", senderName, code: "BPT7-7P6W", event, ticket });
+
+  it("Before you go: the organiser's rows as plain lines, no bold label, escaped", () => {
+    for (const message of [offerEmail(), ticketEmail()]) {
+      const box = message.html.slice(message.html.indexOf(">Before you go</p>"));
+      expect(box).toContain(">Entry: Doors open 5:00 pm · last entry 8:00 pm.</p>");
+      expect(box).toContain(">Age &#60;18&#62;: 18+ &#38; photo ID</p>");
+      expect(box.slice(0, box.indexOf("Need a hand?"))).not.toMatch(/font-weight:600[^>]*>(Entry|Age)/);
+      expect(message.text).toContain("BEFORE YOU GO\nEntry: Doors open 5:00 pm · last entry 8:00 pm.\nAge <18>: 18+ & photo ID");
+    }
+  });
+
+  it("the event row's link reads View event page", () => {
+    for (const message of [offerEmail(), ticketEmail()]) {
+      expect(message.html).toContain(`${SITE_URL}/events/here-and-now" style="color:#000000;text-decoration:underline;text-underline-offset:2px">View event page</a>`);
+      expect(message.html).not.toContain("View event info");
+    }
+  });
+
+  it("the recipient's ticket: eyebrow, heading, ticket, then its own button; the footer names the sender, escaped", () => {
+    const message = ticketEmail("Alex <b>Chen</b>");
+    const order = ["From Alex &#60;b&#62;Chen&#60;/b&#62;", ">Your ticket to HERE &#38; NOW.</h1>", "BPT7-7P6W", ">View your ticket&nbsp;", ">Saturday 14 November 2026<"];
+    const at = order.map((s) => message.html.indexOf(s));
+    expect(at.every((i) => i >= 0), JSON.stringify(at)).toBe(true);
+    expect([...at].sort((a, b) => a - b)).toEqual(at);
+    expect(message.html).toContain("You’re getting this email because Alex &#60;b&#62;Chen&#60;/b&#62; sent you a ticket on Sheltüh.");
+    expect(message.html).not.toContain("<b>Chen</b>");
+    expect(offerEmail("Alex <b>Chen</b>").html).toContain("You’re getting this email because Alex &#60;b&#62;Chen&#60;/b&#62; sent you a ticket on Sheltüh.");
+  });
+
+  it("the wordmarks sit in Latte's boxes: 7px under the header's (106 x 31), 6px under the footer's (88 x 26)", () => {
+    const html = ticketEmail().html;
+    expect(html).toMatch(/<td style="padding:0 0 7px 0"><img src="cid:[^"]+" width="106" height="24"/);
+    expect(html).toMatch(/<td style="padding:0 0 6px 0"><img src="cid:[^"]+" width="88" height="20"/);
+  });
 });

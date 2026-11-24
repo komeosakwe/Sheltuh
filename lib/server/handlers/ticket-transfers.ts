@@ -20,6 +20,7 @@ import { parseMessageText } from "../message-input";
 import { parsePersonName } from "../order-input";
 import { ORDER_ID_PATTERN, orderReference } from "../order-reference";
 import { decodeCursor, isUuid, parseLimit, toPage } from "../pagination";
+import { isReserved } from "../profile-input";
 import { eventPlaceOf } from "../records";
 import type { Handler } from "../route";
 import { generateTicketCode } from "../ticket-issuance";
@@ -134,6 +135,13 @@ interface SendInput {
   senderName: string;
 }
 
+/** The name a sender or holder typed, unless it's one only Sheltüh may use: the emails quote it ("Sheltüh Support sent you a ticket"). */
+const RESERVED_NAME = "That name is reserved. Choose another.";
+function reservedChecked(name: string, field: string, errors: Record<string, string>): string {
+  if (!errors[field] && isReserved(name)) errors[field] = RESERVED_NAME;
+  return name;
+}
+
 /** A send's body (TicketTransferInput; `ticket` only when `withTicket`): every field's problem at once, 400. */
 function parseSendInput(body: Record<string, unknown>, withTicket: boolean): SendInput {
   const errors: Record<string, string> = {};
@@ -144,7 +152,7 @@ function parseSendInput(body: Record<string, unknown>, withTicket: boolean): Sen
   const name = parsePersonName(body.name, "name", errors, "Enter their name.");
   const email = typeof body.email === "string" ? body.email.trim() : "";
   if (!isPlainEmailAddress(email)) errors.email = "Enter a valid email";
-  const senderName = parsePersonName(body.senderName, "senderName", errors, "Enter your name.");
+  const senderName = reservedChecked(parsePersonName(body.senderName, "senderName", errors, "Enter your name."), "senderName", errors);
   if (Object.keys(errors).length > 0) fail(errors);
   return { ticket: withTicket ? (ticket as number) : 0, name, email, senderName };
 }
@@ -501,7 +509,7 @@ export const acceptTicketOffer: Handler = async (req, _params, deps) => {
   const body = await readJson(req, MAX_BODY_BYTES);
   const token = requireToken(body);
   const errors: Record<string, string> = {};
-  const holderName = parsePersonName(body.holderName, "holderName", errors, "Enter your name.");
+  const holderName = reservedChecked(parsePersonName(body.holderName, "holderName", errors, "Enter your name."), "holderName", errors);
   if (Object.keys(errors).length > 0) fail(errors);
 
   let row: { result: string; transfer_id: string | null } | undefined;
