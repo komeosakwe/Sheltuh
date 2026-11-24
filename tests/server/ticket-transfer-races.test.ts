@@ -211,7 +211,8 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)("ticket transfer races (real Pos
       );
       expect(held.n).toBe(TICKET_TRANSFER_LIMITS.maxHeldPerAccountPerEvent);
     }
-  });
+    // 33 checkouts and 30 accepts: more than the default 5 seconds on a busy machine.
+  }, 60_000);
 
   it("two sends of one ticket at once: one 201, one 409 transfer_pending", async () => {
     for (let i = 0; i < 5; i++) {

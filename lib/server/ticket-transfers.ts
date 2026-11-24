@@ -1,4 +1,3 @@
-import { createHash, randomBytes } from "node:crypto";
 import { ticketTransfersEnabled } from "@/lib/ticket-transfers-flag";
 import { TICKET_TRANSFER_RULES } from "@/lib/ticket-transfer-rules";
 import type { Deps } from "./deps";
@@ -15,23 +14,8 @@ import { optionalCaller } from "./handlers/free-orders";
  * ./handlers/ticket-transfers.ts.
  */
 
-/** An offer link's token: 32 random bytes, base64url (43 characters). */
-export const TRANSFER_TOKEN_PATTERN = /^[A-Za-z0-9_-]{43}$/;
-
-/** A new offer link token (minted per email attempt by the outbox worker, PR-2). Never stored or logged: only its hash. */
-export function newTransferToken(): string {
-  return randomBytes(32).toString("base64url");
-}
-
-/** What private.ticket_transfer_tokens stores for `token`: SHA-256, hex. */
-export function hashTransferToken(token: string): string {
-  return createHash("sha256").update(token, "utf8").digest("hex");
-}
-
-/** A transfer's short reference ("#1A2B3C4D"), shown to the recipient and support: never the order's (orderReference). */
-export function transferReference(transferId: string): string {
-  return `#${transferId.replace(/-/g, "").slice(0, 8).toUpperCase()}`;
-}
+export { hashTransferToken, newTransferToken, TRANSFER_TOKEN_PATTERN } from "./transfer-token";
+export { transferReference } from "./transfer-reference";
 
 /** How a request controls an order, for sending or cancelling its tickets (owner decision D1). */
 export type OrderControl =
@@ -165,11 +149,7 @@ export async function withTicketTransfers(
 
 /**
  * Sends the transfer emails queued by a send, accept or decline straight
- * after the response. Empty in this release: nothing may lease a transfer
- * job before the code that can send it exists (the email builders and
- * delivery come next), and the cron's drain never leases these kinds (they
- * aren't named in its phases). The jobs wait in the outbox until then.
+ * after the response (sendTicketTransferEmailsSoon, ./email-outbox.ts); the
+ * email cron sends anything left.
  */
-export function ticketTransferJobsSoon(deps: Deps): void {
-  void deps;
-}
+export { sendTicketTransferEmailsSoon as ticketTransferJobsSoon } from "./email-outbox";

@@ -65,6 +65,8 @@ export const TICKET_EMAIL_ASSETS = {
   calendar: "/email/ticket/calendar.png",
   pin: "/email/ticket/pin.png",
   info: "/email/ticket/info.png",
+  /** A ticket offer's QR placeholder (scripts/render-ticket-qr-locked.ts): a faded pattern that doesn't decode. */
+  qrLocked: "/email/ticket/qr-locked.png",
 } as const;
 
 /**

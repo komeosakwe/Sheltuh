@@ -534,6 +534,7 @@ describe("the wordmark and the hosted images", () => {
       calendar: [40, 40],
       pin: [40, 40],
       info: [40, 40],
+      qrLocked: [400, 400],
     };
     for (const [name, file] of Object.entries(TICKET_EMAIL_ASSETS)) {
       const png = readFileSync(path.join(process.cwd(), "public", file));
