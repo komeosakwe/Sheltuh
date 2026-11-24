@@ -2808,6 +2808,147 @@ export interface AnalyticsQuery {
   compare?: "prevPeriod";
 }
 
+// ---------------------------------------------------------------------------
+// Organiser dashboard summaries (docs/architecture.md, "Organiser dashboard summaries")
+// ---------------------------------------------------------------------------
+
+/**
+ * Where one of the organiser's events stands, as the dashboard's pills and
+ * filters show it (derived by the API, never stored):
+ *
+ * - `live`: published and not ended. Sheltüh-ticketed with tickets left, or
+ *   any external event (sold elsewhere: never `sold_out`).
+ * - `sold_out`: published, not ended, Sheltüh-ticketed, and every ticket type
+ *   sold out (a tier waiting for the one above isn't sold out).
+ * - `ended`: published, and its end time has passed.
+ * - `in_review`: sent to Sheltüh's review queue (`pending_review`).
+ * - `changes_needed`: Sheltüh rejected it (`rejected`; `rejectionReason` says why).
+ * - `unpublished`: a draft that was live before and was taken down
+ *   (`rejectionReason` has the admin's reason, if they gave one).
+ * - `draft`: a draft that has never been live.
+ */
+export type OrganiserEventStage = "live" | "sold_out" | "ended" | "in_review" | "changes_needed" | "unpublished" | "draft";
+
+/** The Events tab's filters: `live` = live + sold_out; `drafts` = draft + unpublished + in_review + changes_needed; `past` = ended. */
+export const ORGANISER_EVENT_FILTERS = ["all", "live", "drafts", "past"] as const;
+export type OrganiserEventFilter = (typeof ORGANISER_EVENT_FILTERS)[number];
+
+/** How many of the organiser's events each filter (and each stage) holds. Every event counts in `all` and in exactly one other filter. */
+export interface OrganiserEventCounts {
+  all: number;
+  live: number;
+  drafts: number;
+  past: number;
+  byStage: Record<OrganiserEventStage, number>;
+}
+
+/**
+ * One of the organiser's own events with its sales so far. No buyer data.
+ * For an external event (`ticketingMode: "external"`) sales happen elsewhere:
+ * `ticketsSold`, `capacity` and `grossCents` are 0, and `free` is its
+ * "free entry" flag.
+ */
+export interface OrganiserEventSummary {
+  eventId: string;
+  title: string;
+  /** The public page is /events/{slug} (only while it's live, sold out or ended). */
+  slug: string;
+  stage: OrganiserEventStage;
+  startsAt: string;
+  endsAt: string;
+  /** Format `startsAt` / `endsAt` in this zone (lib/format.ts). */
+  timeZone: AustralianTimeZone;
+  state: StateCode;
+  venueName: string;
+  suburb: string;
+  /** Same-origin, versioned path of the event's photo (as EventRecord.imageUrl); absent without one. */
+  imageUrl?: string;
+  imageFocus?: ImageFocus;
+  ticketingMode: TicketingMode;
+  /**
+   * Sheltüh-ticketed: it has ticket types and all are free ("Free",
+   * "A$0 · free"). External: the organiser marked entry free.
+   */
+  free: boolean;
+  /** Tickets sold now, in people (a group ticket counts everyone it admits): EventRecord.ticketsSold added up. */
+  ticketsSold: number;
+  /** Tickets on sale in total, in people: every ticket type's quantity added up. */
+  capacity: number;
+  /**
+   * What buyers have paid for the event so far, in cents: every `paid`
+   * order, all time, booking fees they paid included, never Support Sheltüh.
+   * The analytics `grossCents` over the event's whole life.
+   */
+  grossCents: number;
+  /**
+   * The organiser's share of it: `grossCents` less Sheltüh's booking fees
+   * (whoever paid them), what Stripe pays out. The analytics `netCents` over
+   * the event's whole life.
+   */
+  netCents: number;
+  /** `changes_needed` and `unpublished` only, when Sheltüh gave a reason. */
+  rejectionReason?: string;
+}
+
+/** GET /api/organisers/me/events/summary?filter&cursor&limit. */
+export interface OrganiserEventSummaryPage {
+  /** The filter's events: those not ended soonest first, then ended ones most recent first. */
+  items: OrganiserEventSummary[];
+  nextCursor?: string;
+  counts: OrganiserEventCounts;
+}
+
+/** One live (not ended) Sheltüh-ticketed event on the Overview's Performance panel. */
+export interface OrganiserEventPerformance {
+  eventId: string;
+  title: string;
+  stage: "live" | "sold_out";
+  free: boolean;
+  ticketsSold: number;
+  capacity: number;
+  /** All time, as OrganiserEventSummary.grossCents and netCents. */
+  grossCents: number;
+  netCents: number;
+  /** Tickets sold in `thisWeek.range`, and in the 7 days before it (`paid` orders, as analytics counts them). */
+  ticketsThisWeek: number;
+  ticketsPreviousWeek: number;
+  /**
+   * (this week − previous week) ÷ previous week as a whole percentage
+   * (rounded). Null when the previous week sold nothing: no meaningful
+   * percentage.
+   */
+  deltaPct: number | null;
+}
+
+/** GET /api/organisers/me/overview. */
+export interface OrganiserOverview {
+  /** The last 7 Melbourne days, today included. */
+  thisWeek: {
+    range: DateRange;
+    /** The analytics overview's `totals.ticketsSold` for the same range. */
+    ticketsSold: number;
+    /** The analytics overview's `totals.views` for the same range: a lower bound when `viewsUnreliable`. */
+    views: number;
+    viewsUnreliable: boolean;
+    /** False when part of the week is before view counting began: `views` misses those days. */
+    viewsComplete: boolean;
+    /** Members who started following in the range and still follow: a count only, never who. */
+    newFollowers: number;
+  };
+  /**
+   * The banner's event: the soonest live (not sold out) Sheltüh-ticketed
+   * event that hasn't started, has tickets left and has sold at least one.
+   * Null otherwise (no banner).
+   */
+  highlight: OrganiserEventSummary | null;
+  /** The next two live or sold-out events (any ticketing), soonest first. */
+  upcoming: OrganiserEventSummary[];
+  /** The Events tab's `drafts` count. */
+  draftsCount: number;
+  /** Live and sold-out Sheltüh-ticketed events, soonest first, at most 10. */
+  performance: OrganiserEventPerformance[];
+}
+
 /** A shareable link that attributes views and orders to where it was posted. */
 export interface TrackingLink {
   linkId: string;
