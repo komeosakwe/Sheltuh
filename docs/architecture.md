@@ -725,7 +725,12 @@ admin and message times) is in the platform's zone, Australia/Melbourne.
      Sans and IBM Plex Mono self-hosted, `mso-padding-alt` on the buttons,
      the preheader hidden with `mso-hide:all`, so the emails can't drift
      apart; `tests/server/email-brand.test.ts` holds every builder to it.
-     The admin review emails stay on `lib/server/email-layout.ts`.
+     The admin review and ops alert emails use the same kit in Latte's
+     organiser shell (no admin email was drawn): the grey page, the black
+     hero, the organiser's own text (or the alert's details) in an outlined
+     box, the button and the footer line saying why the reader got it. No
+     email is left on the classic ivory page of `lib/server/email-layout.ts`
+     (only its helpers, `escapeHtml` and the wordmark, are still shared).
      Organiser emails A4 (7 days after approval) and A5 (the morning after
      each event) are built (`lib/server/onboarding-email.ts`) but not sent:
      their triggers need new onboarding / outbox kinds, a migration.
@@ -4208,8 +4213,8 @@ an approved organiser's event went live without one
   inbox previews are fixed text: the organiser's title and name appear only
   in the body, under "As submitted by the organiser:", so they can't be used
   to phish admins from our own signed address. Nothing else: no
-  description, contact details, venue address or buyer data; no images, no
-  tracking. An approved organiser's event goes live on their own publish
+  description, contact details, venue address or buyer data; no remote
+  images (the only image is the inline wordmark), no tracking. An approved organiser's event goes live on their own publish
   (`event_published`, queued by `private.publish_event`; see "Publishing
   events"): "Event published by an organiser", "It went live without review.
   Check it, and unpublish it if it shouldn't be on Sheltüh.", the same
