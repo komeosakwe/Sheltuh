@@ -326,15 +326,23 @@ export default function CheckoutConfirmation() {
     );
   }
 
-  // Signed in after the order was read (the session was still being restored, or the buyer signed in from
-  // here): read it again, so the account's control of it (send, cancel) shows. Only while it says to sign in.
+  // The account changed under the page (signed in, signed out, or another account in another tab): an answer
+  // still on its way for the previous one isn't shown, and an order on the page is read again with the access
+  // there is now, so what only the previous account may see (recipients' names, send, cancel) goes. Also,
+  // signed in when the order came back saying to sign in (read before the session was restored): read it
+  // again, so the account's control of it shows.
   const readyOrder = state.status === "ready" ? state.order : null;
+  const hasOrder = readyOrder !== null;
   const needsControl = readyOrder?.transfers?.reason === "sign_in";
+  const readForAccount = useRef(accountKey);
   const reloadForAccount = useEffectEvent((forSession: string) => reloadQuietly(forSession, currentVisit.current));
   useEffect(() => {
-    if (!sessionId || accountKey === null || !needsControl) return;
-    reloadForAccount(sessionId);
-  }, [sessionId, accountKey, needsControl]);
+    const accountChanged = readForAccount.current !== accountKey;
+    readForAccount.current = accountKey;
+    if (accountChanged) answerSeq.current += 1;
+    if (!sessionId) return;
+    if (accountChanged ? hasOrder : accountKey !== null && needsControl) reloadForAccount(sessionId);
+  }, [sessionId, accountKey, needsControl, hasOrder]);
 
   // `?send=n`: open Send for ticket n once, when the order says it can be sent now.
   const autoOpened = useRef<string | null>(null);
