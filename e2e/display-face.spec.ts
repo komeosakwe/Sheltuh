@@ -4,8 +4,9 @@ import { expect, test, type Page } from "@playwright/test";
  * The three faces in a real Chromium (app/fonts.ts, the redesign rules' Type
  * board): display headlines in Bootzy (its file really loads), running text,
  * headings and buttons in Instrument Sans, and the facts and eyebrows too,
- * as written (owner decision, 13 Nov 2026): IBM Plex Mono is only for
- * machine codes (a ticket's code), so the home never loads it. The
+ * as written (owner decision, 13 Nov 2026): IBM Plex Mono is for machine
+ * codes (a ticket's code) and, as Latte's 1120 frames draw them, the
+ * footer's labels (Mono/S, sentence case). The
  * dotted body face is gone, and the brand's Ü is a real letter shown only in
  * display headlines and read as plain words. /api is intercepted.
  */
@@ -20,7 +21,7 @@ const fontFamily = (page: Page, selector: string) =>
 /** next/font names a local face after its export, with a hash in production. */
 const BOOTZY = /^"?bootzy\b/i;
 
-test("the home h1 is Bootzy, read plainly; body, headings and eyebrows are Instrument Sans; no Plex Mono", async ({ page }) => {
+test("the home h1 is Bootzy, read plainly; body, headings and eyebrows are Instrument Sans; Plex Mono only in the footer's labels", async ({ page }) => {
   await page.goto("/");
   const h1 = page.getByRole("heading", { level: 1 });
   await expect(h1).toBeVisible();
@@ -45,8 +46,8 @@ test("the home h1 is Bootzy, read plainly; body, headings and eyebrows are Instr
   expect(await fontFamily(page, "main h3")).toMatch(/^"Instrument Sans", /);
   const search = page.getByRole("combobox", { name: "Search events" });
   expect(await search.evaluate((el) => getComputedStyle(el).fontFamily)).toMatch(/^"Instrument Sans", /);
-  // Eyebrows: Instrument Sans labels in sentence case, normal tracking (the footer's "Explore", "Fan support").
-  const eyebrow = page.locator("footer .eyebrow").first();
+  // Eyebrows: Instrument Sans labels in sentence case, normal tracking (the home's "For organisers", "Community").
+  const eyebrow = page.locator("main .eyebrow").first();
   expect(await eyebrow.evaluate((el) => getComputedStyle(el).fontFamily)).toMatch(/^"Instrument Sans", /);
   expect(await eyebrow.evaluate((el) => getComputedStyle(el).textTransform)).toBe("none");
   expect(await eyebrow.evaluate((el) => getComputedStyle(el).letterSpacing)).toMatch(/^(?:normal|0px)$/);
@@ -57,8 +58,13 @@ test("the home h1 is Bootzy, read plainly; body, headings and eyebrows are Instr
   expect(faces.some((face) => /bootzy/i.test(face.family) && face.status === "loaded")).toBe(true);
   expect(faces.some((face) => /instrumentDots/i.test(face.family))).toBe(false);
   expect(await page.locator("[data-dotted-letter], .font-dots").count()).toBe(0);
-  // Plex Mono is declared (for codes) but not preloaded or drawn here, so the home never downloads it.
-  expect(faces.some((face) => /plex/i.test(face.family) && face.status !== "unloaded")).toBe(false);
+  // Plex Mono is declared but not preloaded; on the home it draws only the footer's labels (Latte 1120: Mono/S, as
+  // written, never in capitals), and nothing in main.
+  const label = page.locator("footer").getByText("Fan support", { exact: true });
+  expect(await label.evaluate((el) => getComputedStyle(el).fontFamily)).toMatch(/^"IBM Plex Mono", /);
+  expect(await label.evaluate((el) => getComputedStyle(el).textTransform)).toBe("none");
+  const monoInMain = await page.locator("main *").evaluateAll((els) => els.filter((el) => /plex mono/i.test(getComputedStyle(el).fontFamily.split(",")[0])).length);
+  expect(monoInMain).toBe(0);
 });
 
 /** The card's event: fixed instants, so its meta line is known (Sat 16 Jan, 5pm in Melbourne). */

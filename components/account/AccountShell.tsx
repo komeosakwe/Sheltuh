@@ -12,7 +12,7 @@ import { useAccountNav } from "./useAccountNav";
  * account's pages.
  *
  * - Desktop (from 1024px): the panel is rounded (16), at least 960px tall, 32px below the header
- *   and 64px above the footer, 64px in from the sides from 1280px (32px below that) and 1312px wide
+ *   and 64px above the footer, 64px in from the sides from 1280px (32px below that) and up to 1440px wide
  *   at most; the 264px black sidebar on its left (AccountSidebar), the page on the right with 56px
  *   above it, 40px right and below, 48px left.
  * - Tablet (768–1023px): no sidebar; the panel is rounded, 24px in (24 top and sides, 32 below), the

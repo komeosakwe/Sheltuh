@@ -507,10 +507,10 @@ describe("the type scale (the rules' Type board)", () => {
     expect(body).not.toContain("uppercase");
   });
 
-  it("gives the page column 64px margins from 1280px (Round 2 §1.2)", () => {
+  it("gives the page column 64px margins from 1280px (Round 2 §1.2) and at most 1440px of content (owner, 23 Nov 2026)", () => {
     const body = utility("page-container");
     expect(body).toMatch(/--page-margin: 1rem;\s*@media \(width >= 48rem\) \{\s*--page-margin: 2rem;\s*\}\s*@media \(width >= 80rem\) \{\s*--page-margin: 4rem;/);
-    expect(body).not.toContain("90rem");
+    expect(body).toContain("max-width: calc(90rem + 2 * var(--page-margin));");
   });
 
   it("sets the display styles (and title-lg, an event's title) in Bootzy capitals at 400 with no synthesised bold", () => {

@@ -9,7 +9,7 @@ import { useState } from "react";
  * (docs/design/organiser-profile.md §4.1).
  */
 const COVER_SIZES =
-  "(min-width: 80rem) min(calc(100vw - 8rem), 82rem), (min-width: 48rem) calc(100vw - 4rem), (min-width: 40.5rem) calc(100vw - 2rem), 616px";
+  "(min-width: 80rem) min(calc(100vw - 8rem), 90rem), (min-width: 48rem) calc(100vw - 4rem), (min-width: 40.5rem) calc(100vw - 2rem), 616px";
 
 /**
  * An organiser's cover photo across the top of their profile
