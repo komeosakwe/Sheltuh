@@ -16,6 +16,11 @@ interface TicketFullScreenProps {
    * slides sorted by seat needn't be in that order. Left out, slides are numbered as they come.
    */
   numbers?: readonly number[];
+  /**
+   * The "of N" in the bar: the order's ticket count. Tickets sent on to someone aren't slides here but keep their
+   * numbers, so the slides alone would say "Ticket 2 of 1". Left out: the number of slides.
+   */
+  total?: number;
   /** The slide to open on (0-based). */
   start?: number;
   /** What sits under the tickets for the one in view (by slide index): its wallet badges. */
@@ -47,8 +52,9 @@ interface TicketFullScreenProps {
  * - A native modal `<dialog>`: focus stays inside, Escape and the ✕ close it,
  *   and focus returns to the button that opened it.
  */
-export default function TicketFullScreen({ open, onClose, tickets, numbers, start = 0, footer, onSend, canSend, overlay }: TicketFullScreenProps) {
+export default function TicketFullScreen({ open, onClose, tickets, numbers, total, start = 0, footer, onSend, canSend, overlay }: TicketFullScreenProps) {
   const ref = useRef<HTMLDialogElement>(null);
+  const closeRef = useRef<HTMLButtonElement>(null);
   const trackRef = useRef<HTMLDivElement>(null);
   // Each opening starts on `start`: reset while rendering (not in an effect) when `open` changes.
   const [shown, setShown] = useState({ open, index: start });
@@ -124,6 +130,21 @@ export default function TicketFullScreen({ open, onClose, tickets, numbers, star
     };
   }, [open]);
 
+  // Send goes once the ticket in view is sent (or on offer): focus was on it, so it would fall to the page
+  // behind. A frame later (the Send sheet hands focus back as it closes), anything outside this screen comes to ✕.
+  const sendShown = open && Boolean(onSend) && (canSend?.(index) ?? true);
+  const hadSend = useRef(sendShown);
+  useEffect(() => {
+    const lost = hadSend.current && !sendShown && open;
+    hadSend.current = sendShown;
+    if (!lost) return;
+    const frame = requestAnimationFrame(() => {
+      const dialog = ref.current;
+      if (dialog?.open && !dialog.contains(document.activeElement)) closeRef.current?.focus();
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [sendShown, open]);
+
   function onScroll() {
     const track = trackRef.current;
     if (!track || track.clientWidth === 0) return;
@@ -148,13 +169,13 @@ export default function TicketFullScreen({ open, onClose, tickets, numbers, star
       {open && (
         <div className="flex h-full flex-col gap-3 pt-2 pb-4">
           <div className="flex items-center justify-between gap-3 px-3">
-            <button type="button" onClick={() => ref.current?.close()} aria-label="Close ticket" className={barButton}>
+            <button ref={closeRef} type="button" onClick={() => ref.current?.close()} aria-label="Close ticket" className={barButton}>
               <CloseIcon />
             </button>
             <p className="font-mono text-sm leading-5 font-medium" aria-live="polite" aria-atomic="true">
-              <span className="uppercase">Ticket</span> {number} of {count}
+              <span className="uppercase">Ticket</span> {number} of {total ?? count}
             </p>
-            {onSend && (canSend?.(index) ?? true) ? (
+            {sendShown && onSend ? (
               <button type="button" onClick={() => onSend(index)} className={`${barButton} label-button px-3`}>
                 Send
               </button>

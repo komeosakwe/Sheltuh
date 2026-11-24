@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import EventArt from "@/components/EventArt";
 import EventLocationMap from "@/components/events/EventLocationMap";
 import FullTicket from "@/components/tickets/FullTicket";
@@ -17,6 +17,7 @@ import {
 } from "@/components/tickets/TicketSheets";
 import WalletButtons from "@/components/tickets/WalletButtons";
 import { ButtonLink } from "@/components/ui/Button";
+import type { ToastPlacement } from "@/components/ui/Toast";
 import type { CustomerOrder, CustomerTicket, TicketSeat, TransferredTicket } from "@/lib/api/types";
 import { SUPPORT_EMAIL } from "@/lib/contact";
 import { eventZone, formatAud, formatDayMonth } from "@/lib/format";
@@ -29,13 +30,6 @@ import { SUPPORT_REFUND_NOTE } from "@/lib/support";
 import { ticketStubDate, ticketStubTime, ticketWhenLine } from "@/lib/ticket-times";
 import type { SheltuhEvent } from "@/lib/types";
 import { appleWalletDeviceNote } from "@/lib/wallet-badges";
-
-/** Each ticket with its number in the API's (and the email's) order, seated ones sorted by seat. */
-export function sortTicketsBySeat(tickets: CustomerOrder["tickets"]) {
-  const numbered = tickets.map((ticket, i) => ({ ticket, number: ticket.ticketNumber ?? i + 1 }));
-  if (!tickets.some((ticket) => ticket.seat)) return numbered;
-  return [...numbered].sort((a, b) => bySeatThenNumber(a.ticket.seat, a.number, b.ticket.seat, b.number));
-}
 
 function bySeatThenNumber(aSeat: TicketSeat | undefined, aNumber: number, bSeat: TicketSeat | undefined, bNumber: number) {
   return aSeat && bSeat ? compareSeats(aSeat, bSeat) : aSeat ? -1 : bSeat ? 1 : aNumber - bNumber;
@@ -85,14 +79,21 @@ interface MyTicketViewProps {
    * and this goes to sign in, coming back to the ticket (its number).
    */
   onSignInToSend?: (ticketNumber: number) => void;
+  /** With onSignInToSend: someone is signed in, with an email that isn't the order's (Switch account), rather than no one. */
+  signedInAsOther?: boolean;
+  /**
+   * Show this ticket (its number) in the pager: the one a `?send=n` link opened Send for. Each new number moves
+   * the pager once; the buyer's own moves stay theirs.
+   */
+  showTicket?: number | null;
   /** Takes back an offer of a ticket (the "Waiting for Sam to accept" strip's Cancel). */
   onCancelTransfer?: (ticketNumber: number, transferId: string) => void;
   /** The ticket whose offer is being cancelled now. */
   cancelling?: number | null;
   /** Why a ticket's offer couldn't be cancelled, said under its strip. */
   transferError?: { ticketNumber: number; message: string } | null;
-  /** The page's toast (components/ui/Toast.tsx): also shown over the full-screen ticket while that's open. */
-  toast?: ReactNode;
+  /** The page's toast (components/ui/Toast.tsx), for where it's shown: the page, and over the full-screen ticket while that's open. */
+  toast?: (placement: ToastPlacement) => ReactNode;
 }
 
 const cardClass = ticketCardClass;
@@ -133,6 +134,8 @@ export default function MyTicketView({
   emailSlot,
   onSendTicket,
   onSignInToSend,
+  signedInAsOther = false,
+  showTicket = null,
   onCancelTransfer,
   cancelling = null,
   transferError = null,
@@ -159,7 +162,31 @@ export default function MyTicketView({
   const shown = entries[index];
   const current = shown?.kind === "live" ? { ticket: shown.ticket, number: shown.number } : null;
   const currentSlide = current ? tickets.findIndex(({ number }) => number === current.number) : -1;
-  const canSend = (ticket: CustomerTicket) => Boolean(onSendTicket) && ticket.canSend !== false && !ticket.transfer && !ticket.checkedInAt;
+  const canSend = (ticket: CustomerTicket) => Boolean(onSendTicket) && ticket.canSend === true && !ticket.transfer && !ticket.checkedInAt;
+
+  // A `?send=n` link's ticket comes into view (adjusting state while rendering, once per number).
+  const [shownFor, setShownFor] = useState<number | null>(null);
+  if (showTicket !== null && showTicket !== shownFor) {
+    setShownFor(showTicket);
+    const at = entries.findIndex((entry) => entry.number === showTicket);
+    if (at >= 0) setShownIndex(at);
+  }
+
+  // The "Waiting for Sam to accept" strip goes once its offer is taken back (or accepted): focus was on its
+  // Cancel, so it would fall to the page. A frame later, if it's nowhere, it comes to the tickets.
+  const ticketsRef = useRef<HTMLElement>(null);
+  const stripFor = current?.ticket.transfer ? current.number : null;
+  const hadStrip = useRef(stripFor);
+  useEffect(() => {
+    const gone = hadStrip.current !== null && stripFor === null;
+    hadStrip.current = stripFor;
+    if (!gone) return;
+    const frame = requestAnimationFrame(() => {
+      const active = document.activeElement;
+      if (!active || active === document.body) ticketsRef.current?.focus();
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [stripFor]);
   const hasWallet = Boolean(sessionId && !unlisted && (order.wallet?.apple || order.wallet?.google));
   const paid = order.totalCents > 0;
   // The refund policy: only where something was paid (a free order has nothing to refund) and the event is listed.
@@ -219,7 +246,11 @@ export default function MyTicketView({
       : sendable && onSignInToSend
         ? {
             title: "Send ticket to a friend",
-            sub: sendSub(`Sign in with ${order.maskedEmail ?? "the email you bought with"} to send it`),
+            sub: sendSub(
+              signedInAsOther
+                ? `You’re signed in with another email. Switch to ${order.maskedEmail ?? "the email you bought with"} to send it`
+                : `Sign in with ${order.maskedEmail ?? "the email you bought with"} to send it`,
+            ),
             onClick: () => onSignInToSend(sendable.number),
           }
         : null;
@@ -260,8 +291,11 @@ export default function MyTicketView({
         (the event's name, as the h1) isn't a heading. A group ticket's people each have one: the name counts them.
       */}
       <section
+        ref={ticketsRef}
+        // Focus comes here (by script only) when the control that had it goes: Cancel on an offer.
+        tabIndex={-1}
         aria-label={order.tickets.some((ticket) => ticket.group) ? `Your tickets (${count})` : "Your tickets"}
-        className="flex min-w-0 flex-col gap-4 md:w-74 md:shrink-0 lg:w-90"
+        className="flex min-w-0 flex-col gap-4 outline-offset-4 md:w-74 md:shrink-0 lg:w-90"
       >
         {count > 1 && (
           <div className="-my-2 flex items-center justify-between gap-3 print:hidden" data-ticket-pager="">
@@ -518,9 +552,10 @@ export default function MyTicketView({
         footer={hasWallet ? (index) => walletFor(tickets[index].number, "justify-center") : undefined}
         onSend={onSendTicket ? (index) => onSendTicket(tickets[index].number) : undefined}
         canSend={(index) => canSend(tickets[index].ticket)}
-        overlay={toast}
+        total={count}
+        overlay={toast?.("screen")}
       />
-      {toast}
+      {toast?.("page")}
     </div>
   );
 }

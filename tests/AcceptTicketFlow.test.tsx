@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import AcceptTicketFlow, { OFFER_UNAVAILABLE, acceptErrorMessage } from "@/components/tickets/AcceptTicketFlow";
 import { ApiError } from "@/lib/api/client";
 import type { TicketOffer, TicketOfferErrorCode } from "@/lib/api/types";
-import type { AuthContextValue } from "@/lib/auth/AuthContext";
+import { SessionExpiredError, type AuthContextValue } from "@/lib/auth/AuthContext";
 import { TICKET_CODE_PATTERN } from "@/lib/ticket-code";
 import { FakeAuthProvider, fakeAuthValue } from "./test-utils/fakeAuth";
 
@@ -173,11 +173,41 @@ describe("AcceptTicketFlow", () => {
     },
   );
 
-  it("an account whose email isn't confirmed (403) is told to confirm it", async () => {
+  it("an account whose email isn't confirmed (403) is told to confirm it, with the way to verify (back here after)", async () => {
     acceptTicketOffer.mockRejectedValue(new ApiError(403, "Verify your email address first."));
     renderFlow();
     fireEvent.click(await screen.findByRole("button", { name: "Accept ticket" }));
-    expect(await screen.findByRole("alert")).toHaveTextContent("Confirm your email address to accept this ticket.");
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("Confirm your email address to accept this ticket.");
+    expect(within(alert).getByRole("link", { name: "Verify your email" })).toHaveAttribute(
+      "href",
+      "/verify?email=sam%40email.com&next=%2Ftickets%2Faccept",
+    );
+  });
+
+  it("a session that ended (401) asks to sign in again, back here", async () => {
+    acceptTicketOffer.mockRejectedValue(new ApiError(401, "Sign in required."));
+    renderFlow();
+    fireEvent.click(await screen.findByRole("button", { name: "Accept ticket" }));
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("Your session has ended. Sign in again to accept.");
+    expect(within(alert).getByRole("link", { name: "Sign in" })).toHaveAttribute("href", "/login?next=%2Ftickets%2Faccept");
+  });
+
+  it("no token to be had (the session's gone): the same sign-in prompt, not a generic error", async () => {
+    acceptTicketOffer.mockRejectedValue(new SessionExpiredError());
+    renderFlow();
+    fireEvent.click(await screen.findByRole("button", { name: "Accept ticket" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Your session has ended. Sign in again to accept.");
+  });
+
+  it("too many tries opening it (429): says so, and Try again reads it again", async () => {
+    viewTicketOffer.mockReset();
+    viewTicketOffer.mockRejectedValueOnce(new ApiError(429, "busy")).mockResolvedValue(OFFER);
+    renderFlow();
+    expect(await screen.findByRole("alert")).toHaveTextContent("Too many tries. Wait a little, then try again.");
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+    expect(await screen.findByRole("heading", { level: 1, name: "Alex sent you a ticket" })).toBeInTheDocument();
   });
 
   it("an offer gone while accepting gets the one answer for every unusable offer", async () => {

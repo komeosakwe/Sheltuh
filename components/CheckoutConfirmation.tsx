@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useEffectEvent, useRef, useState, type ReactNode, type Ref } from "react";
+import { flushSync } from "react-dom";
 import OrderEmail from "@/components/checkout/OrderEmail";
 import { useOptionalNavAccount } from "@/components/nav/useNavAccount";
 import MyTicketView from "@/components/tickets/MyTicketView";
@@ -32,6 +33,7 @@ import {
 import { forgetOrderAccessIfFinal, orderAccessFor } from "@/lib/order-access";
 import { firstName } from "@/lib/person-name";
 import { withNext } from "@/lib/safe-next-path";
+import { formatSeatLine } from "@/lib/seating/format";
 import { forgetPendingCheckout } from "@/lib/seating/pending-checkout";
 import { rememberReturnOrder, sendParam, takeReturnOrder } from "@/lib/ticket-transfer-return";
 import type { CustomerOrder, StateCode } from "@/lib/api/types";
@@ -128,6 +130,11 @@ export default function CheckoutConfirmation() {
   const [transferError, setTransferError] = useState<{ ticketNumber: number; message: string } | null>(null);
   /** Back from signing in to send: the order id this tab kept (read once: it's forgotten as it's read). */
   const returnOrder = useRef<string | null | undefined>(undefined);
+  /**
+   * Counts the requests whose answer replaces the order on the page (a send, a cancel, a quiet re-read): only
+   * the latest one's answer is shown, so a slow re-read can't put back what a newer answer changed.
+   */
+  const answerSeq = useRef(0);
   // What the page has loaded, with the session_id and the visit (each run of the load below) it was loaded
   // for. Another session_id in the same tab (the component stays mounted) is loading until its own answer is
   // in: never the previous order's tickets, token or settled effects under the new URL.
@@ -293,11 +300,13 @@ export default function CheckoutConfirmation() {
    * Shows a later answer for the order on the page (a send's, a cancel's, a quiet reload's), if the page is
    * still on that order and visit and showing its tickets: paid stays here; refunded gets its own page.
    */
-  function applyOrder(next: CustomerOrder, forSession: string, forVisit: number) {
+  function applyOrder(next: CustomerOrder, forSession: string, forVisit: number, seq: number) {
+    // The token is this order's: forgotten when final, whatever the page shows by now.
+    forgetOrderAccessIfFinal(forSession, next.emailChange, needsAccessForTickets(next));
+    if (seq !== answerSeq.current) return;
     setLoaded((was) => {
       if (was.sessionId !== forSession || was.visit !== forVisit || was.state.status !== "ready") return was;
       const access = was.state.access;
-      if (access) forgetOrderAccessIfFinal(forSession, next.emailChange, needsAccessForTickets(next));
       if (next.status === "paid") return { ...was, state: { status: "ready", order: next, access } };
       if (next.status === "oversold_refund_required" || next.status === "refunded") return { ...was, state: { status: "oversold", order: next } };
       return { ...was, state: { status: "error", message: "This order couldn't be completed." } };
@@ -306,9 +315,10 @@ export default function CheckoutConfirmation() {
 
   /** Reads the order again without a loading state (it changed under the page: an offer taken, control lost). */
   function reloadQuietly(forSession: string, forVisit: number) {
+    const seq = (answerSeq.current += 1);
     readOrder(forSession, orderAccessFor(forSession), getTokenRef.current).then(
       (result) => {
-        if (result.status !== "pending") applyOrder(result, forSession, forVisit);
+        if (result.status !== "pending") applyOrder(result, forSession, forVisit, seq);
       },
       () => {
         // The page keeps what it shows; the next action says what's wrong, if anything still is.
@@ -491,9 +501,12 @@ export default function CheckoutConfirmation() {
 
   async function send(fields: SendTicketFields) {
     if (!sessionId || sendFor === null) return;
+    const seq = (answerSeq.current += 1);
     const result = await sendTicket(sessionId, { ticket: sendFor, ...fields }, access, getTokenRef.current);
-    applyOrder(result.order, sessionId, visit);
-    setSendFor(null);
+    // The dialog closes first (its focus goes back to what opened it, and the page is no longer inert behind a
+    // modal), so the toast after it is read out.
+    flushSync(() => setSendFor(null));
+    applyOrder(result.order, sessionId, visit, seq);
     toast.show(`Sent to ${firstName(fields.name)}. We’ll email you when they accept.`);
   }
 
@@ -501,9 +514,10 @@ export default function CheckoutConfirmation() {
     if (!sessionId) return;
     setCancelling(ticketNumber);
     setTransferError(null);
+    const seq = (answerSeq.current += 1);
     try {
       const result = await cancelTicketTransfer(sessionId, transferId, access, getTokenRef.current);
-      applyOrder(result.order, sessionId, visit);
+      applyOrder(result.order, sessionId, visit, seq);
       toast.show("Cancelled. Your QR code still works.");
     } catch (err) {
       const known = err instanceof ApiError && err.status < 500;
@@ -515,12 +529,24 @@ export default function CheckoutConfirmation() {
     }
   }
 
-  /** Sign in with the buying email to send ticket `ticketNumber`: back here after, with Send open for it. */
+  /**
+   * Sign in with the buying email to send ticket `ticketNumber`: back here after, with Send open for it. Signed
+   * in with another email, this signs out on this device first (Switch account).
+   */
   function signInToSend(ticketNumber: number) {
     if (!sessionId) return;
     rememberReturnOrder(sessionId);
+    if (signedIn) auth?.signOut("local");
     router.push(withNext("/login", `/checkout/success?send=${ticketNumber}`));
   }
+
+  const offered = order.tickets.some((ticket) => ticket.transfer);
+  const entriesCount = order.tickets.length + (order.transferredTickets?.length ?? 0);
+  const sendTicketLabel = (() => {
+    if (sendFor === null || entriesCount < 2) return undefined;
+    const ticket = order.tickets.find((t, i) => (t.ticketNumber ?? i + 1) === sendFor);
+    return [`Ticket ${sendFor} of ${entriesCount}`, ticket?.seat ? formatSeatLine(ticket.seat) : null].filter(Boolean).join(" · ");
+  })();
 
   return (
     <>
@@ -537,11 +563,14 @@ export default function CheckoutConfirmation() {
             : undefined
         }
         onSignInToSend={sessionId && transfers?.reason === "sign_in" ? signInToSend : undefined}
+        signedInAsOther={signedIn}
+        showTicket={sendAsked}
         onCancelTransfer={sessionId ? (ticketNumber, transferId) => void cancel(ticketNumber, transferId) : undefined}
         cancelling={cancelling}
         transferError={transferError}
-        // Only where a ticket can be sent or taken back: the page's other news has its own status lines.
-        toast={transfers || order.tickets.some((ticket) => ticket.transfer) ? <Toast controls={toast} /> : undefined}
+        // Where a ticket can be sent or taken back, and while a toast is up (a cancel with sending off): the page's
+        // other news has its own status lines.
+        toast={transfers || offered || toast.toast ? (placement) => <Toast controls={toast} placement={placement} /> : undefined}
         emailSlot={
           sessionId && (
             <OrderEmail
@@ -570,6 +599,7 @@ export default function CheckoutConfirmation() {
       <SendTicketDialog
         open={sendFor !== null}
         onClose={() => setSendFor(null)}
+        ticketLabel={sendTicketLabel}
         defaultSenderName={navAccount?.profile?.displayName ?? ""}
         onSend={send}
         onSignIn={() => {

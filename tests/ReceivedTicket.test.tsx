@@ -93,6 +93,30 @@ describe("ReceivedTicket", () => {
     expect(screen.queryByRole("button", { name: /Show ticket/ })).toBeNull();
   });
 
+  it("checked in: the stamp says so, with the time on the door's clock", async () => {
+    getReceivedTicket.mockResolvedValue({ ...RECEIVED, ticket: { ...RECEIVED.ticket!, checkedInAt: "2027-11-13T07:42:00.000Z" } });
+    renderPage();
+    const stamp = await screen.findByText("Checked in", { exact: false });
+    expect(stamp.closest("[data-ticket-stamp]")).toHaveTextContent("6:42 pm · Enjoy the night");
+  });
+
+  it("an event no longer listed: the ticket says so, with no date, venue, calendar or event link", async () => {
+    getReceivedTicket.mockResolvedValue({
+      ...RECEIVED,
+      eventListed: false,
+      eventSlug: undefined,
+      eventStartsAt: undefined,
+      eventEndsAt: undefined,
+      venueName: undefined,
+      suburb: undefined,
+    });
+    renderPage();
+    expect(await screen.findByText(/This event is no longer listed/)).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: /View event page/ })).toBeNull();
+    expect(screen.queryByRole("heading", { name: "Add to calendar" })).toBeNull();
+    expect(screen.getByRole("img", { name: /K9QD-4XRT/ })).toBeInTheDocument();
+  });
+
   it("signed out: sign in first, coming back here (the id isn't a credential), and nothing is read", () => {
     renderPage({ status: "signed-out", email: undefined, userId: undefined });
     expect(screen.getByRole("heading", { level: 1, name: "Sign in to see your ticket" })).toBeInTheDocument();

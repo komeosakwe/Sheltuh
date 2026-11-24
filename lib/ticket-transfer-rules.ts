@@ -22,3 +22,9 @@ export const TICKET_TRANSFER_RULES = {
   /** Whether the sender may cancel an offer before it's accepted. */
   senderMayCancel: true,
 } as const;
+
+/**
+ * How many tickets one account can hold by transfer for one event (the accept page says so when it's
+ * reached). The server passes it to the database as the accept's cap.
+ */
+export const MAX_HELD_TICKETS_PER_EVENT = 10;

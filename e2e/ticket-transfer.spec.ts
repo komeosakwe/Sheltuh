@@ -157,9 +157,11 @@ test("desktop: Manage order → Send ticket → toast → waiting strip → Canc
   expect((await dialog.boundingBox())?.width).toBeCloseTo(480, 0);
   await expect(dialog.getByRole("button", { name: "Close" })).toBeVisible();
   await expect(dialog.getByRole("button", { name: "Cancel" })).toBeHidden();
-  // Escape closes it and focus goes back to the page.
+  // Escape closes it and focus goes back to the control that opened it (Manage order's own sheet has closed,
+  // so the browser hands it to Manage order).
   await page.keyboard.press("Escape");
   await expect(dialog).toBeHidden();
+  await expect(page.getByRole("button", { name: "Manage order" })).toBeFocused();
 
   await page.getByRole("button", { name: "Manage order" }).click();
   await page.getByRole("button", { name: /Send ticket to a friend/ }).click();
@@ -194,10 +196,22 @@ test("390 phone: the full-screen ticket's Send opens the bottom sheet; the toast
   await expect(sheet.getByRole("button", { name: "Cancel" })).toBeVisible();
   await noSidewaysScroll(page);
   await fillSend(page);
-  // The full-screen ticket stays up; the toast is inside it (the page behind is inert).
-  await expect(screenDialog.getByText("Sent to Sam. We’ll email you when they accept.")).toBeVisible();
-  const toast = await screenDialog.getByText("Sent to Sam. We’ll email you when they accept.").boundingBox();
-  expect(toast?.height).toBeLessThanOrEqual(24);
+  // The full-screen ticket stays up; the toast is inside it (the page behind is inert), wholly on screen and
+  // below the top bar, so ✕ and the ticket count stay clear (its words may wrap: that's allowed).
+  const words = screenDialog.getByText("Sent to Sam. We’ll email you when they accept.");
+  await expect(words).toBeVisible();
+  const box = await screenDialog.locator("[data-toast] > div").boundingBox();
+  const close = await screenDialog.getByRole("button", { name: "Close ticket" }).boundingBox();
+  if (!box || !close) throw new Error("the toast and ✕ should both be laid out");
+  expect(box.x).toBeGreaterThanOrEqual(0);
+  expect(box.x + box.width).toBeLessThanOrEqual(390);
+  expect(box.y).toBeGreaterThanOrEqual(close.y + close.height);
+  expect(box.y + box.height).toBeLessThanOrEqual(844);
+  // Send has gone (the ticket's on offer now): focus is on ✕, not lost to the inert page.
+  await expect(screenDialog.getByRole("button", { name: "Send", exact: true })).toBeHidden();
+  await expect(screenDialog.getByRole("button", { name: "Close ticket" })).toBeFocused();
+  // ✕ still takes a press with the toast up.
+  await screenDialog.getByRole("button", { name: "Close ticket" }).click({ trial: true });
 });
 
 test("320 phone: the send sheet fits with no sideways scrolling", async ({ page }) => {
@@ -239,7 +253,7 @@ test("accept: signed out → Sign in → back (the token kept in the tab) → Ac
   // The token is forgotten once used.
   expect(await page.evaluate(() => sessionStorage.getItem("sheltuh:ticket-offer"))).toBeNull();
   // My tickets is the current place in the account tabs.
-  await expect(page.locator('[aria-current="page"]', { hasText: "My tickets" }).first()).toBeAttached();
+  await expect(page.locator('[aria-current="location"]', { hasText: "My tickets" }).first()).toBeAttached();
 });
 
 test("the email's Decline (&decline=1) asks first; Decline ticket declines without signing in", async ({ page }) => {

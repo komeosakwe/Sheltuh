@@ -20,7 +20,7 @@ export default function AccountTabs({ items }: { items: AccountNavItem[] }) {
           <li key={item.key} className="flex shrink-0">
             <Link
               href={item.href}
-              aria-current={item.current ? "page" : undefined}
+              aria-current={item.current ? (item.currentKind ?? "page") : undefined}
               data-account-tab={item.key}
               className={`body-s flex min-h-11 items-center gap-2 border-b-2 py-3 font-semibold whitespace-nowrap focus-visible:-outline-offset-2 hover:text-foreground ${
                 item.current ? "border-foreground text-foreground" : "border-transparent text-muted"

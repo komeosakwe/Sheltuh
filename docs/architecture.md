@@ -1812,6 +1812,14 @@ old address's holder doesn't learn the new one. The browser forgets its
 token (`forgetOrderAccessIfFinal`, `lib/order-access.ts`) as soon as the
 server says `event_ended`, `ticket_scanned` or `changed_by_support`, in a
 read or a change's 409: none of them can ever be changed from there again.
+One exception (see "Ticket transfers"): the token is also the paying
+browser's proof of control for sending the order's tickets, so after
+`ticket_scanned` it's kept while the order still says this browser may send
+a ticket (`transfers.canSend`) or cancel an offer (an offer's `canCancel`):
+`neededForTickets` in the ticket page's `needsAccessForTickets`. A buyer of
+four who's been scanned in can still send the other three from that phone.
+`event_ended` and `changed_by_support` still end it (the server stops
+honouring it for sends then anyway).
 The change's own 200 is the same `CustomerOrder` as the read (`withWallet`
 included), so the page keeps its wallet buttons.
 
@@ -4809,9 +4817,9 @@ person (`supabase/migrations/20261120000000_group_tickets.sql`,
 `NEXT_PUBLIC_TICKET_TRANSFERS` (`lib/ticket-transfers-flag.ts`): off stops new
 sends only; offers already made can be viewed, accepted, declined and
 cancelled, received tickets keep working at the door, and sent tickets stay
-sent. Built in stages: this release is the database, the API, the door and
-the redaction; the emails (and the offer link's token minting), the
-organiser's view, reminders to holders, the UI and recipients' wallet passes
+sent. Built in stages: the database, the API, the door, the redaction and
+the UI (below) are in; the emails (and the offer link's token minting), the
+organiser's view, reminders to holders and recipients' wallet passes
 follow. Until the emails ship, the transfer jobs wait in the outbox: no
 release leases them (`ticketTransferJobsSoon` is empty, and the cron's drain
 doesn't name their kinds).
@@ -4926,6 +4934,35 @@ let the old address's account through. `tests/server/ticket-transfer-races.test.
 (real Postgres) races accept against accept, cancel, decline, a check-in, a
 refund, an opt-in and the sweep, two accepts of one account at the cap less
 one, and two sends.
+
+**The UI** (Latte's 1120 frames; owner rule: the full ticket is the orange-outline one everywhere):
+- **Sending**, on the ticket page (`/checkout/success`, `components/CheckoutConfirmation.tsx` and
+  `components/tickets/MyTicketView.tsx`): Manage order's "Send ticket to a friend" and the full-screen ticket's
+  Send, for a ticket the API says `canSend`, open `components/tickets/SendTicketDialog.tsx` (the 480 dialog
+  from 768, the bottom sheet below: their name, their email, the sender's own name, and a Privacy Policy link).
+  A ticket on offer keeps its QR with a "Waiting for Sam to accept" strip and Cancel; a sent one is the
+  Transferred ticket card (no code). A toast (`components/ui/Toast.tsx`) confirms a send or cancel. Signed in,
+  the page's `GET /orders/by-session/{id}` also sends the account's bearer token (`getOrderBySession`'s
+  `getToken`), so the buyer signed in with the buying email gets control, and the order is read again
+  (quietly) when an account signs in after it was read. Without control, Manage order's row says to sign in
+  (or switch account) with the buying email; the order id waits in this tab's sessionStorage under
+  `sheltuh:return-order` (`lib/ticket-transfer-return.ts`), and the sign-in's `next` carries only
+  `/checkout/success?send={n}` (never the order id: OAuth puts `next` in Supabase's redirect URL). `?send={n}`
+  brings ticket n into view and opens Send for it once the order says it can be sent.
+- **Accepting**, `/tickets/accept#token=…` (`app/(account)/tickets/accept`, `AcceptTicketFlow`), in the
+  account frame: the token is read from the fragment (`useFragmentToken`, `lib/link-token.ts`; `&decline=1`
+  from the email's Decline opens the decline question) and taken out of the address bar, then kept only in
+  this tab's sessionStorage under `sheltuh:ticket-offer` for the sign-in round trip: never a query string,
+  cookie or localStorage. It's forgotten once used, once the server says it can't be, and on the person's own
+  Sign out (`AuthContext.signOut`, global); the page's Switch account signs out locally and keeps it. Opening
+  only reads (`POST /ticket-transfers/view`). The full ticket shows with its QR locked (a placeholder that
+  encodes nothing, and no code of any kind). Signed in: "Your name" (shared with the organiser, said so) and
+  Accept, then `/tickets/received/{transferId}` (`ReceivedTicket`, account-gated: the recipient's own QR, no
+  order data, the transfer's reference).
+- **Headers and analytics**: `next.config.ts` sends `Referrer-Policy: no-referrer` and
+  `X-Robots-Tag: noindex, nofollow` for `/tickets/accept` and `/tickets/received/:path*` (and their pages'
+  metadata says the same). Analytics never keeps a fragment, and replaces the id in
+  `/tickets/received/{id}` with `[transferId]` (`sanitizePathname`, `lib/analytics-privacy.ts`).
 
 ### Accepted risks (ticket transfers)
 
@@ -7304,7 +7341,8 @@ ad pixels: it is PostHog (above) with campaign tags on links.
   checkout page's Report-Only policy would need their hosts); (4) a server-side
   Conversions API option so hashed buyer details never need to reach the browser;
   (5) organiser sign-off, since buyer data is organisers' data; (6) keeping the
-  tags off `/checkout/*`, `/auth/*` and the emailed-link pages; (7) a legal check
+  tags off `/checkout/*`, `/auth/*` and the emailed-link pages (among them `/tickets/accept`, whose
+  fragment carries a sent ticket's token, and `/tickets/received/*`); (7) a legal check
   against the Privacy Act / APPs and the Spam Act for any email matching. Until
   then, UTM links plus PostHog answer "which campaign brought signups and sales".
 

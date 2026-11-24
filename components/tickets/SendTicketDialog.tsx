@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useId, useRef, useState, type FormEvent, type ReactNode, type RefObject } from "react";
 import { Button } from "@/components/ui/Button";
 import Sheet from "@/components/ui/Sheet";
@@ -7,6 +8,8 @@ import { ApiError } from "@/lib/api/client";
 import type { TicketTransferErrorCode } from "@/lib/api/types";
 import { SUPPORT_EMAIL } from "@/lib/contact";
 import { suggestEmail } from "@/lib/email-typos";
+import { PERSON_NAME_MAX_LENGTH } from "@/lib/person-name";
+import { TICKET_TRANSFER_RULES } from "@/lib/ticket-transfer-rules";
 
 /** What the buyer types to send a ticket (TicketTransferInput less the ticket's number). */
 export interface SendTicketFields {
@@ -15,8 +18,6 @@ export interface SendTicketFields {
   senderName: string;
 }
 
-/** The longest name the API takes (lib/server/order-input.ts BUYER_NAME_MAX_LENGTH). */
-const NAME_MAX = 80;
 /** A light check before sending: something@something.tld with no spaces. The server checks it properly. */
 const LOOKS_LIKE_EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -25,7 +26,7 @@ export const SEND_ERROR_MESSAGES: Partial<Record<TicketTransferErrorCode, string
   transfer_pending: "This ticket is already waiting for someone to accept it.",
   ticket_already_sent: "This ticket has already been sent.",
   ticket_checked_in: "This ticket has been checked in, so it can’t be sent.",
-  transfers_closed: "Tickets can be sent until 2 hours before the event starts.",
+  transfers_closed: `Tickets can be sent until ${TICKET_TRANSFER_RULES.cutoffBeforeStart} before the event starts.`,
   event_unlisted: "This event is no longer listed.",
   ticket_type_not_transferable: "This ticket can’t be sent.",
   order_not_paid: "This order isn’t paid, so its tickets can’t be sent.",
@@ -45,6 +46,8 @@ function errorCode(err: unknown): string | null {
 interface SendTicketDialogProps {
   open: boolean;
   onClose: () => void;
+  /** Which ticket, for an order of several: "Ticket 2 of 3 · Section A, row C, seat 12". Under the body. */
+  ticketLabel?: string;
   /** The sender's name to start with: the signed-in member's display name, when there is one. */
   defaultSenderName?: string;
   /** Sends it. Resolves once it's sent (the page then closes this and says so); rejects with the API's error. */
@@ -70,13 +73,22 @@ interface SendTicketDialogProps {
  * button. Escape, the ✕ (or Cancel on phones) and the scrim close it; focus
  * goes back to what opened it.
  */
-export default function SendTicketDialog({ open, onClose, defaultSenderName = "", onSend, onSignIn }: SendTicketDialogProps) {
+export default function SendTicketDialog({ open, onClose, ticketLabel, defaultSenderName = "", onSend, onSignIn }: SendTicketDialogProps) {
   return (
     <Sheet
       open={open}
       onClose={onClose}
       title="Send this ticket"
-      subtitle="Your friend gets their own QR code. This one stops working once they accept."
+      subtitle={
+        <>
+          Your friend gets their own QR code. This one stops working once they accept.
+          {ticketLabel && (
+            <span data-send-ticket-label="" className="mt-1 block font-semibold text-foreground">
+              {ticketLabel}
+            </span>
+          )}
+        </>
+      }
       dismissLabel="Cancel"
     >
       <SendTicketForm defaultSenderName={defaultSenderName} onSend={onSend} onSignIn={onSignIn} />
@@ -257,6 +269,15 @@ function SendTicketForm({
       <Button type="submit" variant="signal" busy={busy} className="w-full">
         {busy ? "Sending…" : "Send ticket"}
       </Button>
+      {/* Someone else's name and email are collected here, and the page's footer is behind the modal: the policy
+          is one link away. The wording is a placeholder for the owner's (owner question 33). */}
+      <p className="body-s text-muted">
+        How we use their details:{" "}
+        <Link href="/privacy" className="text-foreground underline underline-offset-4 hover:decoration-2">
+          Privacy Policy
+        </Link>
+        .
+      </p>
     </form>
   );
 }
@@ -306,7 +327,7 @@ function TextField({
         onBlur={onBlur}
         placeholder={placeholder}
         autoComplete={autoComplete}
-        maxLength={type === "email" ? 254 : NAME_MAX}
+        maxLength={type === "email" ? 254 : PERSON_NAME_MAX_LENGTH}
         required
         {...(type === "email" ? { inputMode: "email" as const, spellCheck: false, autoCapitalize: "none" } : {})}
         aria-invalid={error ? true : undefined}

@@ -47,10 +47,12 @@ export function useToast(): ToastControls {
 /**
  * Latte's UI / Toast (1120 "Ticket sent (toast)"): 358 wide at most, white,
  * radius 8, padding 16 × 12, an orange ✓ and the words in Body/S Strong,
- * near the top of the screen. 12 on the right, not 16: the frame's own words
- * overrun its 16 by 3px, and this keeps them on one line in 358. A 1px
- * border/subtle ring (outside its box, so it takes no room) so it holds on a
- * white page too (the frame draws it over the black full-screen ticket).
+ * near the top of the screen. The words wrap rather than overrun: the
+ * frame's own sentence is 3px wider than its 358 box allows at 16px padding
+ * (it's drawn on one line with no wrapping), so on a 390 screen it may take
+ * two lines. A 1px border/subtle ring (outside its box, so it takes no room)
+ * so it holds on a white page too (the frame draws it over the black
+ * full-screen ticket).
  *
  * The polite status region is always there, so the words are read out when
  * they arrive. A page shows one of these; a modal it opens (the full-screen
@@ -58,7 +60,13 @@ export function useToast(): ToastControls {
  * inert and hidden from screen readers. It slides down 8px and fades in over
  * 150ms; with reduced motion it only fades.
  */
-export default function Toast({ controls }: { controls: Pick<ToastControls, "toast" | "hold"> }) {
+export type ToastPlacement = "page" | "screen";
+
+/**
+ * `placement`: `page`, 16px from the top; `screen`, over the full-screen ticket, below its top bar (✕, the
+ * ticket count and Send stay in reach).
+ */
+export default function Toast({ controls, placement = "page" }: { controls: Pick<ToastControls, "toast" | "hold">; placement?: ToastPlacement }) {
   const { toast, hold } = controls;
   return (
     <div
@@ -66,7 +74,7 @@ export default function Toast({ controls }: { controls: Pick<ToastControls, "toa
       aria-live="polite"
       aria-atomic="true"
       data-toast=""
-      className="pointer-events-none fixed inset-x-4 top-4 z-50 flex justify-center"
+      className={`pointer-events-none fixed inset-x-4 z-50 flex justify-center ${placement === "screen" ? "top-16" : "top-4"}`}
     >
       {toast && (
         <div
@@ -74,7 +82,7 @@ export default function Toast({ controls }: { controls: Pick<ToastControls, "toa
           onPointerEnter={() => hold(true)}
           onPointerLeave={() => hold(false)}
           data-surface="paper"
-          className="pointer-events-auto flex w-full max-w-89.5 items-center gap-2 rounded-control bg-paper py-3 pr-3 pl-4 ring-1 ring-surface-border text-ink transition-[opacity,translate] duration-150 ease-out starting:opacity-0 motion-safe:starting:-translate-y-2"
+          className="pointer-events-auto flex w-full max-w-89.5 items-center gap-2 rounded-control bg-paper px-4 py-3 ring-1 ring-surface-border text-ink transition-[opacity,translate] duration-150 ease-out starting:opacity-0 motion-safe:starting:-translate-y-2"
         >
           <span aria-hidden="true" className="label-button shrink-0 text-signal">
             ✓

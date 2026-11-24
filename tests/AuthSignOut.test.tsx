@@ -5,6 +5,7 @@ import { useEffect } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AuthProvider, SessionExpiredError, useAuth, type AuthContextValue } from "@/lib/auth/AuthContext";
 import { announceUserSignOut, endsSession, lastUserSignOut, onUserSignOut } from "@/lib/auth/sign-out-signal";
+import { keepOfferToken, keptOfferToken } from "@/lib/ticket-transfer-return";
 
 // A stand-in for the Supabase browser client: only what AuthProvider calls.
 let listener: ((event: AuthChangeEvent, session: Session | null) => void) | undefined;
@@ -103,6 +104,17 @@ describe("AuthProvider: signedOutBy (was it the person's own Sign out?)", () => 
     expect(signOut).toHaveBeenCalledWith({ scope: "local" });
     expect(current().signedOutBy).toBe("session");
     expect(lastUserSignOut()).toBeNull();
+  });
+
+  it("the person's own Sign out forgets a sent ticket's accept link kept in this tab; a local one (Switch account) keeps it", () => {
+    const token = "T".repeat(40) + "k_-";
+    supabaseSays(session("user-a"));
+    keepOfferToken(token);
+    act(() => current().signOut("local"));
+    expect(keptOfferToken()).toBe(token);
+    supabaseSays(session("user-a"));
+    act(() => current().signOut());
+    expect(keptOfferToken()).toBeNull();
   });
 
   it("a session that ends by itself (expiry, a revoked refresh token) is 'session'", () => {

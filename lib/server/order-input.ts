@@ -1,4 +1,5 @@
 import { formatAud } from "@/lib/format";
+import { PERSON_NAME_MAX_LENGTH } from "@/lib/person-name";
 import { admitsOf } from "@/lib/ticket-groups";
 import { MAX_PEOPLE_PER_TYPE } from "@/lib/ticket-limits";
 import { isSupportSheltuhEnabled, SUPPORT_LABEL, SUPPORT_MAX_CENTS, SUPPORT_MIN_CENTS, SUPPORT_PAUSED } from "@/lib/support";
@@ -125,7 +126,7 @@ export function refuseSupportOnFreeOrder(supportCents: number, subtotalCents: nu
 const JOINER_BETWEEN_LETTERS = /(?<=[\p{L}\p{M}])[\u200C\u200D](?=\p{L})/gu;
 
 /** The longest buyer name (orders_buyer_name_check counts code points too). */
-export const BUYER_NAME_MAX_LENGTH = 80;
+export const BUYER_NAME_MAX_LENGTH = PERSON_NAME_MAX_LENGTH;
 
 /**
  * Why `value` isn't a person's name, or null with the cleaned name: Unicode

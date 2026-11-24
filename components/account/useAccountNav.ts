@@ -20,6 +20,11 @@ export interface AccountNavItem {
   /** Read after the label by screen readers, with its separator: ", 3 unread". */
   countText?: string;
   current: boolean;
+  /**
+   * What `current` means to a screen reader (aria-current): "page", the link's own page; "location", a page under
+   * this place that the link doesn't go to (an Accept page or a received ticket, under My tickets).
+   */
+  currentKind?: "page" | "location";
 }
 
 export interface AccountNav {
@@ -81,8 +86,10 @@ export function useAccountNav(pathname: string): AccountNav {
       href: MY_TICKETS_HREF,
       count: upcoming,
       countText: upcoming ? `, ${plural(upcoming, "upcoming event", "upcoming events")}` : undefined,
-      // A sent ticket's Accept page and a received ticket are tickets (Latte's Accept ticket frames).
+      // A sent ticket's Accept page and a received ticket are tickets (Latte's Accept ticket frames); the link goes
+      // elsewhere, so it's their location, not their page.
       current: at("/tickets"),
+      currentKind: "location",
     },
     {
       key: "saved",

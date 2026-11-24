@@ -12,13 +12,14 @@ import { LoadingState } from "@/components/ui/ProgressLoader";
 import { ApiError, isApiConfigured } from "@/lib/api/client";
 import { acceptTicketOffer, declineTicketOffer, viewTicketOffer } from "@/lib/api/ticket-transfers";
 import type { TicketOffer, TicketOfferErrorCode } from "@/lib/api/types";
-import { useAuth } from "@/lib/auth/AuthContext";
+import { SessionExpiredError, useAuth } from "@/lib/auth/AuthContext";
 import { eventZone } from "@/lib/format";
-import { tokenFromHash } from "@/lib/link-token";
-import { firstName } from "@/lib/person-name";
+import { useFragmentToken } from "@/lib/link-token";
+import { firstName, PERSON_NAME_MAX_LENGTH } from "@/lib/person-name";
 import { bareSuburb } from "@/lib/place";
 import { withNext } from "@/lib/safe-next-path";
 import { ticketStubDate, ticketStubTime } from "@/lib/ticket-times";
+import { MAX_HELD_TICKETS_PER_EVENT } from "@/lib/ticket-transfer-rules";
 import { forgetOfferToken, keepOfferToken, keptOfferToken } from "@/lib/ticket-transfer-return";
 
 export const ACCEPT_PATH = "/tickets/accept";
@@ -38,7 +39,7 @@ export function acceptErrorMessage(code: TicketOfferErrorCode, sender: string): 
     case "ticket_unavailable":
       return `This ticket can’t be accepted any more. Ask ${sender} about it.`;
     case "received_cap":
-      return "You already hold 10 tickets for this event.";
+      return `You already hold ${MAX_HELD_TICKETS_PER_EVENT} tickets for this event.`;
     case "rate_limited":
       return "Too many tries. Wait a little, then try again.";
   }
@@ -60,19 +61,21 @@ type OfferLink = { status: "loading" } | { status: "missing" } | { status: "read
  * tab's sessionStorage until it's used or the server says it can't be (lib/ticket-transfer-return.ts).
  */
 function useOfferLink(): OfferLink {
+  const fragment = useFragmentToken();
   const [link, setLink] = useState<OfferLink>({ status: "loading" });
-  const captured = useRef<{ token: string | null; decline: boolean } | null>(null);
   useEffect(() => {
-    if (!captured.current) {
-      const hash = window.location.hash;
-      captured.current = { token: tokenFromHash(hash), decline: new URLSearchParams(hash.replace(/^#/, "")).get("decline") === "1" };
-      if (hash) window.history.replaceState(null, "", window.location.pathname + window.location.search);
-    }
-    const { token, decline } = captured.current;
-    if (token) keepOfferToken(token);
-    const use = token ?? keptOfferToken();
-    queueMicrotask(() => setLink(use ? { status: "ready", token: use, decline: Boolean(token) && decline } : { status: "missing" }));
-  }, []);
+    if (fragment.status === "loading") return;
+    // Deferred so the effect body itself never calls setState.
+    queueMicrotask(() => {
+      if (fragment.status === "ready") {
+        keepOfferToken(fragment.token);
+        setLink({ status: "ready", token: fragment.token, decline: new URLSearchParams(fragment.fragment).get("decline") === "1" });
+        return;
+      }
+      const kept = keptOfferToken();
+      setLink(kept ? { status: "ready", token: kept, decline: false } : { status: "missing" });
+    });
+  }, [fragment]);
   return link;
 }
 
@@ -293,7 +296,7 @@ function OfferView({
   const sender = firstName(offer.fromName);
   const [holderName, setHolderName] = useState(offer.toName);
   const [nameError, setNameError] = useState<string | null>(null);
-  const [formError, setFormError] = useState<string | null>(null);
+  const [formError, setFormError] = useState<{ message: string; action?: { href: string; label: string } } | null>(null);
   const [busy, setBusy] = useState<"accept" | "decline" | null>(null);
   const [confirmDecline, setConfirmDecline] = useState(startWithDecline);
   const nameRef = useRef<HTMLInputElement>(null);
@@ -342,10 +345,18 @@ function OfferView({
         return;
       }
       const code = offerErrorCode(err);
-      if (code) return setFormError(acceptErrorMessage(code, sender));
-      if (err instanceof ApiError && err.status === 401) return setFormError("Your session has ended. Sign in again to accept.");
-      if (err instanceof ApiError && err.status === 403) return setFormError("Confirm your email address to accept this ticket.");
-      setFormError("Couldn’t accept the ticket. Try again.");
+      if (code) return setFormError({ message: acceptErrorMessage(code, sender) });
+      // The session ended (the API's 401, or no token to be had): sign in again, back here (the token waits).
+      if ((err instanceof ApiError && err.status === 401) || err instanceof SessionExpiredError) {
+        return setFormError({ message: "Your session has ended. Sign in again to accept.", action: { href: SIGN_IN_HREF, label: "Sign in" } });
+      }
+      if (err instanceof ApiError && err.status === 403) {
+        return setFormError({
+          message: "Confirm your email address to accept this ticket.",
+          action: { href: withNext("/verify", ACCEPT_PATH, auth.email ? { email: auth.email } : {}), label: "Verify your email" },
+        });
+      }
+      setFormError({ message: "Couldn’t accept the ticket. Try again." });
     }
   }
 
@@ -359,9 +370,9 @@ function OfferView({
     } catch (err) {
       setBusy(null);
       if (err instanceof ApiError && err.status === 404) return onGone();
-      setFormError(
-        err instanceof ApiError && err.status === 429 ? "Too many tries. Wait a little, then try again." : "Couldn’t decline the ticket. Try again.",
-      );
+      setFormError({
+        message: err instanceof ApiError && err.status === 429 ? "Too many tries. Wait a little, then try again." : "Couldn’t decline the ticket. Try again.",
+      });
     }
   }
 
@@ -372,9 +383,14 @@ function OfferView({
   }
 
   const errorLine = formError && (
-    <p role="alert" className="body-s text-danger">
-      {formError}
-    </p>
+    <div role="alert" className="flex flex-wrap items-center gap-x-2">
+      <p className="body-s text-danger">{formError.message}</p>
+      {formError.action && (
+        <Link href={formError.action.href} className={quietLinkClass}>
+          {formError.action.label}
+        </Link>
+      )}
+    </div>
   );
 
   return (
@@ -434,7 +450,7 @@ function OfferView({
                 setNameError(null);
               }}
               autoComplete="name"
-              maxLength={80}
+              maxLength={PERSON_NAME_MAX_LENGTH}
               required
               aria-invalid={nameError ? true : undefined}
               aria-describedby={`${nameError ? `${id}-name-error ` : ""}${id}-name-hint`}

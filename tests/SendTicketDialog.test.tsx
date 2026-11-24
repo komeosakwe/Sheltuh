@@ -83,6 +83,16 @@ describe("SendTicketDialog", () => {
     // The phone sheet's Cancel (hidden from 768, where the ✕ closes it).
     expect(within(dialog).getByRole("button", { name: "Cancel" })).toBeInTheDocument();
     await waitFor(() => expect(name).toHaveFocus());
+    // Their details are someone else's: the policy is a link away (the page's footer is behind the modal).
+    expect(within(dialog).getByRole("link", { name: "Privacy Policy" })).toHaveAttribute("href", "/privacy");
+  });
+
+  it("for an order of several, says which ticket under the body", async () => {
+    function Labelled() {
+      return <SendTicketDialog open onClose={() => {}} ticketLabel="Ticket 2 of 3 · Stalls · Row F · Seat 12" onSend={vi.fn()} onSignIn={() => {}} />;
+    }
+    render(<Labelled />);
+    expect(await screen.findByRole("dialog", { name: "Send this ticket" })).toHaveTextContent("Ticket 2 of 3 · Stalls · Row F · Seat 12");
   });
 
   it("prefills the sender's name from the member's profile", async () => {
@@ -111,7 +121,7 @@ describe("SendTicketDialog", () => {
     expect(within(dialog).getByLabelText("Their name")).not.toHaveAttribute("aria-invalid");
   });
 
-  it("sends the trimmed fields, then closes and focus goes back to what opened it", async () => {
+  it("sends the trimmed fields, then closes (focus going back to the opener is the browser's: e2e/ticket-transfer.spec.ts)", async () => {
     const onSend = vi.fn().mockResolvedValue(undefined);
     render(<Harness onSend={onSend} />);
     const { dialog, opener } = await openDialog();
@@ -119,7 +129,6 @@ describe("SendTicketDialog", () => {
     fireEvent.click(within(dialog).getByRole("button", { name: "Send ticket" }));
     await waitFor(() => expect(onSend).toHaveBeenCalledWith({ name: "Sam Lee", email: "sam@email.com", senderName: "Alex Chen" }));
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
-    // The browser puts focus back on the opener when a modal dialog closes (jsdom's stand-in doesn't track it).
     expect(opener).toBeInTheDocument();
   });
 

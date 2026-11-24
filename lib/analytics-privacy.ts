@@ -11,15 +11,15 @@
  *    (utm_*) parameters on every page. That covers the pages whose addresses
  *    carry a credential: an order reference (/checkout/success?session_id=…),
  *    a one-time sign-in code (/auth/callback?code=…), and the tokens in the
- *    fragments of /waitlist/*, /following/*, /holder-messages/stop, /invite and
- *    /organisers/join. A suburb in /search?near= goes too. A campaign value
- *    is kept only in the shape our own links have (campaignParamValue): an
- *    email address or a token put in utm_* by a crafted link is dropped. A campaign value
- *    is kept only in the shape our own links have (campaignParamValue): an
- *    email address or a token put in utm_* by a crafted link is dropped.
- *  - Ids of people (a member profile, a conversation) and ticket codes in an
- *    address are replaced by a placeholder, and an order reference (`ord_…`) is
- *    removed from anything that is sent.
+ *    fragments of /waitlist/*, /following/*, /holder-messages/stop, /invite,
+ *    /organisers/join and /tickets/accept (a sent ticket's accept link). A
+ *    suburb in /search?near= goes too. A campaign value is kept only in the
+ *    shape our own links have (campaignParamValue): an email address or a
+ *    token put in utm_* by a crafted link is dropped.
+ *  - Ids of people (a member profile, a conversation, a received ticket's
+ *    transfer in /tickets/received/{id}) and ticket codes in an address are
+ *    replaced by a placeholder, and an order reference (`ord_…`) is removed
+ *    from anything that is sent.
  *  - An error report (PostHog's `$exception`) keeps only its error's class name, a redacted message
  *    and its stack frames' locations (sanitizeExceptionList).
  */
