@@ -125,7 +125,7 @@ async function main() {
   }
   const sorted = [...times].sort((a, b) => a - b);
   const at = (q: number) => sorted[Math.min(sorted.length - 1, Math.ceil(q * sorted.length) - 1)];
-  if (sorted.length) console.log(`${sorted.length} cards: p50 ${at(0.5).toFixed(0)} ms, p95 ${at(0.95).toFixed(0)} ms (the first includes loading fonts and wasm)`);
+  if (sorted.length) console.log(`${sorted.length} cards: p50 ${at(0.5).toFixed(0)} ms, p95 ${at(0.95).toFixed(0)} ms (the first includes loading the fonts and next/og)`);
 }
 
 main().catch((err) => {

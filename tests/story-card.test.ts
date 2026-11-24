@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
   backdropMode,
+  estimateTitleLines,
+  fitToStoryCardFont,
+  inStoryCardFont,
+  STORY_CARD_FALLBACK_TITLE,
+  STORY_CARD_TITLE_LINES,
   demoCardNow,
   FALLBACK_TONE,
   isStoryCardFormat,
@@ -161,50 +166,135 @@ describe("storyCardText", () => {
     expect(long.startsWith(title.slice(0, -1))).toBe(true);
   });
 
-  it("removes emoji from the title, and keeps the title if nothing else is left", () => {
+  it("removes emoji from the title, the venue and the suburb", () => {
     expect(storyCardText({ ...EVENT, title: "🎷 Late Jazz 🌙✨ at the Corner" }).title).toBe("Late Jazz at the Corner");
-    expect(storyCardText({ ...EVENT, title: "🎉🎉" }).title).toBe("🎉🎉");
+    expect(storyCardText({ ...EVENT, venueName: "The 🍷 Wine Bar", suburb: "Fitzroy 🌿" }).place).toBe("The Wine Bar, Fitzroy");
+    expect(storyCardText({ ...EVENT, venueName: "🍷🍷", suburb: "Fitzroy" }).place).toBe("Fitzroy");
+  });
+
+  it("a title with nothing the card can draw becomes the venue's name, or 'Event'", () => {
+    expect(storyCardText({ ...EVENT, title: "🎉🎉" }).title).toBe("Interconnect Studio");
+    expect(storyCardText({ ...EVENT, title: "東京ナイト" }).title).toBe("Interconnect Studio");
+    expect(storyCardText({ ...EVENT, title: "🎉", venueName: "🍷" }).title).toBe(STORY_CARD_FALLBACK_TITLE);
+    expect(STORY_CARD_FALLBACK_TITLE).toBe("Event");
+  });
+
+  it("fits every line to the font: other scripts dropped, accents the font lacks taken off", () => {
+    const text = storyCardText({ ...EVENT, title: "Ĉu Night 東京", venueName: "Café 🍷 Ĝardeno", suburb: "Fitzroy" });
+    expect(text.title).toBe("Cu Night");
+    expect(text.place).toBe("Café Gardeno, Fitzroy");
+    for (const value of Object.values(text)) {
+      for (const char of value) expect(inStoryCardFont(char.codePointAt(0)!)).toBe(true);
+    }
   });
 });
 
 describe("stripEmoji", () => {
   it("removes pictographs with their joiners, variation selectors, skin tones, flags and keycaps", () => {
-    expect(stripEmoji("Party 👩🏽‍🎤 time")).toBe("Party time");
-    expect(stripEmoji("Love ❤️ songs")).toBe("Love songs");
+    expect(stripEmoji("Party 👩🏽\u{200D}🎤 time")).toBe("Party time");
+    expect(stripEmoji("Love ❤\u{FE0F} songs")).toBe("Love songs");
     expect(stripEmoji("Aussie 🇦🇺 night")).toBe("Aussie night");
-    expect(stripEmoji("Pick 1️⃣ now")).toBe("Pick 1 now");
+    expect(stripEmoji("Pick 1\u{FE0F}\u{20E3} now")).toBe("Pick 1 now");
   });
 
-  it("keeps text, accents and the ©, ® and ™ our font draws", () => {
+  it("keeps text, accents and the ©, ® and ™ our font draws; nothing left is empty", () => {
     expect(stripEmoji("Été à München")).toBe("Été à München");
     expect(stripEmoji("Brand™ Live® ©2026")).toBe("Brand™ Live® ©2026");
     expect(stripEmoji("Rock & Roll: 5–9 pm")).toBe("Rock & Roll: 5–9 pm");
+    expect(stripEmoji("🎉 🎉")).toBe("");
   });
 });
 
-describe("storyCardTitleSize (wrapping steps)", () => {
-  it("story: 128 up to 30 characters, then 112, 96 and 80", () => {
-    expect(storyCardTitleSize("Here & Now", "story")).toBe(128);
-    expect(storyCardTitleSize("The Long Night of Short Films", "story")).toBe(128); // 29
-    expect(storyCardTitleSize("x".repeat(30), "story")).toBe(128);
-    expect(storyCardTitleSize("x".repeat(31), "story")).toBe(112);
-    expect(storyCardTitleSize("x".repeat(45), "story")).toBe(112);
-    expect(storyCardTitleSize("x".repeat(46), "story")).toBe(96);
-    expect(storyCardTitleSize("x".repeat(60), "story")).toBe(96);
-    expect(storyCardTitleSize("x".repeat(61), "story")).toBe(80);
-    expect(storyCardTitleSize("x".repeat(80), "story")).toBe(80);
+describe("fitToStoryCardFont", () => {
+  it("keeps what the font draws, as written", () => {
+    expect(fitToStoryCardFont("Été à München — “Live” 5–9 pm…")).toBe("Été à München — “Live” 5–9 pm…");
+    expect(fitToStoryCardFont("Brand™ Live® ©2026 €10")).toBe("Brand™ Live® ©2026 €10");
+    // ß is drawn, and so are its capitals ("SS"), which the title is set in.
+    expect(fitToStoryCardFont("Straße")).toBe("Straße");
   });
 
-  it("square: 104, 92, 80 and 68 at the same steps", () => {
-    expect(storyCardTitleSize("x".repeat(30), "square")).toBe(104);
-    expect(storyCardTitleSize("x".repeat(45), "square")).toBe(92);
-    expect(storyCardTitleSize("x".repeat(60), "square")).toBe(80);
-    expect(storyCardTitleSize("x".repeat(61), "square")).toBe(68);
+  it("takes off accents the font lacks, and drops what it can't draw at all", () => {
+    expect(fitToStoryCardFont("Ĉapelo Ĝardeno")).toBe("Capelo Gardeno");
+    expect(fitToStoryCardFont("Ŧest")).toBe("est"); // Ŧ has no plain letter inside it: dropped
+    expect(fitToStoryCardFont("Night ± ½ 東京 🎉 Live")).toBe("Night Live");
+    expect(fitToStoryCardFont("東京")).toBe("");
+  });
+
+  it("composes first: a letter typed as letter + accent stays when the font has the composed letter", () => {
+    expect(fitToStoryCardFont("Cafe\u0301")).toBe("Café");
+  });
+
+  it("turns any space into a plain one and collapses them", () => {
+    expect(fitToStoryCardFont("  a\u2003\u2003b\tc  ")).toBe("a b c");
+  });
+
+  it("inStoryCardFont knows the font's ranges", () => {
+    expect(inStoryCardFont(0x41)).toBe(true);
+    expect(inStoryCardFont(0x2019)).toBe(true);
+    expect(inStoryCardFont(0xb1)).toBe(false); // ±
+    expect(inStoryCardFont(0x1f389)).toBe(false); // 🎉
+  });
+});
+
+/** A title of exactly `n` characters made of short words. */
+const zines = (n: number) => "Zine ".repeat(20).slice(0, n);
+
+describe("storyCardTitleSize", () => {
+  it("story: the steps by length, 128 up to 30 characters, then 112, 96 and 80, when the words wrap into 4 lines", () => {
+    expect(storyCardTitleSize("Here & Now", "story")).toBe(128);
+    expect(storyCardTitleSize("The Long Night of Short Films", "story")).toBe(128); // 29
+    expect(storyCardTitleSize(zines(30), "story")).toBe(128);
+    expect(storyCardTitleSize(zines(31), "story")).toBe(112);
+    expect(storyCardTitleSize(zines(45), "story")).toBe(112);
+    expect(storyCardTitleSize(zines(46), "story")).toBe(96);
+    expect(storyCardTitleSize(zines(60), "story")).toBe(96);
+    expect(storyCardTitleSize(zines(61), "story")).toBe(80);
+    expect(storyCardTitleSize(zines(80), "story")).toBe(80);
+  });
+
+  it("square: 104, 92, 80 and 68 at the same steps, into 3 lines", () => {
+    expect(storyCardTitleSize(zines(30), "square")).toBe(104);
+    expect(storyCardTitleSize(zines(45), "square")).toBe(92);
+    expect(storyCardTitleSize(zines(60), "square")).toBe(80);
+    expect(storyCardTitleSize(zines(80), "square")).toBe(68);
+  });
+
+  it("steps down further when long words wouldn't wrap into the clamp, so the title isn't cut mid-word", () => {
+    for (const title of [
+      "Internationally Acclaimed Contemporary Choreographers Perform Extraordinary Works",
+      "Melbourne Underground Experimental Electronic Music Showcase and Afterparty 2026",
+      "Internationally Acclaimed Choreographers Perform Extraordinary",
+    ]) {
+      const story = storyCardTitleSize(title, "story");
+      const square = storyCardTitleSize(title, "square");
+      expect(story).toBeLessThan(80);
+      expect(square).toBeLessThan(68);
+      expect(estimateTitleLines(title, story, 920)).toBeLessThanOrEqual(STORY_CARD_TITLE_LINES.story);
+      expect(estimateTitleLines(title, square, 960)).toBeLessThanOrEqual(STORY_CARD_TITLE_LINES.square);
+    }
+  });
+
+  it("never below 64 (story) or 48 (square): the line clamp is the last resort", () => {
+    const huge = "W".repeat(80);
+    expect(storyCardTitleSize(huge, "story")).toBe(64);
+    expect(storyCardTitleSize(huge, "square")).toBe(48);
   });
 
   it("counts graphemes, not UTF-16 units: an accented letter written as two code points is one", () => {
-    const decomposed = "É".repeat(30); // 30 graphemes, 60 code units
+    const decomposed = "E\u0301 ".repeat(15); // 30 graphemes, 45 code units
     expect(storyCardTitleSize(decomposed, "story")).toBe(128);
+  });
+});
+
+describe("estimateTitleLines", () => {
+  it("wraps at spaces with the font's widths: 'HERE & NOW' at 128 is one line (about 768 of 920 px)", () => {
+    expect(estimateTitleLines("Here & Now", 128, 920)).toBe(1);
+    expect(estimateTitleLines("The Long Night of Short Films", 128, 920)).toBe(3); // as the reference wraps it
+  });
+
+  it("breaks a word wider than the line inside it", () => {
+    expect(estimateTitleLines("Supercalifragilisticexpialidociousnessly", 128, 920)).toBe(4);
+    expect(estimateTitleLines("Supercalifragilisticexpialidociousnessly", 64, 920)).toBe(2);
   });
 });
 

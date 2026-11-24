@@ -2,7 +2,8 @@ import sharp, { type OutputInfo } from "sharp";
 import { backdropMode, FALLBACK_TONE, STORY_CARD_SIZES, toneFromMean, type StoryCardFormat, type StoryCardTone } from "@/lib/story-card";
 import { loaderFormat } from "./avatar";
 import { redactForLog } from "./email-address";
-import { coverCrop, type PhotoFocus } from "./share-card-data";
+import { EVENT_IMAGE_ENCODE_TIMEOUT_SECONDS, MAX_EVENT_IMAGE_INPUT_PIXELS } from "./event-image";
+import { coverCrop, dataUrl, type CoverCrop, type PhotoFocus } from "./share-card-data";
 
 /**
  * The story card's photo work (docs/design/story-card.md §3.2, §5), all done in sharp before
@@ -11,19 +12,16 @@ import { coverCrop, type PhotoFocus } from "./share-card-data";
  *   - Full-bleed: the photo cropped to the card around its focus point (object-position's maths).
  *   - Backdrop mode (covering the card would enlarge it more than 1.6 times): a blurred, darkened
  *     copy of that crop at a quarter of the size, which Satori draws at full size, and the whole
- *     photo at the card's width, drawn sharp over it.
+ *     photo at the card's width, drawn sharp over it: only as much of it as the card can show
+ *     (its top, at most the card's height), so a very tall photo costs no more than a short one.
+ *   - Every crop is cut from the photo before it's scaled, so nothing larger than the card is
+ *     ever made, whatever the photo's shape (anything up to the 24 MP cap is stored).
  *   - The tone: the mean colour of the bottom third of the crop (48 × 48, rows 32–47), on sRGB
  *     values, through toneFromMean.
  *
  * Null when the photo can't be used (not a JPEG, PNG or WebP, over the pixel cap, corrupt, too
  * slow): the card is then drawn without a photo. Never throws.
  */
-
-/** Largest decoded image, in pixels (the same cap as uploads and the link preview). */
-const MAX_INPUT_PIXELS = 24_000_000;
-
-/** Each sharp pipeline gives up after this long (libvips' own timeout). */
-const PIPELINE_TIMEOUT_SECONDS = 10;
 
 /** The tone is sampled from the crop squashed to this square; its bottom third is rows 32–47. */
 const SAMPLE_SIDE = 48;
@@ -42,17 +40,40 @@ export interface StoryCardPhoto {
   mode: "full-bleed" | "backdrop";
   /** Full-bleed: the cover crop at the card's size. Backdrop: the blurred quarter-size copy. A JPEG data URL. */
   background: string;
-  /** Backdrop mode only: the whole photo at the card's width, uncropped. */
-  sharp: { src: string; width: number; height: number } | null;
+  /**
+   * Backdrop mode only: the photo at the card's width, uncropped, as tall as `fullHeight` but cut
+   * to its top `height` rows (at most the card's height: the rest could never show). The fade
+   * mask is laid out over `fullHeight`, so a cut layer looks exactly like the whole one.
+   */
+  sharp: { src: string; width: number; height: number; fullHeight: number } | null;
   tone: StoryCardTone;
 }
 
-function dataUrl(bytes: Buffer): string {
-  return `data:image/jpeg;base64,${bytes.toString("base64")}`;
+const jpegUrl = (bytes: Buffer) => dataUrl("image/jpeg", bytes);
+
+/** The photo's decoder: the upload's pixel cap and encode timeout (lib/server/event-image.ts), first frame only. */
+function decoder(bytes: Uint8Array) {
+  return sharp(bytes, { limitInputPixels: MAX_EVENT_IMAGE_INPUT_PIXELS, failOn: "error", pages: 1 }).timeout({
+    seconds: EVENT_IMAGE_ENCODE_TIMEOUT_SECONDS,
+  });
 }
 
-function decoder(bytes: Uint8Array) {
-  return sharp(bytes, { limitInputPixels: MAX_INPUT_PIXELS, failOn: "error", pages: 1 }).timeout({ seconds: PIPELINE_TIMEOUT_SECONDS });
+/**
+ * coverCrop's region in the photo's own pixels (w × h after rotation), so it can be cut before
+ * scaling: scaling a whole tall photo up to cover the card first would make an image many times
+ * the card's size only to throw most of it away.
+ */
+export function sourceRegion(w: number, h: number, crop: CoverCrop): { left: number; top: number; width: number; height: number } {
+  const sx = crop.resize.width / w;
+  const sy = crop.resize.height / h;
+  const left = Math.min(w - 1, Math.max(0, Math.round(crop.extract.left / sx)));
+  const top = Math.min(h - 1, Math.max(0, Math.round(crop.extract.top / sy)));
+  return {
+    left,
+    top,
+    width: Math.max(1, Math.min(w - left, Math.round(crop.extract.width / sx))),
+    height: Math.max(1, Math.min(h - top, Math.round(crop.extract.height / sy))),
+  };
 }
 
 /**
@@ -60,7 +81,7 @@ function decoder(bytes: Uint8Array) {
  * fails. The pixels are averaged here, not with sharp's stats(), which describes the pipeline's
  * input and ignores its resize and extract.
  */
-async function sampleTone(crop: { data: Buffer; info: OutputInfo }): Promise<StoryCardTone> {
+export async function sampleTone(crop: { data: Buffer; info: OutputInfo }): Promise<StoryCardTone> {
   try {
     const { data, info } = await sharp(crop.data, { raw: { width: crop.info.width, height: crop.info.height, channels: crop.info.channels } })
       .resize(SAMPLE_SIDE, SAMPLE_SIDE, { fit: "fill" })
@@ -93,13 +114,14 @@ export async function storyCardPhoto(bytes: Uint8Array, focus: PhotoFocus, forma
     const cropSize = backdrop
       ? { width: Math.round(card.width / BACKDROP_FRACTION), height: Math.round(card.height / BACKDROP_FRACTION) }
       : card;
-    const crop = coverCrop(w, h, cropSize, focus);
-    // One decode for the crop, as raw sRGB pixels with any alpha flattened onto black.
+    // One decode for the crop, as raw sRGB pixels with any alpha flattened onto black: the
+    // region is cut first (in the photo's own pixels), then scaled to exactly the crop's size.
+    const region = sourceRegion(w, h, coverCrop(w, h, cropSize, focus));
     const raw = await decoder(bytes)
       .rotate()
+      .extract(region)
       .flatten({ background: "#000000" })
-      .resize(crop.resize.width, crop.resize.height, { fit: "fill" })
-      .extract(crop.extract)
+      .resize(cropSize.width, cropSize.height, { fit: "fill" })
       .removeAlpha()
       .toColourspace("srgb")
       .raw()
@@ -109,7 +131,7 @@ export async function storyCardPhoto(bytes: Uint8Array, focus: PhotoFocus, forma
 
     if (!backdrop) {
       const jpeg = await sharp(raw.data, rawInput).jpeg({ quality: LAYER_QUALITY }).toBuffer();
-      return { mode: "full-bleed", background: dataUrl(jpeg), sharp: null, tone };
+      return { mode: "full-bleed", background: jpegUrl(jpeg), sharp: null, tone };
     }
 
     const blurred = await sharp(raw.data, rawInput)
@@ -117,18 +139,22 @@ export async function storyCardPhoto(bytes: Uint8Array, focus: PhotoFocus, forma
       .linear(BACKDROP_BRIGHTNESS, 0)
       .jpeg({ quality: LAYER_QUALITY })
       .toBuffer();
-    // The whole photo, uncropped (the focus doesn't apply), at the card's width.
-    const sharpHeight = Math.max(1, Math.round((card.width * h) / w));
-    const whole = await decoder(bytes)
+    // The whole photo, uncropped (the focus doesn't apply), at the card's width. Only its top can
+    // show: taller than the card's upper zone, it starts at the card's top (design §4.4).
+    const fullHeight = Math.max(1, Math.round((card.width * h) / w));
+    const shown = Math.min(fullHeight, card.height);
+    const sourceRows = Math.max(1, Math.min(h, Math.round((shown * w) / card.width)));
+    const layer = await decoder(bytes)
       .rotate()
+      .extract({ left: 0, top: 0, width: w, height: sourceRows })
       .flatten({ background: "#000000" })
-      .resize(card.width, sharpHeight, { fit: "fill" })
+      .resize(card.width, shown, { fit: "fill" })
       .jpeg({ quality: LAYER_QUALITY })
       .toBuffer();
     return {
       mode: "backdrop",
-      background: dataUrl(blurred),
-      sharp: { src: dataUrl(whole), width: card.width, height: sharpHeight },
+      background: jpegUrl(blurred),
+      sharp: { src: jpegUrl(layer), width: card.width, height: shown, fullHeight },
       tone,
     };
   } catch (err) {

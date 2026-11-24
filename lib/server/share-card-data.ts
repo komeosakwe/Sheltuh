@@ -35,7 +35,8 @@ function logFailure(what: string, err: unknown) {
   console.error(`${what} preview card unavailable:`, redactForLog(err instanceof Error ? err.message : "unknown error"));
 }
 
-function dataUrl(mime: string, bytes: Uint8Array): string {
+/** Bytes as a data URL (Satori draws images from these). Shared with the story card. */
+export function dataUrl(mime: string, bytes: Uint8Array): string {
   return `data:${mime};base64,${Buffer.from(bytes).toString("base64")}`;
 }
 

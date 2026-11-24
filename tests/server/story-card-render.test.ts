@@ -1,12 +1,19 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
-import sharp from "sharp";
+import sharp, { type OutputInfo } from "sharp";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { HttpError } from "@/lib/server/http";
 import { coverCrop } from "@/lib/server/share-card-data";
-import { inStoryCardSlot, makeStoryCard, renderStoryCard, STORY_CARD_RENDER_SLOTS } from "@/lib/server/story-card-render";
-import { storyCardPhoto } from "@/lib/server/story-card-photo";
-import { storyCardText, type StoryCardEventFields, type StoryCardFormat } from "@/lib/story-card";
+import { inStoryCardSlot, makeStoryCard, renderStoryCard, STORY_CARD_RENDER_SLOTS, withoutKerning } from "@/lib/server/story-card-render";
+import { sampleTone, sourceRegion, storyCardPhoto } from "@/lib/server/story-card-photo";
+import {
+  FALLBACK_TONE,
+  inStoryCardFont,
+  STORY_CARD_BOLD_ADVANCE,
+  storyCardText,
+  type StoryCardEventFields,
+  type StoryCardFormat,
+} from "@/lib/story-card";
 
 /**
  * The story card's renderer (lib/server/story-card-render.tsx, lib/server/story-card-photo.ts)
@@ -72,6 +79,75 @@ describe("coverCrop (shared with the link preview)", () => {
   });
 });
 
+/** A TTF's tables, by tag. */
+function ttfTables(font: Buffer): Record<string, number> {
+  const tables: Record<string, number> = {};
+  for (let i = 0; i < font.readUInt16BE(4); i++) {
+    const at = 12 + i * 16;
+    tables[font.toString("latin1", at, at + 4)] = font.readUInt32BE(at + 8);
+  }
+  return tables;
+}
+
+/** A TTF's character map (its format 4 subtable): code point → glyph id. */
+function ttfCmap(font: Buffer): Map<number, number> {
+  const cmap = ttfTables(font).cmap;
+  const map = new Map<number, number>();
+  for (let i = 0; i < font.readUInt16BE(cmap + 2); i++) {
+    const sub = cmap + font.readUInt32BE(cmap + 4 + i * 8 + 4);
+    if (font.readUInt16BE(sub) !== 4) continue;
+    const segX2 = font.readUInt16BE(sub + 6);
+    const ends = sub + 14;
+    const starts = ends + segX2 + 2;
+    const deltas = starts + segX2;
+    const offsets = deltas + segX2;
+    for (let seg = 0; seg < segX2; seg += 2) {
+      const start = font.readUInt16BE(starts + seg);
+      const end = font.readUInt16BE(ends + seg);
+      const delta = font.readInt16BE(deltas + seg);
+      const offset = font.readUInt16BE(offsets + seg);
+      for (let code = start; code <= end && code < 0xffff; code++) {
+        const glyph = offset ? font.readUInt16BE(offsets + seg + offset + 2 * (code - start)) : code;
+        if (glyph) map.set(code, offset ? (glyph + delta) & 0xffff : (code + delta) & 0xffff);
+      }
+    }
+  }
+  return map;
+}
+
+const fontFile = (weight: string) => readFileSync(path.join(process.cwd(), "app", "fonts", "og", `InstrumentSans-${weight}.ttf`));
+
+describe("the card's fonts (app/fonts/og)", () => {
+  it("lib/story-card.ts's coverage table is exactly what every weight draws", () => {
+    for (const weight of ["Regular", "Medium", "SemiBold", "Bold"]) {
+      const mapped = [...ttfCmap(fontFile(weight)).keys()];
+      expect(mapped.length).toBe(343);
+      for (const code of mapped) expect(inStoryCardFont(code), `U+${code.toString(16)} in ${weight}`).toBe(true);
+      for (let code = 0; code < 0x2300; code++) if (inStoryCardFont(code)) expect(mapped.includes(code), `U+${code.toString(16)}`).toBe(true);
+    }
+  });
+
+  it("the title's width table is Bold's advance widths", () => {
+    const bold = fontFile("Bold");
+    const { hmtx, hhea } = ttfTables(bold);
+    const metrics = bold.readUInt16BE(hhea + 34);
+    const cmap = ttfCmap(bold);
+    STORY_CARD_BOLD_ADVANCE.forEach((advance, i) => {
+      const glyph = cmap.get(0x20 + i) ?? 0;
+      expect(bold.readUInt16BE(hmtx + 4 * Math.min(glyph, metrics - 1))).toBe(advance);
+    });
+  });
+
+  it("withoutKerning hides GPOS from the parser and leaves the file's bytes alone", () => {
+    const bold = fontFile("Bold");
+    expect(ttfTables(bold).GPOS).toBeDefined();
+    const unkerned = withoutKerning(bold);
+    expect(ttfTables(unkerned).GPOS).toBeUndefined();
+    expect(ttfTables(unkerned).cmap).toBe(ttfTables(bold).cmap);
+    expect(ttfTables(bold).GPOS).toBeDefined();
+  });
+});
+
 describe("storyCardPhoto", () => {
   it("full-bleed for a photo that covers the card without enlarging it more than 1.6 times", async () => {
     const photo = await storyCardPhoto(samplePhoto("street-market.jpg"), { x: 50, y: 30 }, "story");
@@ -87,6 +163,56 @@ describe("storyCardPhoto", () => {
     expect(photo?.sharp).toMatchObject({ width: 1080, height: Math.round((1080 * 522) / 724) });
     const background = Buffer.from(photo!.background.replace(/^data:image\/jpeg;base64,/, ""), "base64");
     expect(await sharp(background).metadata()).toMatchObject({ width: 270, height: 480 });
+  });
+
+  it("an extremely tall photo (600 × 12000) costs no more than a short one: the sharp layer is cut to the card's height", async () => {
+    const tall = await sharp({ create: { width: 600, height: 12000, channels: 3, background: "#3366aa" } }).jpeg().toBuffer();
+    const started = performance.now();
+    const photo = await storyCardPhoto(new Uint8Array(tall), null, "story");
+    expect(performance.now() - started).toBeLessThan(5000);
+    expect(photo?.mode).toBe("backdrop");
+    expect(photo?.sharp).toEqual(expect.objectContaining({ width: 1080, height: 1920, fullHeight: 21600 }));
+    const layer = Buffer.from(photo!.sharp!.src.replace(/^data:image\/jpeg;base64,/, ""), "base64");
+    expect(await sharp(layer).metadata()).toMatchObject({ width: 1080, height: 1920 });
+  });
+
+  it("a short photo's layer is whole (not cut)", async () => {
+    const photo = await storyCardPhoto(samplePhoto("gallery-opening.jpg"), null, "story");
+    expect(photo?.sharp?.height).toBe(photo?.sharp?.fullHeight);
+  });
+
+  it("reads the sides after EXIF rotation: a landscape stored sideways (orientation 6) is a full-bleed portrait", async () => {
+    // Stored 1920 × 1080, left half red, right half blue; shown turned a quarter clockwise, 1080 × 1920,
+    // red above and blue below. Unrotated it would be a backdrop-mode landscape.
+    const stored = await sharp({ create: { width: 1920, height: 1080, channels: 3, background: "#0000c0" } })
+      .composite([{ input: { create: { width: 960, height: 1080, channels: 3, background: "#c00000" } }, left: 0, top: 0 }])
+      .withMetadata({ orientation: 6 })
+      .jpeg()
+      .toBuffer();
+    const photo = await storyCardPhoto(new Uint8Array(stored), null, "story");
+    expect(photo?.mode).toBe("full-bleed");
+    const background = Buffer.from(photo!.background.replace(/^data:image\/jpeg;base64,/, ""), "base64");
+    const top = await meanOf(background, { left: 400, top: 100, width: 200, height: 200 });
+    const bottom = await meanOf(background, { left: 400, top: 1600, width: 200, height: 200 });
+    expect(top.r).toBeGreaterThan(top.b);
+    expect(bottom.b).toBeGreaterThan(bottom.r);
+    // The tone is sampled from the bottom third, as shown: blue.
+    expect(photo!.tone.tone.b).toBeGreaterThan(photo!.tone.tone.r);
+  });
+
+  it("the fallback tone when the sample can't be taken", async () => {
+    const broken = { data: Buffer.alloc(12), info: { width: 100, height: 100, channels: 3 } as OutputInfo };
+    expect(await sampleTone(broken)).toBe(FALLBACK_TONE);
+  });
+
+  it("sourceRegion: the crop's region in the photo's own pixels, inside the photo", () => {
+    // 1440 × 1440 into a story at focus 50/30: the full height, the middle 810 px across.
+    expect(sourceRegion(1440, 1440, { resize: { width: 1920, height: 1920 }, extract: { left: 420, top: 0, width: 1080, height: 1920 } })).toEqual({
+      left: 315,
+      top: 0,
+      width: 810,
+      height: 1440,
+    });
   });
 
   it("reads WebP", async () => {
@@ -186,6 +312,60 @@ describe("renderStoryCard / makeStoryCard", () => {
       expect(corner.b).toBeLessThan(10);
     },
     RENDER_TIMEOUT,
+  );
+
+  it(
+    "the square no-photo card: Signal Orange, an ink tag with orange dots, a black wordmark",
+    async () => {
+      const jpeg = await card("square", null);
+      const corner = await meanOf(jpeg, { left: 0, top: 200, width: 40, height: 200 });
+      expect(corner.r).toBeGreaterThan(245);
+      expect(Math.abs(corner.g - 0x48)).toBeLessThan(10);
+      // The pill: 59 px from y 60, black; its first dot orange (60 + 1.5 + 20 across, centred).
+      const pill = await meanOf(jpeg, { left: 64, top: 64, width: 10, height: 50 });
+      expect(Math.max(pill.r, pill.g, pill.b)).toBeLessThan(30);
+      const dot = await meanOf(jpeg, { left: 84, top: 87, width: 5, height: 5 });
+      expect(dot.r).toBeGreaterThan(215);
+      expect(dot.b).toBeLessThan(60);
+      // The wordmark: 140 × 32, right 60, top 74, black.
+      const mark = await pixelsOf(jpeg, { left: 880, top: 74, width: 140, height: 32 });
+      expect(mark.some(([r, g, b]) => Math.max(r, g, b) < 40)).toBe(true);
+    },
+    RENDER_TIMEOUT,
+  );
+
+  it(
+    "never reaches the network, whatever the text: emoji, other scripts and symbols the font lacks are left out",
+    async () => {
+      // next/og loads its own wasm through fetch from a data: URL; anything else is the network
+      // (Google Fonts for a missing glyph, a CDN for an emoji), which is refused and counted.
+      const realFetch = globalThis.fetch;
+      const network: string[] = [];
+      vi.spyOn(globalThis, "fetch").mockImplementation((input, init) => {
+        const url = input instanceof Request ? input.url : String(input);
+        if (url.startsWith("data:")) return realFetch(input, init);
+        network.push(url);
+        return Promise.reject(new Error("no network in a card render"));
+      });
+      // Through storyCardText…
+      await card("story", null, "🎷 東京 Ĉu Night ± ½ ✨");
+      await makeStoryCard({
+        format: "square",
+        text: storyCardText({ ...EVENT, title: "🎉", venueName: "Bar 🍷 Ŧ", suburb: "Fitzroy 🌿" }),
+        tag: "In 3 days",
+        photo: null,
+      });
+      // …and text handed straight to the drawing.
+      await renderStoryCard({
+        format: "story",
+        text: { title: "東京 🎉 Night", date: "Sat 14 Nov", time: "5–9 pm 🌙", place: "Café 🍷 Ŧest" },
+        tag: "In 3 days",
+        photo: null,
+      });
+      await renderStoryCard({ format: "story", text: { title: "🎉", date: "", time: "", place: "" }, tag: "In 3 days", photo: null });
+      expect(network).toEqual([]);
+    },
+    RENDER_TIMEOUT * 2,
   );
 
   it(

@@ -5,7 +5,9 @@ import type { CSSProperties } from "react";
 import sharp from "sharp";
 import { WORDMARK } from "@/components/brand/marks";
 import {
+  fitToStoryCardFont,
   rgbCss,
+  STORY_CARD_FALLBACK_TITLE,
   STORY_CARD_SIZES,
   STORY_CARD_TITLE_LINES,
   storyCardTitleSize,
@@ -13,15 +15,16 @@ import {
   type StoryCardTag,
   type StoryCardText,
 } from "@/lib/story-card";
-import { HttpError } from "./http";
 import type { PhotoFocus } from "./share-card-data";
 import { Mark } from "./share-card-render";
+import { slotLimiter } from "./slots";
 import { storyCardPhoto, type StoryCardPhoto } from "./story-card-photo";
 
 /**
  * The "I’m going." story card (docs/design/story-card.md): 1080 × 1920 for a story, 1080 × 1080
  * for a post. Satori (next/og) lays out the layers that lib/server/story-card-photo.ts prepared
- * and sets the type; the PNG it returns is re-encoded as a JPEG with sharp.
+ * and sets the type as SVG, which next/og rasterises to PNG with sharp (librsvg; its resvg is only
+ * the fallback when sharp is missing); the PNG is then re-encoded as a JPEG with sharp.
  *
  * The layers, in paint order (design §4.4): the photo (or its blurred backdrop); a column whose
  * upper zone holds the sharp photo (backdrop mode) and whose lower zone holds the fade and the
@@ -35,9 +38,14 @@ import { storyCardPhoto, type StoryCardPhoto } from "./story-card-photo";
  *
  * Type: Instrument Sans, static TTFs (400, 500, 600, 700) from the family's own release
  * (github.com/Instrument/instrument-sans, fonts/ttf at 7fa2230, the commit Google Fonts ships), in
- * app/fonts/og/ under the SIL OFL 1.1 beside them. A character the font lacks makes next/og fetch
- * a fallback face from Google Fonts at render time (and an emoji from a CDN): the card's text has
- * its emoji removed first (lib/story-card.ts stripEmoji), and only public event text is ever sent.
+ * app/fonts/og/ under the SIL OFL 1.1 beside them, loaded with their kerning hidden
+ * (withoutKerning, below).
+ *
+ * No network at render time: for a character the fonts lack, next/og would fetch a fallback face
+ * from Google Fonts (or an emoji from a CDN) with no timeout, caching failures for the process.
+ * So every string drawn is fitted to the fonts first (lib/story-card.ts fitToStoryCardFont:
+ * emoji and other scripts dropped, accents the font lacks taken off): storyCardText does it, and
+ * the drawing does it again for whatever it's given.
  */
 
 const ORANGE = "#ff4800";
@@ -118,7 +126,14 @@ const LAYOUT: Readonly<Record<StoryCardFormat, Layout>> = {
 const FADE_ABOVE = 300;
 /** The upper zone ends this far below the top of the text block: where the sharp photo's bottom edge sits. */
 const SHARP_BELOW_BLOCK = 80;
-const SHARP_MASK = "linear-gradient(180deg, transparent 0%, #000 14%, #000 78%, transparent 100%)";
+/**
+ * The sharp photo's fade top and bottom (transparent 0%, opaque 14–78%, transparent 100%), in px
+ * of its full height: a layer cut to the card's height keeps the whole photo's mask (design §5.3).
+ */
+function sharpMask(fullHeight: number): string {
+  const at = (fraction: number) => `${Math.round(fullHeight * fraction)}px`;
+  return `linear-gradient(180deg, transparent 0px, #000 ${at(0.14)}, #000 ${at(0.78)}, transparent ${at(1)})`;
+}
 
 /** Room above the title's first line for accents on capitals, in em (design §4.2, spike S4). */
 const TITLE_ACCENT_ROOM = 0.12;
@@ -129,13 +144,32 @@ const TAG = { size: 28, line: 32, padY: 12, padX: 20, radius: 12, border: 1.5, d
 type CardFont = { name: string; data: Buffer; weight: 400 | 500 | 600 | 700; style: "normal" };
 let fonts: CardFont[] | null = null;
 
+/**
+ * The font with its kerning tables (GPOS, kern) hidden, in memory: Satori lays words out
+ * without kerning but draws them with it, so a word with many kerned pairs ("INTERNATIONALLY",
+ * "SHOWCASE") came out shorter than its slot, leaving a double gap after it. Unkerned, every gap
+ * is a space (and the title's wrap estimate, lib/story-card.ts, matches the drawing). The files
+ * themselves are unchanged. Renaming a table's tag in the directory is enough: the parser skips
+ * tags it doesn't know.
+ */
+export function withoutKerning(font: Buffer): Buffer {
+  const copy = Buffer.from(font);
+  const tables = copy.readUInt16BE(4);
+  for (let i = 0; i < tables; i++) {
+    const at = 12 + i * 16;
+    const tag = copy.toString("latin1", at, at + 4);
+    if (tag === "GPOS" || tag === "kern") copy.write(tag === "GPOS" ? "xPOS" : "xern", at, "latin1");
+  }
+  return copy;
+}
+
 /** The four weights, read once per server instance (process.cwd() is the app root). */
 function cardFonts(): CardFont[] {
   if (!fonts) {
     const dir = path.join(process.cwd(), "app", "fonts", "og");
     const face = (file: string, weight: CardFont["weight"]): CardFont => ({
       name: SANS,
-      data: readFileSync(path.join(dir, file)),
+      data: withoutKerning(readFileSync(path.join(dir, file))),
       weight,
       style: "normal",
     });
@@ -221,8 +255,16 @@ export interface StoryCardContent {
 }
 
 /** The card's drawing, for Satori. */
-export function StoryCardView({ format, text, tag, photo }: StoryCardContent) {
+export function StoryCardView({ format, text: given, tag: givenTag, photo }: StoryCardContent) {
   const { width, height } = STORY_CARD_SIZES[format];
+  // Nothing outside the fonts reaches Satori (see above). storyCardText has already done this.
+  const text: StoryCardText = {
+    title: fitToStoryCardFont(given.title) || STORY_CARD_FALLBACK_TITLE,
+    date: fitToStoryCardFont(given.date),
+    time: fitToStoryCardFont(given.time),
+    place: fitToStoryCardFont(given.place),
+  };
+  const tag = fitToStoryCardFont(givenTag);
   const layout = LAYOUT[format];
   const palette = photo ? photoPalette(photo) : NO_PHOTO_PALETTE;
   const titleSize = storyCardTitleSize(text.title, format);
@@ -266,7 +308,7 @@ export function StoryCardView({ format, text, tag, photo }: StoryCardContent) {
               height={photo.sharp.height}
               alt=""
               // marginTop auto: at the zone's bottom when it fits; from the top (and on under the text) when it doesn't.
-              style={{ flexShrink: 0, marginTop: "auto", maskImage: SHARP_MASK }}
+              style={{ flexShrink: 0, marginTop: "auto", maskImage: sharpMask(photo.sharp.fullHeight) }}
             />
           ) : null}
         </div>
@@ -420,32 +462,12 @@ export async function renderStoryCard(content: StoryCardContent): Promise<Buffer
 /** Cards made at once on one server instance, and how many more may wait; beyond that, 503. */
 export const STORY_CARD_RENDER_SLOTS = { running: 2, waiting: 6 } as const;
 
-let running = 0;
-const waiting: (() => void)[] = [];
-
 /**
- * Runs `work` in one of the instance's render slots (a card is a couple of seconds of CPU and
- * tens of MB of memory): 2 at once, 6 waiting, then a 503. As lib/server/avatar.ts inEncodeSlot,
- * with its own slots and message.
+ * Runs `work` in one of the instance's render slots (a card is about a second of CPU and tens of
+ * MB of memory): 2 at once, 6 waiting, then a 503. Its own slots, apart from the uploads'
+ * (lib/server/avatar.ts inEncodeSlot), from the same limiter.
  */
-export async function inStoryCardSlot<T>(work: () => Promise<T>): Promise<T> {
-  if (running < STORY_CARD_RENDER_SLOTS.running) {
-    running += 1;
-  } else {
-    if (waiting.length >= STORY_CARD_RENDER_SLOTS.waiting) {
-      throw new HttpError(503, "Lots of cards are being made right now. Try again in a minute.");
-    }
-    // The slot is handed over by the finishing job (running stays the same).
-    await new Promise<void>((resolve) => waiting.push(resolve));
-  }
-  try {
-    return await work();
-  } finally {
-    const next = waiting.shift();
-    if (next) next();
-    else running -= 1;
-  }
-}
+export const inStoryCardSlot = slotLimiter(STORY_CARD_RENDER_SLOTS, "Lots of cards are being made right now. Try again in a minute.");
 
 export interface StoryCardRequest {
   format: StoryCardFormat;
