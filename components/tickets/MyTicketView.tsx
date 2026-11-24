@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useState, type ReactNode } from "react";
 import EventArt from "@/components/EventArt";
+import EventLocationMap from "@/components/events/EventLocationMap";
 import FullTicket from "@/components/tickets/FullTicket";
 import TicketCard from "@/components/tickets/TicketCard";
 import TicketFullScreen from "@/components/tickets/TicketFullScreen";
@@ -358,15 +359,30 @@ export default function MyTicketView({
             <h2 id="ticket-venue" className={cardTitleClass}>
               Getting there
             </h2>
-            {/* The frames' map placeholder (the page has no map of its own yet): it opens the directions. */}
-            <button
-              type="button"
-              onClick={() => setSheet("directions")}
-              aria-label={`Directions to ${lines.first}`}
-              className="flex h-50 w-full items-center justify-center rounded-control bg-surface print:hidden"
+            {/* The frames' map box opens the directions sheet (Apple / Google Maps, Copy address). Once the event has
+                loaded, the event page's map sits under it with the venue pinned (decorative and out of the tab order;
+                the button on top takes the tap); until then, the frames' placeholder dot. */}
+            <div
+              className={
+                listedEvent && googleHref
+                  ? "relative min-h-52 overflow-hidden rounded-card bg-surface print:hidden lg:min-h-64"
+                  : "relative print:hidden"
+              }
             >
-              <span aria-hidden="true" className="size-4 rounded-full bg-signal" />
-            </button>
+              {listedEvent && googleHref && <EventLocationMap event={listedEvent} directions={googleHref} />}
+              <button
+                type="button"
+                onClick={() => setSheet("directions")}
+                aria-label={`Directions to ${lines.first}`}
+                className={
+                  listedEvent && googleHref
+                    ? "absolute inset-0 z-10 rounded-card"
+                    : "flex h-50 w-full items-center justify-center rounded-control bg-surface"
+                }
+              >
+                {!(listedEvent && googleHref) && <span aria-hidden="true" className="size-4 rounded-full bg-signal" />}
+              </button>
+            </div>
             <div className="body-m flex flex-col gap-1">
               <p className="font-semibold break-words text-foreground">{lines.first}</p>
               {address && <p className="break-words text-muted">{address}</p>}
