@@ -70,8 +70,8 @@ const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one :
  * tablet / mobile Account tabs): Profile · My tickets · Saved · Messages · Settings, with the
  * counts the app already keeps (saved, unread) and GET /api/me's upcoming tickets. Profile goes to
  * the member page when other members can open it, else /profile (where it's edited); either way
- * it's the current place on /profile. My tickets goes to its interim page until the list is built:
- * Help's "Where are my tickets?" (MY_TICKETS_HREF).
+ * it's the current place on /profile. My tickets goes to the list (/tickets), and is the current
+ * place on the pages under it too.
  */
 export function useAccountNav(pathname: string): AccountNav {
   // The header's (NavAccountProvider): the profile and organiser record aren't fetched again here.
@@ -96,10 +96,10 @@ export function useAccountNav(pathname: string): AccountNav {
       href: MY_TICKETS_HREF,
       count: upcoming,
       countText: upcoming ? `, ${plural(upcoming, "upcoming event", "upcoming events")}` : undefined,
-      // A sent ticket's Accept page and a received ticket are tickets (Latte's Accept ticket frames); the link goes
-      // elsewhere, so it's their location, not their page.
-      current: at("/tickets"),
-      currentKind: "location",
+      // The list is its page. A sent ticket's Accept page and a received ticket are tickets too (Latte's Accept
+      // ticket frames); the link doesn't go there, so it's their location, not their page.
+      current: at(MY_TICKETS_HREF),
+      currentKind: pathname === MY_TICKETS_HREF ? "page" : "location",
     },
     {
       key: "saved",

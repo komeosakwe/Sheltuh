@@ -254,6 +254,8 @@ test("accept: signed out → Sign in → back (the token kept in the tab) → Ac
   expect(await page.evaluate(() => sessionStorage.getItem("sheltuh:ticket-offer"))).toBeNull();
   // My tickets is the current place in the account tabs.
   await expect(page.locator('[aria-current="location"]', { hasText: "My tickets" }).first()).toBeAttached();
+  // And "← My tickets" goes back to the list.
+  await expect(page.locator("[data-my-tickets-back]")).toHaveAttribute("href", "/tickets");
 });
 
 test("the email's Decline (&decline=1) asks first; Decline ticket declines without signing in", async ({ page }) => {

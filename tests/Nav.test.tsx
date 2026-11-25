@@ -102,7 +102,7 @@ describe("Nav — phone menu", () => {
       ...PLACES,
       // The profile isn't loaded in this test (no API): its email and the place to edit the profile.
       ["organiser@example.com, view profile", "/profile"],
-      ["My tickets", "/help#where-are-my-tickets"],
+      ["My tickets", "/tickets"],
       ["Saved", "/saved"],
       ["Messages", "/messages"],
       ["Your events", "/dashboard"],

@@ -1552,6 +1552,22 @@ describe("CheckoutConfirmation: ticket transfers, signed in and the edges", () =
     return { getAccessToken };
   }
 
+  it("signed in: ← My tickets above the ticket, and above a refunded order's page; signed out: none", async () => {
+    getOrderBySession.mockResolvedValue(BASE);
+    renderSignedIn();
+    expect(await screen.findByRole("link", { name: "My tickets" })).toHaveAttribute("href", "/tickets");
+    cleanup();
+    getOrderBySession.mockResolvedValue({ ...BASE, status: "refunded", refundReason: "refunded", tickets: [] });
+    renderSignedIn();
+    expect(await screen.findByRole("heading", { level: 1, name: "This order has been refunded" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "My tickets" })).toHaveAttribute("href", "/tickets");
+    cleanup();
+    getOrderBySession.mockResolvedValue(BASE);
+    render(<CheckoutConfirmation />);
+    expect(await screen.findByRole("button", { name: "Manage order" })).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "My tickets" })).toBeNull();
+  });
+
   it("signed in: the order is read with the account's token, and Send's name is the profile's", async () => {
     nav.account = { profile: { displayName: "Mia Tran" } };
     getOrderBySession.mockResolvedValue(BASE);

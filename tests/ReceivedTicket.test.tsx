@@ -82,6 +82,8 @@ describe("ReceivedTicket", () => {
     expect(screen.getByText("#0B5C2F8E")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /View event page/ })).toHaveAttribute("href", "/events/here-and-now");
     expect(screen.getByRole("button", { name: /Show ticket/ })).toBeInTheDocument();
+    // Back to the list it's on.
+    expect(screen.getByRole("link", { name: "My tickets" })).toHaveAttribute("href", "/tickets");
   });
 
   it("no longer valid: says so, with no code anywhere", async () => {
@@ -122,12 +124,14 @@ describe("ReceivedTicket", () => {
     expect(screen.getByRole("heading", { level: 1, name: "Sign in to see your ticket" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Sign in" })).toHaveAttribute("href", `/login?next=%2Ftickets%2Freceived%2F${ID}`);
     expect(getReceivedTicket).not.toHaveBeenCalled();
+    expect(screen.queryByRole("link", { name: "My tickets" })).toBeNull();
   });
 
   it("another account's ticket (404) or a malformed id: Ticket not found", async () => {
     getReceivedTicket.mockRejectedValue(new ApiError(404, "Ticket not found."));
     renderPage();
     expect(await screen.findByRole("heading", { level: 1, name: "Ticket not found" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "My tickets" })).toHaveAttribute("href", "/tickets");
     cleanup();
     getReceivedTicket.mockClear();
     renderPage(undefined, "not-a-uuid");

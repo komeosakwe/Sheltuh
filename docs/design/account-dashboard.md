@@ -7,8 +7,8 @@ the one addition is `heading-page` (Heading/H1 40/48 at every width).
 
 ## Shell (`app/(account)/layout.tsx`, `components/account/AccountShell.tsx`)
 
-A route group, so `/profile`, `/account`, `/saved`, `/messages`, `/messages/[id]` and `/messages/blocked`
-keep their URLs.
+A route group, so `/profile`, `/tickets` (and `/tickets/accept`, `/tickets/received/[id]`), `/account`,
+`/saved`, `/messages`, `/messages/[id]` and `/messages/blocked` keep their URLs.
 
 | | Phones (< 768) | Tablet (768–1023) | Desktop (≥ 1024) |
 | --- | --- | --- | --- |
@@ -20,8 +20,11 @@ The five places, in order: Profile · My tickets · Saved · Messages · Setting
 saved (FavouritesProvider), unread (UnreadProvider, the orange pill), upcoming tickets (`GET /api/me`
 `upcomingCount`). Profile goes to the member page when other members can open it (visible, not
 suspended), else `/profile`; it's the current place on `/profile` either way (`aria-current="page"` when
-the link goes there, `"location"` when it goes to the member page). My tickets goes to its interim page
-until the list is built: `MY_TICKETS_HREF` (Help's "Where are my tickets?").
+the link goes there, `"location"` when it goes to the member page). My tickets goes to its list,
+`/tickets` (`MY_TICKETS_HREF`): `aria-current="page"` there, `"location"` on the pages under it (an Accept
+page, a received ticket), in the tabs, the sidebar, the avatar menu and the drawer alike. The pill's count
+(`upcomingCount`: distinct published events not started) and the list's "Upcoming · N" (cards whose event
+hasn't ended) count different things, on purpose.
 
 - **Account tabs** (`AccountTabs`): a nav of links with `aria-current="page"` (not ARIA tabs). Body/S
   Strong; current text/primary with a 2px foreground underline, others text/secondary; count pill
@@ -60,6 +63,24 @@ line and a link to Discover.
   disabled sample card. No frame for it yet: Latte to design; Delete your profile stays on Settings.
   The avatar menu's Profile row and the drawer's identity are `aria-current="location"` on `/profile`
   when they link to the member page, as the tabs are.
+- **My tickets** (`app/(account)/tickets/page.tsx`, `components/tickets/MyTicketsList.tsx`, words in
+  `lib/my-tickets.ts`): "My tickets", "Tickets you've bought or been sent.", then "Upcoming · N" and "Past ·
+  N" (h2, 48 apart) over `SAVED_GRID` of compact `TicketCard`s, in the API's order (`GET /api/me/tickets`).
+  One card per order (by the verified email) or received ticket. Upcoming cards have "Show ticket →"; past
+  ones "View order" / "View ticket" in their bar; each action's name adds the event for screen readers.
+  Order cards have counts only, so generic words: "Waiting to be accepted" ("1 waiting to be accepted" for
+  several), "· 2 sent" on the holder row, "✓ Checked in" ("✓ 1 of 2 checked in"), "2 sent. These QR codes no
+  longer work.", "Refunded A$25.94" (the all-inclusive total), "Tickets not reserved. A$25.94 refund on its
+  way."; received cards "From Alex" and "This ticket is no longer valid" when void. An unlisted event:
+  "No longer listed" in place of the date, no venue or image. Never a ticket code. "Show more" (the next
+  cursor page, deduped by id) sits under Upcoming while upcoming cards are still to come (Past waits, its
+  count in its heading), else under Past; focus goes to the first new card. Back on the tab after 30s (or
+  from the back-forward cache) the first page is read again quietly; a failure keeps the cards with a note
+  and Try again. States: three card skeletons; Couldn't load + Try again; "No tickets yet." + Find an event;
+  signed out (sign in back to `/tickets`, "Bought without an account? Check your email…"); 401 (sign in
+  again); 403 (confirm your email → `/verify`). Demo: `sampleMyTickets(now)` (`lib/sample-order.ts`, dated
+  from now). The order page and a received ticket have "← My tickets" above them when signed in (the demo
+  ticket too). No frame for the list at 1440 yet (three columns from 1280, as Saved).
 - **Settings** (`AccountContent`): two columns of outlined cards from 768 (stacked on phones). Left: Your
   profile, Privacy (Blocked members, privacy link, Delete your profile). Right: Sign-in ("Signed in as … ·
   Google", Sign out: the only log-out below 1024), Events (Your events / Organise events, Organisers you

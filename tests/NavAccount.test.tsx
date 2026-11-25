@@ -149,7 +149,7 @@ describe("phone drawer, signed in", () => {
       ["Nearby", "/map"],
       ["Community", "/community"],
       ["Latte, view profile", "/members/p-latte"],
-      ["My tickets", "/help#where-are-my-tickets"],
+      ["My tickets", "/tickets"],
       ["Saved", "/saved"],
       ["Messages", "/messages"],
       ["For organisers", "/organisers/apply"],
@@ -242,7 +242,7 @@ describe("avatar menu (from lg)", () => {
     const nav = within(panel).getByRole("navigation", { name: "Account", hidden: true });
     expect(names(nav)).toEqual([
       ["Profile", "/members/p-latte"],
-      ["My tickets", "/help#where-are-my-tickets"],
+      ["My tickets", "/tickets"],
       ["Saved, 12 saved", "/saved"],
       ["Messages, 3 unread", "/messages"],
       ["Settings", "/account"],
@@ -302,6 +302,21 @@ describe("avatar menu (from lg)", () => {
     const identity = within(drawer).getByRole("link", { name: "Latte, view profile", hidden: true });
     expect(identity).toHaveAttribute("href", "/members/p-latte");
     expect(identity).toHaveAttribute("aria-current", "location");
+  });
+
+  it.each([
+    ["/tickets", "page"],
+    ["/tickets/received/0b5c2f8e-7d6a-4c1b-9e3f-2a1d4c5b6e7f", "location"],
+    ["/tickets/accept", "location"],
+  ])("on %s, My tickets in the avatar menu and the drawer is aria-current=%s, and the avatar keeps its dots", (path, kind) => {
+    pathname = path;
+    const { drawer, panel } = renderNav();
+    const row = within(requirePanel(panel)).getByRole("link", { name: "My tickets", hidden: true });
+    expect(row).toHaveAttribute("href", "/tickets");
+    expect(row).toHaveAttribute("aria-current", kind);
+    expect(row.querySelector(".umlaut")).toHaveAttribute("data-current", "");
+    expect(within(drawer).getByRole("link", { name: "My tickets", hidden: true })).toHaveAttribute("aria-current", kind);
+    expect(screen.getByRole("button", { name: "Account" })).toHaveAttribute("data-current", "");
   });
 
   it("on the member page itself, Profile is the page", () => {

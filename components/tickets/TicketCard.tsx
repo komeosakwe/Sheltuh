@@ -56,6 +56,11 @@ interface TicketCardProps {
    * heading: the My ticket page, where the tickets come before the page's h1, which names the same event.
    */
   headingLevel?: 2 | 3 | 4 | null;
+  /**
+   * Adds the event's title to each action's name for screen readers ("Show ticket, Here & Now"), where several
+   * cards sit together (My tickets) and a link list would otherwise read "Show ticket" over and over.
+   */
+  nameActionsByEvent?: boolean;
   className?: string;
 }
 
@@ -107,12 +112,14 @@ export default function TicketCard({
   statusAction,
   showTicket,
   headingLevel = 3,
+  nameActionsByEvent = false,
   className = "",
 }: TicketCardProps) {
   const past = PAST_STATES.includes(state);
   const Heading = `h${headingLevel ?? 3}` as const;
   const statusText = state === "active" ? null : (status ?? DEFAULT_STATUS[state]);
   const soft = past ? "text-muted" : "text-foreground";
+  const forEvent = nameActionsByEvent ? <span className="sr-only">, {eventTitle}</span> : null;
   const statusLook =
     state === "checked_in" ? "bg-ink text-paper" : past ? "bg-card text-foreground" : "bg-surface text-foreground";
   return (
@@ -142,13 +149,14 @@ export default function TicketCard({
           {statusAction && (
             <Action action={statusAction} className={statusActionClass}>
               {statusAction.label}
+              {forEvent}
             </Action>
           )}
         </div>
       )}
       {showTicket && !past && (
         <Action action={showTicket} className={showTicketClass}>
-          Show ticket <span aria-hidden="true">→</span>
+          Show ticket{forEvent} <span aria-hidden="true">→</span>
         </Action>
       )}
     </article>

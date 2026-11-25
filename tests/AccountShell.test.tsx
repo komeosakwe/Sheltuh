@@ -145,18 +145,19 @@ describe("AccountShell", () => {
     expect(pills[0]).toHaveClass("bg-surface");
   });
 
-  it("goes to the pages (Profile to /profile while the profile is hidden), and to the interim My tickets page", async () => {
+  it("goes to the pages (Profile to /profile while the profile is hidden), My tickets to its list", async () => {
     const { tabs, sidebar } = await renderShell();
     for (const nav of [tabs, sidebar]) {
       const hrefs = within(nav)
         .getAllByRole("link")
         .map((link) => link.getAttribute("href"));
-      expect(hrefs).toEqual(["/profile", "/help#where-are-my-tickets", "/saved", "/messages", "/account"]);
+      expect(hrefs).toEqual(["/profile", "/tickets", "/saved", "/messages", "/account"]);
     }
   });
 
   it.each([
     ["/profile", "profile"],
+    ["/tickets", "tickets"],
     ["/saved", "saved"],
     ["/messages", "messages"],
     ["/messages/c-1", "messages"],
@@ -176,7 +177,7 @@ describe("AccountShell", () => {
   });
 
   it.each(["/tickets/accept", "/tickets/received/0b5c2f8e-7d6a-4c1b-9e3f-2a1d4c5b6e7f"])(
-    "under My tickets (%s): its place, as aria-current=\"location\" (the link goes elsewhere)",
+    "under My tickets (%s): its place, as aria-current=\"location\" (the link goes to the list)",
     async (path) => {
       pathname = path;
       const { tabs, sidebar } = await renderShell();

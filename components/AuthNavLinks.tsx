@@ -102,7 +102,7 @@ export function HeaderAccount({ account }: { account: NavAccount }) {
  * what's waiting), then For organisers. Settings and signing out are on /account.
  */
 export function MenuAccount({ account }: { account: NavAccount }) {
-  const { auth, current, adminWaiting, profile, profileHref, profileCurrent, name, showEvents } = account;
+  const { auth, current, adminWaiting, profile, profileHref, profileCurrent, ticketsCurrent, name, showEvents } = account;
 
   const organisersButton = (
     <Link href={ORGANISERS_HREF} aria-current={current(ORGANISERS_HREF)} className="btn btn-outline btn-lg w-full">
@@ -138,10 +138,10 @@ export function MenuAccount({ account }: { account: NavAccount }) {
     );
   }
 
-  function row(href: string, label: string, extra?: ReactNode) {
+  function row(href: string, label: string, extra?: ReactNode, isCurrent: "page" | "location" | undefined = current(href)) {
     return (
       <li className="border-t border-surface-border">
-        <Link href={href} aria-current={current(href)} className={menuRowClass}>
+        <Link href={href} aria-current={isCurrent} className={menuRowClass}>
           <span className="flex min-h-6 items-center justify-between gap-3">
             <span>{label}</span>
             {extra}
@@ -167,7 +167,7 @@ export function MenuAccount({ account }: { account: NavAccount }) {
         </span>
       </Link>
       <ul className="flex flex-col">
-        {row(MY_TICKETS_HREF, "My tickets")}
+        {row(MY_TICKETS_HREF, "My tickets", undefined, ticketsCurrent)}
         {row("/saved", "Saved")}
         {row("/messages", "Messages")}
         {showEvents && row("/dashboard", "Your events")}

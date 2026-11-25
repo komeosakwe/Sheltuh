@@ -24,8 +24,9 @@ The header and footer are specified in `navigation-search.md`. The QR rules are 
 - **The full ticket is the email's orange-outline ticket** (`components/tickets/FullTicket.tsx`, the site's version
   of `ticketCard` in `lib/server/ticket-email.ts`): owner rule, 21 Nov 2026. It replaces §5.1's orange card with a
   black stub and the old `TicketStub` (retired). Latte's frames set its sizes and everything around it.
-- **The compact card** in all eight states: `components/tickets/TicketCard.tsx` (props only; nothing lists tickets
-  yet).
+- **The compact card** in all eight states: `components/tickets/TicketCard.tsx` (props only). My tickets
+  (`/tickets`, `components/tickets/MyTicketsList.tsx`; `docs/design/account-dashboard.md`, "My tickets") lists
+  them, with generic words for orders (the list has counts, not names or dates: §5.14).
 - **Sheets and dialogs** on one component, `components/ui/Sheet.tsx` (a bottom sheet below 768, a 480 dialog from
   768): Add to calendar, Directions, Order receipt and Manage order (`components/tickets/TicketSheets.tsx`).
 - **The full-screen ticket** on phones, with the Wake Lock and pager of §5.12: `components/tickets/TicketFullScreen.tsx`.
@@ -470,6 +471,12 @@ disabled: principle 4.
 - **Empty:** "No tickets yet." with "Find an event" (outline button).
 - **Loading:** three `EventCardPlaceholder`-style skeletons in the card shape.
 - **Error:** a notice with "Try again".
+- **As built (25 Nov 2026, B1):** the sub is "Tickets you've bought or been sent." (transfer exists). A card's
+  "Show ticket →" opens `/checkout/success?session_id={orderId}` (an order) or `/tickets/received/{transferId}`;
+  a past card has no button, so its bar links "View order" / "View ticket" instead. Order cards say states
+  2, 3, 4 and 7 with counts ("1 waiting to be accepted", "2 sent", "✓ Checked in", "Refunded A$25.94": no
+  names, check-in times or refund dates, which the list doesn't carry); a received card has its check-in time.
+  An unlisted event shows "No longer listed" where the date goes.
 
 ## 6. Motion
 

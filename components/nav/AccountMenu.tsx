@@ -77,6 +77,7 @@ export default function AccountMenu({ account, initial }: { account: NavAccount;
     profile,
     profileHref,
     profileCurrent,
+    ticketsCurrent,
     name,
     showEvents,
     avatarCurrent,
@@ -231,7 +232,7 @@ export default function AccountMenu({ account, initial }: { account: NavAccount;
           <div aria-hidden="true" className={`mb-2 ${dividerClass}`} />
           <ul className="flex flex-col">
             {row(profileHref, "Profile", undefined, profileCurrent)}
-            {row(MY_TICKETS_HREF, "My tickets")}
+            {row(MY_TICKETS_HREF, "My tickets", undefined, ticketsCurrent)}
             {row("/saved", "Saved", <MenuCount count={savedCount} srText={`, ${savedCount} saved`} />, current("/saved"))}
             {row(
               "/messages",

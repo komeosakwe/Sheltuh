@@ -112,6 +112,14 @@ describe("TicketCard", () => {
     expect(screen.queryByRole("link")).toBeNull();
   });
 
+  it("nameActionsByEvent: a list's cards name their actions by the event for screen readers, the visible words unchanged", () => {
+    const { rerender } = render(<TicketCard {...base} state="active" showTicket={{ href: "/a" }} nameActionsByEvent />);
+    const link = screen.getByRole("link", { name: "Show ticket, Here & Now" });
+    expect(link.querySelector(".sr-only")).toHaveTextContent(", Here & Now");
+    rerender(<TicketCard {...base} state="ended" statusAction={{ href: "/b", label: "View order" }} nameActionsByEvent />);
+    expect(screen.getByRole("link", { name: "View order, Here & Now" })).toHaveAttribute("href", "/b");
+  });
+
   it("says each state's own words when given none, and takes the heading level of where it sits", () => {
     const { rerender } = render(<TicketCard {...base} state="ended" headingLevel={2} />);
     expect(screen.getByText("Event ended")).toBeInTheDocument();

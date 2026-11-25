@@ -119,7 +119,7 @@ test.describe("account area at 1440px", () => {
     await expect(nav.locator("[data-account-count]")).toHaveText(["2", "12", "3"]);
     await expect(nav.getByRole("link", { name: /^Saved\s*, 12 events$/ })).toHaveAttribute("aria-current", "page");
     await expect(nav.getByRole("link", { name: /^Messages\s*, 3 unread$/ })).toHaveAttribute("href", "/messages");
-    await expect(nav.getByRole("link", { name: /^My tickets\s*, 2 upcoming events$/ })).toHaveAttribute("href", "/help#where-are-my-tickets");
+    await expect(nav.getByRole("link", { name: /^My tickets\s*, 2 upcoming events$/ })).toHaveAttribute("href", "/tickets");
     await expect(nav.getByRole("link", { name: "Profile" })).toBeVisible();
     await expect(nav.getByRole("link", { name: "Settings" })).toHaveAttribute("href", "/account");
     const box = await sidebar.boundingBox();
