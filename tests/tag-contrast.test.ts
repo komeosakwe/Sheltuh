@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
+import { TONE_TAG } from "@/components/dashboard/ui/tones";
 import { EVENT_CATEGORIES } from "@/lib/types";
 
 /**
@@ -74,5 +75,27 @@ describe("category tag tints", () => {
     expect(css).toMatch(
       /@media screen \{\s*\[data-theme="dark"\] \[data-tag\] \{\s*background-color: var\(--tag-tint-dark\);\s*color: var\(--tag-ink-dark\);\s*\}\s*\[data-theme="dark"\] \[data-surface="paper"\] \[data-tag\] \{\s*background-color: var\(--tag-tint\);\s*color: var\(--tag-ink\);/,
     );
+  });
+});
+
+/**
+ * The organiser dashboard's soft tones (components/dashboard/ui/tones.ts: status pills, tinted
+ * stat cards; Latte's dashboard frames, KEY-SPECS §0) are these same tag tints, so each pairing
+ * the dashboard draws is one tested above, with the frames' values.
+ */
+describe("dashboard tones", () => {
+  it.each(Object.entries(TONE_TAG))("%s is the %s tag, readable in Light and in Dark", (_, tag) => {
+    expect(TONES).toContain(tag);
+    const { tint, ink, tintDark, inkDark } = pair(tag);
+    expect(contrast(tint, ink)).toBeGreaterThanOrEqual(4.5);
+    expect(contrast(tintDark, inkDark)).toBeGreaterThanOrEqual(4.5);
+  });
+
+  it("uses the frames' tag values", () => {
+    expect(pair(TONE_TAG.green)).toMatchObject({ tint: "#e2f2e5", ink: "#2e6b3a" });
+    expect(pair(TONE_TAG.red)).toMatchObject({ tint: "#f8e2e7", ink: "#8c2f45" });
+    expect(pair(TONE_TAG.lilac)).toMatchObject({ tint: "#ece6fa", ink: "#4b3b8c" });
+    expect(pair(TONE_TAG.yellow)).toMatchObject({ tint: "#fff0c7", ink: "#7a5a00" });
+    expect(pair(TONE_TAG.grey)).toMatchObject({ tint: "#eeece7", ink: "#3a3936" });
   });
 });
