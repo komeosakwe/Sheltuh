@@ -3182,7 +3182,12 @@ The pages: the Overview is the dashboard's home, `/dashboard`
 (`components/dashboard/overview/*`), and the events list is the Events tab,
 `/dashboard/events`; the nav (`lib/organiser-nav.ts`) lists both. Both show
 only what the summaries say: no stand-in numbers, and what they can't say
-(Latte's unexplained "3", who follows) is left out.
+(Latte's unexplained "3", who follows) is left out. The Events tab's cards
+keep what the old list said for the undrawn stages (Sheltüh's note, the next
+step, the paid-draft payouts line) and its other actions (View public page,
+Orders, Analytics, Check-in) in a "···" menu per card
+(`lib/organiser-event-card.ts`) until the Manage tabs hold them; `?filter=`
+in the address opens a filter.
 
 - **Access.** `requireCaller`, then the caller's own approved organiser
   (`requireApprovedOrganiser`): signed out 401; a member, an applicant, a
@@ -6103,7 +6108,7 @@ What that means:
   the join path, the unavailable copy); `components/admin/OrganiserLinksAdmin.tsx`
   (on `/admin/invites`); `app/organisers/join/page.tsx` with
   `components/organisers/OrganiserJoinFlow.tsx`; the welcome in
-  `components/dashboard/DashboardContent.tsx`; tests
+  `components/dashboard/JoinedWelcome.tsx` (on the Overview); tests
   `tests/server/organiser-links.test.ts`, `tests/OrganiserLinksAdmin.test.tsx`,
   `tests/OrganiserJoinFlow.test.tsx`, `e2e/organiser-links.spec.ts`.
 - `lib/auth/AuthContext.tsx`: Supabase Auth in the browser.

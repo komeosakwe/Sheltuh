@@ -49,7 +49,7 @@ export default function OrganiserShell({ children }: { children: ReactNode }) {
   const framed = shown !== null && !fullScreen;
 
   // Always the same frame, `bare` when unframed, so the page isn't remounted when the organiser's
-  // record arrives (DashboardContent's one-time welcome after joining would be lost).
+  // record arrives (the Overview's one-time welcome after joining would be lost).
   return (
     <DashFrame
       area="organiser"

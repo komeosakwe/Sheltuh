@@ -1,12 +1,11 @@
 import { expect, test, type Page } from "@playwright/test";
 
 /**
- * The organiser's dashboard (/dashboard) at phone and desktop widths: the
- * organiser nav (the sidebar, or the rail on a phone) marks where they are, New event is an action beside the
- * heading (never marked current), and every event row says its status in
- * words and offers only the actions that apply. Live mode, signed in with a
- * stored test session (no network: the Supabase URL is a local placeholder),
- * with every /api/* request answered here.
+ * The organiser's dashboard pages around the events list (which has its own spec,
+ * e2e/organiser-events.spec.ts): no frame or nav until the organiser is approved, the nav on the
+ * other organiser pages marking where they are (and not at the door), and a published event's page.
+ * Live mode, signed in with a stored test session (no network: the Supabase URL is a local
+ * placeholder), with every /api/* request answered here.
  */
 
 const DAY = 86_400_000;
@@ -103,115 +102,6 @@ async function signedInWithEvents(page: Page, items: unknown[], organiser: Recor
     return route.fulfill({ status: 404, json: { error: "not mocked in e2e" } });
   });
 }
-
-for (const vp of [
-  { width: 320, height: 640 },
-  { width: 1280, height: 900 },
-]) {
-  test.describe(`/dashboard/events at ${vp.width}×${vp.height}`, () => {
-    test.use({ viewport: vp });
-
-    test("the organiser nav marks Events; New event is an action; rows show status and actions, 44px, no sideways scroll", async ({ page }) => {
-      await signedInWithEvents(page, DASHBOARD_EVENTS, { payoutsEnabled: false });
-      await page.goto("/dashboard/events");
-      const main = page.getByRole("main");
-      await expect(main.getByRole("heading", { level: 2, name: "dad" })).toBeVisible({ timeout: 30_000 });
-
-      const nav = page.getByRole("navigation", { name: "Organiser" });
-      await expect(nav.getByRole("link", { name: "Events", exact: true })).toHaveAttribute("aria-current", "page");
-      for (const name of ["Payouts", "Analytics", "Profile"]) {
-        await expect(nav.getByRole("link", { name, exact: true })).not.toHaveAttribute("aria-current");
-      }
-      // One nav is shown: the 64px rail on a phone, the sidebar on a desktop (e2e/organiser-shell.spec.ts).
-      await expect(page.locator(vp.width < 1024 ? "[data-organiser-rail]" : "[data-organiser-sidebar]")).toBeVisible();
-      await expect(page.locator(vp.width < 1024 ? "[data-organiser-sidebar]" : "[data-organiser-rail]")).toBeHidden();
-      const newEvent = main.getByRole("link", { name: "New event" });
-      await expect(newEvent).not.toHaveAttribute("aria-current");
-      await expect(newEvent).toHaveAttribute("href", "/dashboard/new");
-
-      for (const status of ["Published", "Draft", "In review", "Rejected", "Unpublished"]) {
-        await expect(main.locator("[data-event-row]").getByText(status, { exact: true })).toBeVisible();
-      }
-      // The payouts hint (paid draft, payouts not set up), with its link.
-      const dad = main.locator('[data-event-row="evt-dad"]');
-      await expect(dad).toContainText("Paid tickets: set up payouts before you publish it.");
-      await expect(dad.getByRole("link", { name: "set up payouts" })).toHaveAttribute("href", "/dashboard/payouts");
-
-      const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
-      expect(overflow).toBeLessThanOrEqual(0);
-
-      // Measured once settled: New event rises in on load (globals.css .rise), and mid-way its box is
-      // a fraction of a pixel off (43.99998px).
-      await page.evaluate(() =>
-        Promise.all(
-          document
-            .getAnimations()
-            .filter((animation) => animation.effect?.getTiming().iterations !== Infinity)
-            // A cancelled one (its element gone) rejects: it's settled too.
-            .map((animation) => animation.finished.catch(() => undefined)),
-        ),
-      );
-      const targets = [
-        ...(await nav.getByRole("link").all()),
-        newEvent,
-        ...(await main.locator("[data-event-row] ul a").all()),
-      ];
-      expect(targets.length).toBeGreaterThan(10);
-      for (const target of targets) {
-        const box = await target.boundingBox();
-        expect(box, await target.getAttribute("aria-label") ?? (await target.textContent()) ?? "").not.toBeNull();
-        expect(box?.height ?? 0).toBeGreaterThanOrEqual(44);
-        expect((box?.x ?? 0) + (box?.width ?? 0)).toBeLessThanOrEqual(vp.width);
-      }
-
-      // Published: its public page is the main action (no View into a locked editor); Contact Sheltüh is a link.
-      const live = main.locator('[data-event-row="evt-live"]');
-      await expect(live.getByRole("list").getByRole("link")).toHaveText(["View public page", "Orders", "Analytics", "Check-in", "Seat map"]);
-      await expect(live.getByRole("link", { name: "Contact Sheltüh" })).toHaveAttribute("href", "mailto:support@sheltuh.com.au");
-      await expect(main.getByRole("link", { name: "Edit dad" })).toHaveAttribute("href", "/dashboard/evt-dad");
-      await expect(main.getByRole("link", { name: "View submission for Late Bloom Markets" })).toHaveAttribute(
-        "href",
-        "/dashboard/evt-review",
-      );
-      await expect(main.locator('[data-event-row="evt-rejected"]')).toContainText("Open Edit to read Sheltüh’s note, then send it for review again.");
-    });
-  });
-}
-
-test("keyboard: the organiser nav and its Log out, then New event, then each row's actions, with a visible focus ring", async ({ page }) => {
-  await signedInWithEvents(page, DASHBOARD_EVENTS);
-  await page.goto("/dashboard/events");
-  await expect(page.getByRole("heading", { level: 2, name: "dad" })).toBeVisible({ timeout: 30_000 });
-
-  await page.getByRole("navigation", { name: "Organiser" }).getByRole("link", { name: "Profile", exact: true }).focus();
-  // The sidebar's last control, then the page.
-  await page.keyboard.press("Tab");
-  await expect(page.getByRole("complementary", { name: "Organiser account" }).getByRole("button", { name: "Log out" })).toBeFocused();
-  await page.keyboard.press("Tab");
-  const newEvent = page.getByRole("main").getByRole("link", { name: "New event" });
-  await expect(newEvent).toBeFocused();
-  const outline = await newEvent.evaluate((el) => getComputedStyle(el).outlineStyle);
-  expect(outline).not.toBe("none");
-  // No logo yet: the prompt's Add logo comes before the list.
-  await page.keyboard.press("Tab");
-  await expect(page.getByRole("link", { name: "Add logo" })).toBeFocused();
-  // The first row: its hint's Contact Sheltüh link, then its main action.
-  await page.keyboard.press("Tab");
-  await expect(page.getByRole("link", { name: "Contact Sheltüh" }).first()).toBeFocused();
-  await page.keyboard.press("Tab");
-  await expect(page.getByRole("link", { name: "View public page for Neon Static: warehouse night" })).toBeFocused();
-});
-
-test("an organiser with no events is invited to create their first (and only there: no New event in the header)", async ({
-  page,
-}) => {
-  await signedInWithEvents(page, []);
-  await page.goto("/dashboard/events");
-  const create = page.getByRole("link", { name: "Create your first event" });
-  await expect(create).toBeVisible({ timeout: 30_000 });
-  await expect(create).toHaveAttribute("href", "/dashboard/new");
-  await expect(page.getByRole("main").getByRole("link", { name: "New event" })).toHaveCount(0);
-});
 
 test("no organiser frame or nav until the organiser is approved", async ({ page }) => {
   await signedInWithEvents(page, [], { status: "pending" });

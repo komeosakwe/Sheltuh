@@ -3,7 +3,7 @@ import { ticketProviderName } from "./ticketing";
 
 /**
  * What an organiser sees and can do for one of their events on the dashboard
- * (components/dashboard/OrganiserEventRow.tsx). The rules mirror the routes:
+ * (the Events tab's card menu, lib/organiser-event-card.ts, and the editor). The rules mirror the routes:
  *
  * - The editor (/dashboard/{id}) saves only a draft or rejected event; a
  *   pending one opens read-only (PATCH /api/events/{id} is a 409), so its

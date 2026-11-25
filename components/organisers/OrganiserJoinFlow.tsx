@@ -20,7 +20,7 @@ import { LINK_TOKEN_PATTERN, useFragmentToken, type FragmentToken } from "@/lib/
 import { withNext } from "@/lib/safe-next-path";
 import { EVENT_CATEGORIES, type EventCategory } from "@/lib/types";
 
-/** Where joining lands: the dashboard says welcome (DashboardContent). */
+/** Where joining lands: the dashboard's Overview says welcome (components/dashboard/JoinedWelcome.tsx). */
 export const JOINED_PATH = "/dashboard?welcome=organiser";
 
 const SIGN_UP_HREF = withNext("/signup", ORGANISER_JOIN_PATH);
