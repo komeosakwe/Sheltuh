@@ -1,16 +1,23 @@
 "use client";
 
 import Link from "next/link";
-import { useSearchParams } from "next/navigation";
-import { useEffect, useRef, useState, type ReactNode, type Ref } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { useEffect, useEffectEvent, useRef, useState, type ReactNode, type Ref } from "react";
+import { flushSync } from "react-dom";
 import OrderEmail from "@/components/checkout/OrderEmail";
+import { useOptionalNavAccount } from "@/components/nav/useNavAccount";
 import MyTicketView from "@/components/tickets/MyTicketView";
+import SendTicketDialog, { type SendTicketFields } from "@/components/tickets/SendTicketDialog";
 import { useTicketEvent } from "@/components/tickets/useTicketEvent";
 import { ButtonLink, buttonClass } from "@/components/ui/Button";
 import { LoadingState } from "@/components/ui/ProgressLoader";
+import Toast, { useToast } from "@/components/ui/Toast";
 import { orderCompletedProperties, trackOrderCompleted } from "@/lib/analytics";
 import { ApiError } from "@/lib/api/client";
+import type { GetToken } from "@/lib/api/client";
 import { getOrderBySession, getOrderPayment } from "@/lib/api/orders";
+import { cancelTicketTransfer, sendTicket } from "@/lib/api/ticket-transfers";
+import { useOptionalAuth } from "@/lib/auth/useOptionalAuth";
 import {
   CHECKOUT_CLOSED_LABEL,
   CHECKOUT_UNCONFIRMED_BODY,
@@ -24,7 +31,11 @@ import {
   type CheckoutOrderContext,
 } from "@/lib/checkout-pay";
 import { forgetOrderAccessIfFinal, orderAccessFor } from "@/lib/order-access";
+import { firstName } from "@/lib/person-name";
+import { withNext } from "@/lib/safe-next-path";
+import { formatSeatLine } from "@/lib/seating/format";
 import { forgetPendingCheckout } from "@/lib/seating/pending-checkout";
+import { rememberReturnOrder, sendParam, takeReturnOrder } from "@/lib/ticket-transfer-return";
 import type { CustomerOrder, StateCode } from "@/lib/api/types";
 
 export type LoadState =
@@ -98,6 +109,32 @@ const PAYMENT_CHECK_AFTER_POLLS = 2;
 export default function CheckoutConfirmation() {
   const searchParams = useSearchParams();
   const sessionId = searchParams.get("session_id");
+  const router = useRouter();
+  // `?send=2`: open Send for ticket 2 once the order is in (back from signing in to send, or an offer email's link).
+  const sendAsked = sendParam(searchParams.get("send"));
+  // Signed in, the order is read with the account's token too: signed in with the buying email, the page may
+  // send the order's tickets (docs/architecture.md, "Ticket transfers"). Outside an AuthProvider: signed out.
+  const auth = useOptionalAuth();
+  const signedIn = Boolean(auth?.configured && auth.status === "signed-in");
+  const accountKey = signedIn ? (auth?.userId ?? "") : null;
+  const getToken: GetToken | undefined = signedIn ? auth?.getAccessToken : undefined;
+  const getTokenRef = useRef(getToken);
+  useEffect(() => {
+    getTokenRef.current = getToken;
+  }, [getToken]);
+  const navAccount = useOptionalNavAccount();
+  const toast = useToast();
+  /** The ticket (its number) the Send dialog is open for. */
+  const [sendFor, setSendFor] = useState<number | null>(null);
+  const [cancelling, setCancelling] = useState<number | null>(null);
+  const [transferError, setTransferError] = useState<{ ticketNumber: number; message: string } | null>(null);
+  /** Back from signing in to send: the order id this tab kept (read once: it's forgotten as it's read). */
+  const returnOrder = useRef<string | null | undefined>(undefined);
+  /**
+   * Counts the requests whose answer replaces the order on the page (a send, a cancel, a quiet re-read): only
+   * the latest one's answer is shown, so a slow re-read can't put back what a newer answer changed.
+   */
+  const answerSeq = useRef(0);
   // What the page has loaded, with the session_id and the visit (each run of the load below) it was loaded
   // for. Another session_id in the same tab (the component stays mounted) is loading until its own answer is
   // in: never the previous order's tickets, token or settled effects under the new URL.
@@ -139,6 +176,16 @@ export default function CheckoutConfirmation() {
     const setState = (next: LoadState) => setLoaded({ sessionId, visit, state: next });
 
     if (!sessionId) {
+      // Back from signing in to send a ticket: this tab kept the order's id (never in the sign-in's `next`).
+      if (returnOrder.current === undefined) returnOrder.current = takeReturnOrder();
+      if (returnOrder.current) {
+        const params = new URLSearchParams({ session_id: returnOrder.current });
+        if (sendAsked) params.set("send", String(sendAsked));
+        router.replace(`/checkout/success?${params}`);
+        return () => {
+          cancelled = true;
+        };
+      }
       // Deferred via queueMicrotask so the effect body itself never calls
       // setState directly — matches the pattern used elsewhere in this app.
       queueMicrotask(() => {
@@ -198,7 +245,7 @@ export default function CheckoutConfirmation() {
 
     async function poll() {
       try {
-        const result = await getOrderBySession(sessionId as string, access);
+        const result = await readOrder(sessionId as string, access, getTokenRef.current);
         if (cancelled) return;
 
         if (result.status === "pending") {
@@ -226,7 +273,7 @@ export default function CheckoutConfirmation() {
         const order = result;
         if (order.status === "paid") {
           // The server says the token can't change anything any more: this device stops keeping it.
-          if (access) forgetOrderAccessIfFinal(sessionId as string, order.emailChange);
+          if (access) forgetOrderAccessIfFinal(sessionId as string, order.emailChange, needsAccessForTickets(order));
           setState({ status: "ready", order, access });
         } else if (order.status === "oversold_refund_required" || order.status === "refunded") {
           setState({ status: "oversold", order });
@@ -247,7 +294,69 @@ export default function CheckoutConfirmation() {
     return () => {
       cancelled = true;
     };
-  }, [sessionId]);
+  }, [sessionId, sendAsked, router]);
+
+  /**
+   * Shows a later answer for the order on the page (a send's, a cancel's, a quiet reload's), if the page is
+   * still on that order and visit and showing its tickets: paid stays here; refunded gets its own page.
+   * False when a newer request (or an account change) made this answer stale: it isn't shown.
+   */
+  function applyOrder(next: CustomerOrder, forSession: string, forVisit: number, seq: number): boolean {
+    // The token is this order's: forgotten when final, whatever the page shows by now.
+    forgetOrderAccessIfFinal(forSession, next.emailChange, needsAccessForTickets(next));
+    if (seq !== answerSeq.current) return false;
+    setLoaded((was) => {
+      if (was.sessionId !== forSession || was.visit !== forVisit || was.state.status !== "ready") return was;
+      const access = was.state.access;
+      if (next.status === "paid") return { ...was, state: { status: "ready", order: next, access } };
+      if (next.status === "oversold_refund_required" || next.status === "refunded") return { ...was, state: { status: "oversold", order: next } };
+      return { ...was, state: { status: "error", message: "This order couldn't be completed." } };
+    });
+    return true;
+  }
+
+  /** Reads the order again without a loading state (it changed under the page: an offer taken, control lost). */
+  function reloadQuietly(forSession: string, forVisit: number) {
+    const seq = (answerSeq.current += 1);
+    readOrder(forSession, orderAccessFor(forSession), getTokenRef.current).then(
+      (result) => {
+        if (result.status !== "pending") applyOrder(result, forSession, forVisit, seq);
+      },
+      () => {
+        // The page keeps what it shows; the next action says what's wrong, if anything still is.
+      },
+    );
+  }
+
+  // The account changed under the page (signed in, signed out, or another account in another tab): an answer
+  // still on its way for the previous one isn't shown, and an order on the page is read again with the access
+  // there is now, so what only the previous account may see (recipients' names, send, cancel) goes. Also,
+  // signed in when the order came back saying to sign in (read before the session was restored): read it
+  // again, so the account's control of it shows.
+  const readyOrder = state.status === "ready" ? state.order : null;
+  const hasOrder = readyOrder !== null;
+  const needsControl = readyOrder?.transfers?.reason === "sign_in";
+  const readForAccount = useRef(accountKey);
+  const reloadForAccount = useEffectEvent((forSession: string) => reloadQuietly(forSession, currentVisit.current));
+  useEffect(() => {
+    const accountChanged = readForAccount.current !== accountKey;
+    readForAccount.current = accountKey;
+    if (accountChanged) answerSeq.current += 1;
+    if (!sessionId) return;
+    if (accountChanged ? hasOrder : accountKey !== null && needsControl) reloadForAccount(sessionId);
+  }, [sessionId, accountKey, needsControl, hasOrder]);
+
+  // `?send=n`: open Send for ticket n once, when the order says it can be sent now.
+  const autoOpened = useRef<string | null>(null);
+  useEffect(() => {
+    if (!sendAsked || !sessionId || !readyOrder?.transfers?.canSend) return;
+    const key = `${sessionId}#${sendAsked}`;
+    if (autoOpened.current === key) return;
+    const ticket = readyOrder.tickets.find((t, i) => (t.ticketNumber ?? i + 1) === sendAsked);
+    if (!ticket || ticket.canSend !== true) return;
+    autoOpened.current = key;
+    queueMicrotask(() => setSendFor(sendAsked));
+  }, [sendAsked, sessionId, readyOrder]);
 
   const title = confirmationTitle(state);
   useEffect(() => {
@@ -396,38 +505,135 @@ export default function CheckoutConfirmation() {
     );
   }
 
-  const { order } = state;
+  const { order, access } = state;
+  const transfers = order.transfers;
+  const visit = loaded.visit;
+
+  async function send(fields: SendTicketFields) {
+    if (!sessionId || sendFor === null) return;
+    const seq = (answerSeq.current += 1);
+    const result = await sendTicket(sessionId, { ticket: sendFor, ...fields }, access, getTokenRef.current);
+    // The dialog closes first (its focus goes back to what opened it, and the page is no longer inert behind a
+    // modal), so the toast after it is read out.
+    flushSync(() => setSendFor(null));
+    // Its answer went stale on the way (the account changed, and a read for it may have come back before the
+    // send went through): it isn't shown, but the page reads the order again, so it shows the send.
+    if (!applyOrder(result.order, sessionId, visit, seq)) reloadQuietly(sessionId, visit);
+    toast.show(`Sent to ${firstName(fields.name)}. We’ll email you when they accept.`);
+  }
+
+  async function cancel(ticketNumber: number, transferId: string) {
+    if (!sessionId) return;
+    setCancelling(ticketNumber);
+    setTransferError(null);
+    const seq = (answerSeq.current += 1);
+    try {
+      const result = await cancelTicketTransfer(sessionId, transferId, access, getTokenRef.current);
+      // A stale answer (as for a send): read the order again, so the offer cancelled doesn't stay on the page.
+      if (!applyOrder(result.order, sessionId, visit, seq)) reloadQuietly(sessionId, visit);
+      toast.show("Cancelled. Your QR code still works.");
+    } catch (err) {
+      const known = err instanceof ApiError && err.status < 500;
+      setTransferError({ ticketNumber, message: known ? err.message : "Couldn’t cancel it. Try again." });
+      // Accepted, declined or expired meanwhile, or this browser lost control: show the order as it is now.
+      if (known) reloadQuietly(sessionId, visit);
+    } finally {
+      setCancelling(null);
+    }
+  }
+
+  /**
+   * Sign in with the buying email to send ticket `ticketNumber`: back here after, with Send open for it. Signed
+   * in with another email, this signs out on this device first (Switch account).
+   */
+  function signInToSend(ticketNumber: number) {
+    if (!sessionId) return;
+    rememberReturnOrder(sessionId);
+    if (signedIn) auth?.signOut("local");
+    router.push(withNext("/login", `/checkout/success?send=${ticketNumber}`));
+  }
+
+  const offered = order.tickets.some((ticket) => ticket.transfer);
+  const entriesCount = order.tickets.length + (order.transferredTickets?.length ?? 0);
+  const sendTicketLabel = (() => {
+    if (sendFor === null || entriesCount < 2) return undefined;
+    const ticket = order.tickets.find((t, i) => (t.ticketNumber ?? i + 1) === sendFor);
+    return [`Ticket ${sendFor} of ${entriesCount}`, ticket?.seat ? formatSeatLine(ticket.seat) : null].filter(Boolean).join(" · ");
+  })();
+
   return (
-    <MyTicketView
-      order={order}
-      sessionId={sessionId}
-      event={ticketEvent}
-      emailSlot={
-        sessionId && (
-          <OrderEmail
-            // A fresh form for each visit: nothing typed for one order (or an earlier visit) is sent for another.
-            key={`${sessionId}#${loaded.visit}`}
-            sessionId={sessionId}
-            order={order}
-            access={state.access}
-            onOrder={(next) => {
-              // The token is this order's: forgotten when final, whatever the page shows by now.
-              forgetOrderAccessIfFinal(sessionId, next.emailChange);
-              if (currentVisit.current !== loaded.visit) return;
-              const show = (shown: LoadState) => setLoaded({ sessionId, visit: loaded.visit, state: shown });
-              // As the load does: paid stays here; refunded (say, while the change was being sent) gets its own page.
-              if (next.status === "paid") show({ status: "ready", order: next, access: state.access });
-              else if (next.status === "oversold_refund_required" || next.status === "refunded") show({ status: "oversold", order: next });
-              else show({ status: "error", message: "This order couldn't be completed." });
-            }}
-            onUnavailable={(message) => {
-              if (currentVisit.current === loaded.visit) setLoaded({ sessionId, visit: loaded.visit, state: { status: "error", message } });
-            }}
-          />
-        )
-      }
-    />
+    <>
+      <MyTicketView
+        order={order}
+        sessionId={sessionId}
+        event={ticketEvent}
+        onSendTicket={
+          sessionId && transfers?.canSend
+            ? (ticketNumber) => {
+                setTransferError(null);
+                setSendFor(ticketNumber);
+              }
+            : undefined
+        }
+        onSignInToSend={sessionId && transfers?.reason === "sign_in" ? signInToSend : undefined}
+        signedInAsOther={signedIn}
+        showTicket={sendAsked}
+        onCancelTransfer={sessionId ? (ticketNumber, transferId) => void cancel(ticketNumber, transferId) : undefined}
+        cancelling={cancelling}
+        transferError={transferError}
+        // Where a ticket can be sent or taken back, and while a toast is up (a cancel with sending off): the page's
+        // other news has its own status lines.
+        toast={transfers || offered || toast.toast ? (placement) => <Toast controls={toast} placement={placement} /> : undefined}
+        emailSlot={
+          sessionId && (
+            <OrderEmail
+              // A fresh form for each visit: nothing typed for one order (or an earlier visit) is sent for another.
+              key={`${sessionId}#${loaded.visit}`}
+              sessionId={sessionId}
+              order={order}
+              access={state.access}
+              onOrder={(next) => {
+                // The token is this order's: forgotten when final, whatever the page shows by now.
+                forgetOrderAccessIfFinal(sessionId, next.emailChange, needsAccessForTickets(next));
+                if (currentVisit.current !== loaded.visit) return;
+                const show = (shown: LoadState) => setLoaded({ sessionId, visit: loaded.visit, state: shown });
+                // As the load does: paid stays here; refunded (say, while the change was being sent) gets its own page.
+                if (next.status === "paid") show({ status: "ready", order: next, access: state.access });
+                else if (next.status === "oversold_refund_required" || next.status === "refunded") show({ status: "oversold", order: next });
+                else show({ status: "error", message: "This order couldn't be completed." });
+              }}
+              onUnavailable={(message) => {
+                if (currentVisit.current === loaded.visit) setLoaded({ sessionId, visit: loaded.visit, state: { status: "error", message } });
+              }}
+            />
+          )
+        }
+      />
+      <SendTicketDialog
+        open={sendFor !== null}
+        onClose={() => setSendFor(null)}
+        ticketLabel={sendTicketLabel}
+        defaultSenderName={navAccount?.profile?.displayName ?? ""}
+        onSend={send}
+        onSignIn={() => {
+          if (sendFor !== null) signInToSend(sendFor);
+        }}
+      />
+    </>
   );
+}
+
+/** The order read with this browser's token and, when signed in, the account's (only the arguments there are). */
+function readOrder(sessionId: string, access: string | undefined, getToken: GetToken | undefined) {
+  return getToken ? getOrderBySession(sessionId, access, getToken) : getOrderBySession(sessionId, access);
+}
+
+/**
+ * Whether this browser's order access token still does something for the order's tickets: it may send one
+ * now, or cancel an offer. A scanned ticket then doesn't end it (lib/order-access.ts forgetOrderAccessIfFinal).
+ */
+function needsAccessForTickets(order: CustomerOrder): boolean {
+  return order.transfers?.canSend === true || order.tickets.some((ticket) => ticket.transfer?.canCancel === true);
 }
 
 const linkClass = "inline-flex min-h-11 items-center text-accent underline underline-offset-4";

@@ -6,6 +6,7 @@ import {
 } from "@/lib/member-photo-rules";
 import { HttpError } from "./http";
 import { readCappedBytes, sniffImageType } from "./image-upload";
+import { slotLimiter } from "./slots";
 
 /**
  * Member profile photos (docs/architecture.md, "Member profiles"), the
@@ -92,32 +93,12 @@ async function readImageUpload(req: Request, max: number, field: SquareImageFiel
   return bytes;
 }
 
-let running = 0;
-const waiting: (() => void)[] = [];
-
 /**
  * Runs `work` in one of AVATAR_ENCODE_CONCURRENCY's slots, waiting for one if
  * needed; 503 when the queue is full. Shared by every upload that's decoded
  * (member photos, organiser logos and covers, event photos).
  */
-export async function inEncodeSlot<T>(work: () => Promise<T>): Promise<T> {
-  if (running < AVATAR_ENCODE_CONCURRENCY.running) {
-    running += 1;
-  } else {
-    if (waiting.length >= AVATAR_ENCODE_CONCURRENCY.waiting) {
-      throw new HttpError(503, "Lots of photos are being uploaded right now. Try again in a minute.");
-    }
-    // The slot is handed over by the finishing job (running stays the same).
-    await new Promise<void>((resolve) => waiting.push(resolve));
-  }
-  try {
-    return await work();
-  } finally {
-    const next = waiting.shift();
-    if (next) next();
-    else running -= 1;
-  }
-}
+export const inEncodeSlot = slotLimiter(AVATAR_ENCODE_CONCURRENCY, "Lots of photos are being uploaded right now. Try again in a minute.");
 
 /**
  * Both results, once both have settled; if either rejected, the first

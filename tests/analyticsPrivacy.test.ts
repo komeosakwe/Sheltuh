@@ -17,7 +17,7 @@ const ORIGIN = "https://sheltuh.com.au";
 
 describe("sanitizeUrl", () => {
   it("drops the fragment on every page (the emailed-link tokens live there)", () => {
-    for (const path of ["/waitlist/confirm", "/waitlist/leave", "/following/unsubscribe", "/holder-messages/stop", "/invite", "/organisers/join", "/checkout/confirm"]) {
+    for (const path of ["/waitlist/confirm", "/waitlist/leave", "/following/unsubscribe", "/holder-messages/stop", "/invite", "/organisers/join", "/checkout/confirm", "/tickets/accept"]) {
       expect(sanitizeUrl(`${ORIGIN}${path}#token=abc123secret`)).toBe(`${ORIGIN}${path}`);
     }
     expect(sanitizeUrl(`${ORIGIN}/events/night-market#tickets`)).toBe(`${ORIGIN}/events/night-market`);
@@ -97,6 +97,8 @@ describe("sanitizeUrl", () => {
     expect(sanitizePathname("/anything/7KQM-2HXD/print")).toBe("/anything/[code]/print");
     expect(sanitizePathname("/members/9f3c")).toBe("/members/[profileId]");
     expect(sanitizePathname("/messages/c0ffee")).toBe("/messages/[conversationId]");
+    expect(sanitizePathname("/tickets/received/0b5c2f8e-7d6a-4c1b-9e3f-2a1d4c5b6e7f")).toBe("/tickets/received/[transferId]");
+    expect(sanitizePathname("/tickets/accept")).toBe("/tickets/accept");
     expect(sanitizePathname("/messages/blocked")).toBe("/messages/blocked");
     expect(sanitizePathname("/messages")).toBe("/messages");
     expect(sanitizePathname("/events/night-market")).toBe("/events/night-market");

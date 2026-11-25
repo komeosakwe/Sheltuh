@@ -8,6 +8,8 @@ import { orderAccessFor, rememberOrderAccess } from "@/lib/order-access";
 import type { CustomerOrder, OrderPaymentLookup } from "@/lib/api/types";
 import { REFUND_ACL_STATEMENT } from "@/lib/refund-policy";
 import { rememberPendingCheckout } from "@/lib/seating/pending-checkout";
+import type { AuthContextValue } from "@/lib/auth/AuthContext";
+import { FakeAuthProvider, fakeAuthValue } from "./test-utils/fakeAuth";
 
 // The real next/link, marked, so a test can tell its links from plain ones (a full page load).
 vi.mock("next/link", async (importOriginal) => {
@@ -16,8 +18,12 @@ vi.mock("next/link", async (importOriginal) => {
 });
 // The page's session_id: a test can move the tab to another order (and re-render).
 let sessionParam = "cs_test_1";
+// `?send=n` (a test sets it), and the router the page moves on with.
+const extraParams: Record<string, string> = {};
+const router = { push: vi.fn(), replace: vi.fn() };
 vi.mock("next/navigation", () => ({
-  useSearchParams: () => new URLSearchParams({ session_id: sessionParam }),
+  useSearchParams: () => new URLSearchParams({ ...(sessionParam ? { session_id: sessionParam } : {}), ...extraParams }),
+  useRouter: () => router,
 }));
 const getOrderBySession = vi.fn();
 // The event's public details (image, address): optional extras the page works without; none by default.
@@ -37,6 +43,18 @@ vi.mock("@/lib/api/orders", async (importOriginal) => ({
   changeOrderEmail: (...args: unknown[]) => changeOrderEmail(...args),
   createCheckoutSession: (...args: unknown[]) => writes.createCheckoutSession(...args),
   confirmFreeOrder: (...args: unknown[]) => writes.confirmFreeOrder(...args),
+}));
+// The signed-in member's profile (the Send dialog's "Your name"): none unless a test sets one.
+const nav: { account: { profile: { displayName: string } | null } | null } = { account: null };
+vi.mock("@/components/nav/useNavAccount", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/components/nav/useNavAccount")>()),
+  useOptionalNavAccount: () => nav.account,
+}));
+const sendTicket = vi.fn();
+const cancelTicketTransfer = vi.fn();
+vi.mock("@/lib/api/ticket-transfers", () => ({
+  sendTicket: (...args: unknown[]) => sendTicket(...args),
+  cancelTicketTransfer: (...args: unknown[]) => cancelTicketTransfer(...args),
 }));
 vi.mock("@/lib/api/seating", () => ({
   cancelPendingOrder: (...args: unknown[]) => writes.cancelPendingOrder(...args),
@@ -66,6 +84,12 @@ afterEach(() => {
   localStorage.clear();
   getOrderBySession.mockReset();
   getOrderPayment.mockReset();
+  sendTicket.mockReset();
+  cancelTicketTransfer.mockReset();
+  router.push.mockReset();
+  router.replace.mockReset();
+  for (const key of Object.keys(extraParams)) delete extraParams[key];
+  nav.account = null;
   changeOrderEmail.mockReset();
   for (const fn of Object.values(writes)) fn.mockReset();
 });
@@ -1320,5 +1344,402 @@ describe("CheckoutConfirmation: the buyer's email (the paying browser's one chan
     expect(screen.queryByText(/Tickets sent to/)).toBeNull();
     expect(screen.getByText(/Wrong email\? Contact/)).toHaveTextContent("Wrong email? Contact support@sheltuh.com.au.");
     expect(document.body.textContent).not.toMatch(/@example\.com/);
+  });
+});
+
+describe("CheckoutConfirmation: sending a ticket to a friend (ticket transfers)", () => {
+  const ORD = "ord_0123456789abcdef0123456789abcdef";
+  const TID = "0b5c2f8e-7d6a-4c1b-9e3f-2a1d4c5b6e7f";
+  const TOKEN = "ef".repeat(32);
+  const SENDABLE: CustomerOrder = {
+    ...WITH_DETAILS,
+    eventListed: true,
+    wallet: { apple: true, google: true },
+    tickets: [
+      { ticketCode: "7KQM-2HXD", ticketTypeName: "General admission", checkedInAt: null, ticketNumber: 1, canSend: true },
+      { ticketCode: "A2B3-C4D5", ticketTypeName: "General admission", checkedInAt: null, ticketNumber: 2, canSend: true },
+    ],
+    transfers: { canSend: true, closesAt: "2027-03-06T07:00:00.000Z" },
+  };
+  const OFFERED = (canCancel: boolean, toName?: string): CustomerOrder => ({
+    ...SENDABLE,
+    tickets: [
+      {
+        ...SENDABLE.tickets[0],
+        canSend: false,
+        transfer: { status: "pending", expiresAt: "2027-03-01T00:00:00.000Z", canCancel, ...(toName ? { toName, transferId: TID } : {}) },
+      },
+      SENDABLE.tickets[1],
+    ],
+  });
+  const SENT: CustomerOrder = {
+    ...SENDABLE,
+    tickets: [SENDABLE.tickets[0]],
+    transferredTickets: [{ ticketNumber: 2, ticketTypeName: "General admission", holderName: "Sam Lee", acceptedAt: "2027-03-01T01:00:00.000Z", acceptedByMaskedEmail: "j***@outlook.com" }],
+  };
+
+  beforeEach(() => {
+    sessionParam = ORD;
+  });
+
+  it("an offer in progress: the QR still shows, with 'Waiting for Sam to accept' and Cancel", async () => {
+    getOrderBySession.mockResolvedValue(OFFERED(true, "Sam Lee"));
+    render(<CheckoutConfirmation />);
+    const strip = (await screen.findByText("Waiting for Sam to accept")).closest("[data-ticket-status]") as HTMLElement;
+    expect(within(strip).getByRole("button", { name: "Cancel sending this ticket" })).toBeInTheDocument();
+    expect(screen.getByRole("img", { name: /7KQM-2HXD/ })).toBeInTheDocument();
+    // Cancelling is on the strip, not Manage order's Send (it's on offer already).
+    fireEvent.click(screen.getByRole("button", { name: "Manage order" }));
+    expect(within(screen.getByRole("dialog", { name: "Manage order" })).queryByRole("button", { name: /Send ticket to a friend/ })).toBeNull();
+  });
+
+  it("an offer this visitor can't take back (no control): who it went to isn't shown, and there's no Cancel", async () => {
+    getOrderBySession.mockResolvedValue(OFFERED(false));
+    render(<CheckoutConfirmation />);
+    const strip = (await screen.findByText("Waiting for them to accept")).closest("[data-ticket-status]") as HTMLElement;
+    expect(within(strip).queryByRole("button")).toBeNull();
+  });
+
+  it("Cancel takes the offer back: the order as the server has it now, and a toast", async () => {
+    rememberOrderAccess(ORD, TOKEN);
+    getOrderBySession.mockResolvedValue(OFFERED(true, "Sam Lee"));
+    cancelTicketTransfer.mockResolvedValue({ order: SENDABLE });
+    render(<CheckoutConfirmation />);
+    fireEvent.click(await screen.findByRole("button", { name: "Cancel sending this ticket" }));
+    expect(cancelTicketTransfer).toHaveBeenCalledWith(ORD, TID, TOKEN, undefined);
+    const toast = (await screen.findByText("Cancelled. Your QR code still works.")).closest("[data-toast]");
+    expect(toast).toHaveAttribute("role", "status");
+    expect(screen.queryByText("Waiting for Sam to accept")).toBeNull();
+  });
+
+  it("a cancel that's too late (409) says why and reads the order again", async () => {
+    getOrderBySession.mockResolvedValueOnce(OFFERED(true, "Sam Lee")).mockResolvedValue(SENT);
+    cancelTicketTransfer.mockRejectedValue(new ApiError(409, "This offer can't be cancelled now: it was accepted, declined or has expired.", undefined, { code: "transfer_not_pending" }));
+    render(<CheckoutConfirmation />);
+    fireEvent.click(await screen.findByRole("button", { name: "Cancel sending this ticket" }));
+    await waitFor(() => expect(getOrderBySession).toHaveBeenCalledTimes(2));
+    expect(await screen.findByText("This QR code no longer works")).toBeInTheDocument();
+  });
+
+  it("a ticket sent and accepted: Latte's Transferred card, with no QR, code or wallet badges, numbered as the email", async () => {
+    getOrderBySession.mockResolvedValue(SENT);
+    const { container } = render(<CheckoutConfirmation />);
+    const tickets = await screen.findByRole("region", { name: "Your tickets" });
+    fireEvent.click(within(tickets).getByRole("button", { name: "Next ticket" }));
+    expect(tickets).toHaveTextContent("Ticket 2 of 2");
+    const card = container.querySelector('[data-state="transferred"]') as HTMLElement;
+    expect(card).toHaveTextContent("Sent to Sam Lee · accepted 1 Mar");
+    expect(card).toHaveTextContent("2 of 2");
+    expect(card).toHaveTextContent("This QR code no longer works");
+    expect(within(card).queryByRole("img")).toBeNull();
+    expect(screen.getByText("Accepted with j***@outlook.com, not the address you sent it to.")).toBeInTheDocument();
+    // The sent ticket's code (A2B3-C4D5) is nowhere on the page; its wallet passes aren't offered.
+    expect(container.innerHTML).not.toContain("A2B3-C4D5");
+    expect(screen.queryByRole("link", { name: /Wallet/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Show ticket/ })).toBeNull();
+  });
+
+  it("Send from Manage order: the dialog, then the order as the server has it, the pending strip and the toast", async () => {
+    rememberOrderAccess(ORD, TOKEN);
+    getOrderBySession.mockResolvedValue(SENDABLE);
+    sendTicket.mockResolvedValue({ transferId: TID, order: OFFERED(true, "Sam Lee") });
+    render(<CheckoutConfirmation />);
+    fireEvent.click(await screen.findByRole("button", { name: "Manage order" }));
+    const manage = screen.getByRole("dialog", { name: "Manage order" });
+    const row = within(manage).getByRole("button", { name: /Send ticket to a friend/ });
+    expect(row).toHaveTextContent("Ticket 1 of 2. They get their own QR code; yours stops working");
+    fireEvent.click(row);
+    const dialog = await screen.findByRole("dialog", { name: "Send this ticket" });
+    fireEvent.change(within(dialog).getByLabelText("Their name"), { target: { value: "Sam Lee" } });
+    fireEvent.change(within(dialog).getByLabelText("Their email"), { target: { value: "sam@email.com" } });
+    fireEvent.change(within(dialog).getByLabelText("Your name"), { target: { value: "Alex Chen" } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Send ticket" }));
+    await waitFor(() =>
+      expect(sendTicket).toHaveBeenCalledWith(ORD, { ticket: 1, name: "Sam Lee", email: "sam@email.com", senderName: "Alex Chen" }, TOKEN, undefined),
+    );
+    expect(await screen.findByText("Waiting for Sam to accept")).toBeInTheDocument();
+    expect(screen.getByText("Sent to Sam. We’ll email you when they accept.")).toBeInTheDocument();
+    expect(screen.queryByRole("dialog", { name: "Send this ticket" })).toBeNull();
+    expect(screen.getByText("Each code works once. To give a ticket away, send it from Manage order.")).toBeInTheDocument();
+  });
+
+  it("not this visitor's to send (sign_in): Manage order's row says whose email to sign in with, and goes there", async () => {
+    getOrderBySession.mockResolvedValue({
+      ...SENDABLE,
+      tickets: SENDABLE.tickets.map((t) => ({ ...t, canSend: false })),
+      transfers: { canSend: false, reason: "sign_in" },
+    });
+    render(<CheckoutConfirmation />);
+    fireEvent.click(await screen.findByRole("button", { name: "Manage order" }));
+    const row = within(screen.getByRole("dialog", { name: "Manage order" })).getByRole("button", { name: /Send ticket to a friend/ });
+    expect(row).toHaveTextContent("Sign in with m***@example.com to send it");
+    fireEvent.click(row);
+    // The order's id waits in this tab; the sign-in's `next` carries only the ticket's number.
+    expect(router.push).toHaveBeenCalledWith("/login?next=%2Fcheckout%2Fsuccess%3Fsend%3D1");
+    expect(sessionStorage.getItem("sheltuh:return-order")).toBe(ORD);
+    expect(screen.queryByRole("dialog", { name: "Send this ticket" })).toBeNull();
+  });
+
+  it("back from signing in (no session_id): the kept order, with ?send, and it's forgotten", async () => {
+    sessionParam = "";
+    extraParams.send = "2";
+    sessionStorage.setItem("sheltuh:return-order", ORD);
+    render(<CheckoutConfirmation />);
+    await waitFor(() => expect(router.replace).toHaveBeenCalledWith(`/checkout/success?session_id=${ORD}&send=2`));
+    expect(sessionStorage.getItem("sheltuh:return-order")).toBeNull();
+    expect(getOrderBySession).not.toHaveBeenCalled();
+  });
+
+  it("?send=2 opens Send for ticket 2 once the order says it can be sent", async () => {
+    extraParams.send = "2";
+    getOrderBySession.mockResolvedValue(SENDABLE);
+    sendTicket.mockResolvedValue({ transferId: TID, order: SENDABLE });
+    render(<CheckoutConfirmation />);
+    const dialog = await screen.findByRole("dialog", { name: "Send this ticket" });
+    fireEvent.change(within(dialog).getByLabelText("Their name"), { target: { value: "Sam" } });
+    fireEvent.change(within(dialog).getByLabelText("Their email"), { target: { value: "sam@email.com" } });
+    fireEvent.change(within(dialog).getByLabelText("Your name"), { target: { value: "Alex" } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Send ticket" }));
+    await waitFor(() => expect(sendTicket).toHaveBeenCalledWith(ORD, expect.objectContaining({ ticket: 2 }), undefined, undefined));
+  });
+
+  it("?send=n does nothing when the ticket can't be sent", async () => {
+    extraParams.send = "1";
+    getOrderBySession.mockResolvedValue(OFFERED(true, "Sam Lee"));
+    render(<CheckoutConfirmation />);
+    await screen.findByText("Waiting for Sam to accept");
+    expect(screen.queryByRole("dialog", { name: "Send this ticket" })).toBeNull();
+  });
+
+  it("a scanned ticket doesn't end the paying browser's token while it can still send the others", async () => {
+    rememberOrderAccess(ORD, TOKEN);
+    getOrderBySession.mockResolvedValue({ ...SENDABLE, emailChange: { allowed: false, reason: "ticket_scanned" } });
+    render(<CheckoutConfirmation />);
+    await screen.findByRole("heading", { level: 1 });
+    expect(orderAccessFor(ORD)).toBe(TOKEN);
+  });
+});
+
+describe("CheckoutConfirmation: ticket transfers, signed in and the edges", () => {
+  const ORD = "ord_0123456789abcdef0123456789abcdef";
+  const TID = "0b5c2f8e-7d6a-4c1b-9e3f-2a1d4c5b6e7f";
+  const BASE: CustomerOrder = {
+    ...WITH_DETAILS,
+    eventListed: true,
+    tickets: [
+      { ticketCode: "7KQM-2HXD", ticketTypeName: "General admission", checkedInAt: null, ticketNumber: 1, canSend: true },
+      { ticketCode: "A2B3-C4D5", ticketTypeName: "General admission", checkedInAt: null, ticketNumber: 2, canSend: true },
+    ],
+    transfers: { canSend: true },
+  };
+  const SIGN_IN_FIRST: CustomerOrder = { ...BASE, tickets: BASE.tickets.map((t) => ({ ...t, canSend: false })), transfers: { canSend: false, reason: "sign_in" } };
+  const OFFERED: CustomerOrder = {
+    ...BASE,
+    tickets: [{ ...BASE.tickets[0], canSend: false, transfer: { transferId: TID, status: "pending", toName: "Sam Lee", expiresAt: "2027-03-01T00:00:00.000Z", canCancel: true } }, BASE.tickets[1]],
+  };
+
+  beforeEach(() => {
+    sessionParam = ORD;
+  });
+
+  function renderSignedIn(overrides: Partial<AuthContextValue> = {}) {
+    const getAccessToken = vi.fn<AuthContextValue["getAccessToken"]>().mockResolvedValue("buyer-token");
+    render(
+      <FakeAuthProvider value={fakeAuthValue({ status: "signed-in", email: "mia@example.com", userId: "u-mia", getAccessToken, ...overrides })}>
+        <CheckoutConfirmation />
+      </FakeAuthProvider>,
+    );
+    return { getAccessToken };
+  }
+
+  it("signed in: the order is read with the account's token, and Send's name is the profile's", async () => {
+    nav.account = { profile: { displayName: "Mia Tran" } };
+    getOrderBySession.mockResolvedValue(BASE);
+    renderSignedIn();
+    fireEvent.click(await screen.findByRole("button", { name: "Manage order" }));
+    expect(getOrderBySession).toHaveBeenCalledWith(ORD, undefined, expect.any(Function));
+    fireEvent.click(within(screen.getByRole("dialog", { name: "Manage order" })).getByRole("button", { name: /Send ticket to a friend/ }));
+    const dialog = await screen.findByRole("dialog", { name: "Send this ticket" });
+    expect(within(dialog).getByLabelText("Your name")).toHaveValue("Mia Tran");
+    // A privacy link for the friend's details (the footer is behind the modal).
+    expect(within(dialog).getByRole("link", { name: "Privacy Policy" })).toHaveAttribute("href", "/privacy");
+  });
+
+  it("read before the session was back (sign_in), then signed in: read again once, and ?send=2 opens for ticket 2, shown", async () => {
+    extraParams.send = "2";
+    getOrderBySession.mockResolvedValueOnce(SIGN_IN_FIRST).mockResolvedValue(BASE);
+    // The page shows ticket 1 first (ticket 2 isn't on screen until the link's number brings it).
+    renderSignedIn();
+    const dialog = await screen.findByRole("dialog", { name: "Send this ticket" });
+    expect(getOrderBySession).toHaveBeenCalledTimes(2);
+    expect(getOrderBySession).toHaveBeenLastCalledWith(ORD, undefined, expect.any(Function));
+    // Which ticket, under the body; and the pager shows it.
+    expect(dialog.querySelector("[data-send-ticket-label]")).toHaveTextContent("Ticket 2 of 2");
+    expect(screen.getByRole("region", { name: "Your tickets" })).toHaveTextContent("Ticket 2 of 2");
+  });
+
+  it("signed in with another email: read again once (no loop), and Manage order offers Switch account", async () => {
+    const signOut = vi.fn();
+    getOrderBySession.mockResolvedValue(SIGN_IN_FIRST);
+    renderSignedIn({ signOut });
+    await waitFor(() => expect(getOrderBySession).toHaveBeenCalledTimes(2));
+    fireEvent.click(screen.getByRole("button", { name: "Manage order" }));
+    const row = within(screen.getByRole("dialog", { name: "Manage order" })).getByRole("button", { name: /Send ticket to a friend/ });
+    expect(row).toHaveTextContent("You’re signed in with another email. Switch to m***@example.com to send it");
+    fireEvent.click(row);
+    expect(signOut).toHaveBeenCalledWith("local");
+    expect(router.push).toHaveBeenCalledWith("/login?next=%2Fcheckout%2Fsuccess%3Fsend%3D1");
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(getOrderBySession).toHaveBeenCalledTimes(2);
+  });
+
+  it("after Cancel, focus goes to the tickets (the strip it was on is gone)", async () => {
+    getOrderBySession.mockResolvedValue(OFFERED);
+    cancelTicketTransfer.mockResolvedValue({ order: BASE });
+    render(<CheckoutConfirmation />);
+    const cancel = await screen.findByRole("button", { name: "Cancel sending this ticket" });
+    cancel.focus();
+    fireEvent.click(cancel);
+    await screen.findByText("Cancelled. Your QR code still works.");
+    await waitFor(() => expect(screen.getByRole("region", { name: "Your tickets" })).toHaveFocus());
+  });
+
+  it("a cancel that fails on the server (5xx): says so, keeps the offer, and doesn't re-read", async () => {
+    getOrderBySession.mockResolvedValue(OFFERED);
+    cancelTicketTransfer.mockRejectedValue(new ApiError(500, "boom"));
+    render(<CheckoutConfirmation />);
+    fireEvent.click(await screen.findByRole("button", { name: "Cancel sending this ticket" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Couldn’t cancel it. Try again.");
+    expect(screen.getByText("Waiting for Sam to accept")).toBeInTheDocument();
+    expect(getOrderBySession).toHaveBeenCalledTimes(1);
+  });
+
+  it("with sending off, a cancel still shows its toast", async () => {
+    // Sending off: the API leaves out `transfers` and every `canSend` (an offer already made can still be cancelled).
+    const off = (order: CustomerOrder): CustomerOrder => ({
+      ...order,
+      transfers: undefined,
+      tickets: order.tickets.map((t) => ({ ...t, canSend: undefined })),
+    });
+    getOrderBySession.mockResolvedValue(off(OFFERED));
+    cancelTicketTransfer.mockResolvedValue({ order: off(BASE) });
+    render(<CheckoutConfirmation />);
+    fireEvent.click(await screen.findByRole("button", { name: "Cancel sending this ticket" }));
+    const toast = (await screen.findByText("Cancelled. Your QR code still works.")).closest("[data-toast]");
+    expect(toast).toHaveAttribute("role", "status");
+  });
+
+  it("a slow re-read doesn't put back what a newer answer changed", async () => {
+    let finishReload: (order: CustomerOrder) => void = () => {};
+    getOrderBySession
+      .mockResolvedValueOnce(OFFERED)
+      .mockImplementationOnce(() => new Promise<CustomerOrder>((resolve) => (finishReload = resolve)));
+    // The first cancel fails (409: re-read, slow); the second goes through.
+    cancelTicketTransfer
+      .mockRejectedValueOnce(new ApiError(409, "Can't now.", undefined, { code: "transfer_not_pending" }))
+      .mockResolvedValueOnce({ order: BASE });
+    render(<CheckoutConfirmation />);
+    fireEvent.click(await screen.findByRole("button", { name: "Cancel sending this ticket" }));
+    await waitFor(() => expect(getOrderBySession).toHaveBeenCalledTimes(2));
+    fireEvent.click(await screen.findByRole("button", { name: "Cancel sending this ticket" }));
+    await screen.findByText("Cancelled. Your QR code still works.");
+    await act(async () => finishReload(OFFERED));
+    expect(screen.queryByText("Waiting for Sam to accept")).toBeNull();
+  });
+
+  describe("the account changes under the page (signed out, or another account in another tab)", () => {
+    // What the server answers once the request no longer controls the order: who the offer went to, and Cancel, go.
+    const UNCONTROLLED: CustomerOrder = {
+      ...SIGN_IN_FIRST,
+      tickets: [
+        { ...SIGN_IN_FIRST.tickets[0], transfer: { status: "pending", expiresAt: "2027-03-01T00:00:00.000Z", canCancel: false } },
+        SIGN_IN_FIRST.tickets[1],
+      ],
+    };
+    const signedIn = (userId: string) =>
+      fakeAuthValue({ status: "signed-in", email: "mia@example.com", userId, getAccessToken: vi.fn().mockResolvedValue(`token-${userId}`) });
+    const signedOut = fakeAuthValue({ status: "signed-out", email: undefined, userId: undefined });
+
+    function renderWith(value: AuthContextValue) {
+      const view = render(
+        <FakeAuthProvider value={value}>
+          <CheckoutConfirmation />
+        </FakeAuthProvider>,
+      );
+      return (next: AuthContextValue) =>
+        view.rerender(
+          <FakeAuthProvider value={next}>
+            <CheckoutConfirmation />
+          </FakeAuthProvider>,
+        );
+    }
+
+    it("signed out: the order is read again without the account, and the recipient's name and Cancel go", async () => {
+      getOrderBySession.mockResolvedValueOnce(OFFERED).mockResolvedValueOnce(UNCONTROLLED);
+      const switchTo = renderWith(signedIn("u-mia"));
+      expect(await screen.findByText("Waiting for Sam to accept")).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Cancel sending this ticket" })).toBeInTheDocument();
+      expect(getOrderBySession).toHaveBeenCalledTimes(1);
+
+      switchTo(signedOut);
+      expect(await screen.findByText("Waiting for them to accept")).toBeInTheDocument();
+      expect(getOrderBySession).toHaveBeenCalledTimes(2);
+      // Read with the access there is now: no account token.
+      expect(getOrderBySession).toHaveBeenLastCalledWith(ORD, undefined);
+      expect(screen.queryByText(/Sam/)).toBeNull();
+      expect(screen.queryByRole("button", { name: "Cancel sending this ticket" })).toBeNull();
+    });
+
+    it("an answer on its way for the previous account isn't shown once the account changed", async () => {
+      let finishOld: (order: CustomerOrder) => void = () => {};
+      getOrderBySession
+        .mockResolvedValueOnce(OFFERED)
+        // The quiet re-read after a refused cancel, still on its way when the account changes.
+        .mockImplementationOnce(() => new Promise<CustomerOrder>((resolve) => (finishOld = resolve)))
+        // Then the new account's reads (it doesn't control the order: read once more for it, as on sign-in).
+        .mockResolvedValue(UNCONTROLLED);
+      cancelTicketTransfer.mockRejectedValueOnce(new ApiError(409, "Can't now.", undefined, { code: "transfer_not_pending" }));
+      const switchTo = renderWith(signedIn("u-mia"));
+      fireEvent.click(await screen.findByRole("button", { name: "Cancel sending this ticket" }));
+      await waitFor(() => expect(getOrderBySession).toHaveBeenCalledTimes(2));
+
+      // Another account in another tab: read again for it.
+      switchTo(signedIn("u-other"));
+      expect(await screen.findByText("Waiting for them to accept")).toBeInTheDocument();
+      expect(getOrderBySession).toHaveBeenNthCalledWith(3, ORD, undefined, expect.any(Function));
+
+      // The previous account's answer lands last: it doesn't put the name or Cancel back.
+      await act(async () => finishOld(OFFERED));
+      expect(screen.queryByText("Waiting for Sam to accept")).toBeNull();
+      expect(screen.queryByRole("button", { name: "Cancel sending this ticket" })).toBeNull();
+    });
+
+    it("signed out while a cancel is on its way: the cancel's answer is stale, so the order is read again and the offer goes", async () => {
+      let finishCancel: (answer: { order: CustomerOrder }) => void = () => {};
+      getOrderBySession
+        .mockResolvedValueOnce(OFFERED)
+        // The read for the sign-out comes back before the cancel went through: the paying browser's token
+        // still has control, so it's the offer, unchanged.
+        .mockResolvedValueOnce(OFFERED)
+        // The read after the cancel's stale answer: cancelled.
+        .mockResolvedValueOnce(BASE);
+      cancelTicketTransfer.mockImplementationOnce(() => new Promise((resolve) => (finishCancel = resolve)));
+      const switchTo = renderWith(signedIn("u-mia"));
+      fireEvent.click(await screen.findByRole("button", { name: "Cancel sending this ticket" }));
+      await waitFor(() => expect(cancelTicketTransfer).toHaveBeenCalledTimes(1));
+
+      switchTo(signedOut);
+      await waitFor(() => expect(getOrderBySession).toHaveBeenCalledTimes(2));
+      expect(screen.getByText("Waiting for Sam to accept")).toBeInTheDocument();
+
+      // The cancel goes through: its answer isn't shown (stale), but the order is read again with what's here now.
+      await act(async () => finishCancel({ order: BASE }));
+      await waitFor(() => expect(getOrderBySession).toHaveBeenCalledTimes(3));
+      expect(getOrderBySession).toHaveBeenLastCalledWith(ORD, undefined);
+      await waitFor(() => expect(screen.queryByText("Waiting for Sam to accept")).toBeNull());
+      expect(screen.queryByRole("button", { name: "Cancel sending this ticket" })).toBeNull();
+      // It did happen: the toast says so.
+      expect(screen.getByText("Cancelled. Your QR code still works.")).toBeInTheDocument();
+    });
   });
 });

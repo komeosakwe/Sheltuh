@@ -184,7 +184,7 @@ describe("layout rules (the 1120 layout)", () => {
   });
 });
 
-// The older layout's helpers (lib/server/email-layout.ts) are still used by the admin review emails.
+// The older layout's helpers (lib/server/email-layout.ts): no email renders with them any more (every one is on lib/server/email-kit.ts), but they stay exported and tested until that file is retired.
 describe("helpers", () => {
   it("heroImage accepts only https and carries a size and alt", () => {
     expect(() => heroImage({ src: "http://x.test/a.jpg", alt: "A", width: 600, height: 300 })).toThrow();

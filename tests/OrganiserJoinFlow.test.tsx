@@ -75,12 +75,12 @@ function renderFlow(initial: Partial<AuthContextValue> = SIGNED_OUT, { at = `/or
       </FakeAuthProvider>
     );
   }
-  render(
+  const { container } = render(
     <StrictMode>
       <Harness />
     </StrictMode>,
   );
-  return { signOut, controls };
+  return { signOut, controls, container };
 }
 
 beforeEach(() => {
@@ -188,6 +188,33 @@ describe("/organisers/join signed in", () => {
     expect(name).toHaveAttribute("aria-invalid", "true");
     expect(name).toHaveAccessibleDescription(/Enter your organiser name\./);
     expect(within(form).getByText("Choose at least one category.")).toBeInTheDocument();
+    expect(joinWithOrganiserLink).not.toHaveBeenCalled();
+  });
+
+  it("still focuses the first error when Join is pressed before the form's effects have run", async () => {
+    const { container } = renderFlow(SIGNED_IN);
+    // Resume as soon as the form is in the DOM: a microtask after React's
+    // commit, before its passive effects (a later scheduler task) have run.
+    // Busy machines (CI) hit this between findByRole and the click.
+    const scope = globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean };
+    scope.IS_REACT_ACT_ENVIRONMENT = false;
+    try {
+      await new Promise<void>((resolve) => {
+        const observer = new MutationObserver(() => {
+          if (!container.querySelector("form")) return;
+          observer.disconnect();
+          resolve();
+        });
+        observer.observe(container, { childList: true, subtree: true });
+      });
+    } finally {
+      scope.IS_REACT_ACT_ENVIRONMENT = true;
+    }
+    const form = screen.getByRole("form", { name: "Join as an organiser" });
+    fireEvent.click(within(form).getByRole("button", { name: "Join as an organiser" }));
+    const name = within(form).getByLabelText("Organiser name");
+    await waitFor(() => expect(name).toHaveFocus());
+    expect(name).toHaveAttribute("aria-invalid", "true");
     expect(joinWithOrganiserLink).not.toHaveBeenCalled();
   });
 

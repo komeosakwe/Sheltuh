@@ -72,7 +72,14 @@ export function containsLink(value: string): boolean {
   return LINK.test(foldForLinks(value));
 }
 
-function isReserved(name: string): boolean {
+/**
+ * Whether `name` is one only Sheltüh may use ("Sheltüh Support", "Admin"):
+ * "sheltuh" anywhere, or admin / administrator / support / moderator as a
+ * word, compared on a confusable skeleton. Also held against the names a
+ * ticket transfer's sender and holder type (lib/server/handlers/ticket-transfers.ts),
+ * which Sheltüh's own emails quote.
+ */
+export function isReserved(name: string): boolean {
   const skel = skeleton(name);
   const compact = skel.replace(/[^\p{L}\p{N}]/gu, "");
   const words = skel.split(/[^\p{L}\p{N}]+/u);
