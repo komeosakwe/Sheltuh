@@ -21,10 +21,16 @@ vi.mock("next/navigation", () => ({
   useRouter: () => ({ replace: routerReplace, prefetch: routerPrefetch, push: vi.fn() }),
 }));
 
-// One record for the whole page, as the nav's and the panel's own loads of it would agree.
-let load: { loading: boolean; organiser: { status: OrganiserStatus } | null; error: string | null };
+type Load = { loading: boolean; organiser: { status: OrganiserStatus } | null; error: string | null };
+// One record for the whole page, as the nav's and the panel's own loads of it would agree; unless
+// `panelLoad` is set, for the panel's own (ApplyPageContent's) when the two disagree.
+let load: Load;
+let panelLoad: Load | null = null;
 vi.mock("@/lib/auth/useOrganiser", () => ({
-  useOrganiser: () => ({ ...load, refreshing: false, refetch: vi.fn(), authStatus: "signed-in" }),
+  useOrganiser: () => {
+    const fromPanel = panelLoad !== null && /ApplyPageContent/.test(new Error().stack ?? "");
+    return { ...(fromPanel && panelLoad ? panelLoad : load), refreshing: false, refetch: vi.fn(), authStatus: "signed-in" };
+  },
 }));
 
 const USER_ID = "user-org";
@@ -32,6 +38,7 @@ const HINT_KEY = "sheltuh:organiser-frame";
 
 beforeEach(() => {
   load = { loading: true, organiser: null, error: null };
+  panelLoad = null;
 });
 
 afterEach(() => {
@@ -60,6 +67,9 @@ describe("/organisers/apply for an organiser this browser knows", () => {
     localStorage.setItem(HINT_KEY, USER_ID);
     const { container, rerender } = render(page(signedIn()));
     expect(opening()).toBeInTheDocument();
+    // Its own heading (visually hidden) and a polite status saying what's happening.
+    expect(screen.getByRole("heading", { level: 1, name: "Opening your dashboard" })).toHaveClass("sr-only");
+    expect(screen.getByRole("status")).toHaveTextContent("Opening your dashboard…");
     // The page is there, hidden, so a stale hint costs nothing.
     expect(hero()).toBeNull();
     expect(container.querySelector("[hidden] h1")).toHaveTextContent("Your event. Your community.");
@@ -71,6 +81,7 @@ describe("/organisers/apply for an organiser this browser knows", () => {
     rerender(page(signedIn()));
     expect(opening()).toBeInTheDocument();
     expect(hero()).toBeNull();
+    expect(routerReplace).toHaveBeenCalledTimes(1);
     expect(routerReplace).toHaveBeenCalledWith("/dashboard");
     // A way on if the redirect is slow or blocked.
     expect(screen.getByRole("link", { name: "Go to your dashboard" })).toHaveAttribute("href", "/dashboard");
@@ -121,5 +132,52 @@ describe("/organisers/apply for an organiser this browser knows", () => {
       cleanup();
     }
     expect(routerReplace).not.toHaveBeenCalled();
+  });
+
+  describe("when the nav's record and the panel's own disagree", () => {
+    it("the panel's load failing while the nav's still loads (hinted): the page, with its error and Try again", () => {
+      localStorage.setItem(HINT_KEY, USER_ID);
+      panelLoad = { loading: false, organiser: null, error: "Couldn't load your organiser status." };
+      render(page(signedIn()));
+      expect(opening()).toBeNull();
+      expect(hero()).toBeVisible();
+      expect(screen.getByRole("alert")).toHaveTextContent("Couldn't load your organiser status.");
+      expect(screen.getByRole("button", { name: "Try again" })).toBeVisible();
+      expect(routerReplace).not.toHaveBeenCalled();
+    });
+
+    it("the nav's says approved while the panel's still loads: sent on by the nav's, once, still covered", () => {
+      load = { loading: false, organiser: { status: "approved" }, error: null };
+      panelLoad = { loading: true, organiser: null, error: null };
+      const { rerender } = render(page(signedIn()));
+      expect(opening()).toBeInTheDocument();
+      expect(hero()).toBeNull();
+      expect(routerReplace).toHaveBeenCalledTimes(1);
+      expect(routerReplace).toHaveBeenCalledWith("/dashboard");
+      // The panel's then agrees: no second redirect.
+      panelLoad = { loading: false, organiser: { status: "approved" }, error: null };
+      rerender(page(signedIn()));
+      expect(routerReplace).toHaveBeenCalledTimes(1);
+    });
+
+    it("the nav's says approved but the panel's fails: still sent on, never a flash of the page", () => {
+      load = { loading: false, organiser: { status: "approved" }, error: null };
+      panelLoad = { loading: false, organiser: null, error: "Couldn't load your organiser status." };
+      render(page(signedIn()));
+      expect(opening()).toBeInTheDocument();
+      expect(hero()).toBeNull();
+      expect(routerReplace).toHaveBeenCalledTimes(1);
+    });
+
+    it("the panel's says approved while the nav's still loads (hinted): the panel sends them on, once", () => {
+      localStorage.setItem(HINT_KEY, USER_ID);
+      panelLoad = { loading: false, organiser: { status: "approved" }, error: null };
+      const { rerender } = render(page(signedIn()));
+      expect(opening()).toBeInTheDocument();
+      expect(routerReplace).toHaveBeenCalledTimes(1);
+      load = { loading: false, organiser: { status: "approved" }, error: null };
+      rerender(page(signedIn()));
+      expect(routerReplace).toHaveBeenCalledTimes(1);
+    });
   });
 });

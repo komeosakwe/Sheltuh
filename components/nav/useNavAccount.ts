@@ -10,7 +10,7 @@ import type { ProfileRecord } from "@/lib/api/types";
 import { useAuth, type AuthContextValue } from "@/lib/auth/AuthContext";
 import { useOrganiser } from "@/lib/auth/useOrganiser";
 import { useProfile } from "@/lib/auth/useProfile";
-import { useFramedHint } from "@/lib/organiser-frame-hint";
+import { rememberFramed, useFramedHint } from "@/lib/organiser-frame-hint";
 import {
   isKnownOrganiser,
   ORGANISERS_HREF,
@@ -25,8 +25,6 @@ import {
  * tickets" (components/auth/LoginLinks.tsx). Tickets are emailed today.
  */
 export const MY_TICKETS_HREF = "/help#where-are-my-tickets";
-
-export { ORGANISERS_HREF } from "@/lib/organiser-nav";
 
 /** Where an own profile is edited: the account area's Profile page (Settings has the same card). */
 export const PROFILE_HREF = "/profile";
@@ -124,9 +122,18 @@ function useLoadNavAccount(): NavAccount {
   const organiser = useOrganiser();
   const router = useRouter();
   const signedIn = auth.configured && auth.status === "signed-in";
-  const hinted = useFramedHint(signedIn ? auth.userId : undefined);
+  const userId = signedIn ? auth.userId : undefined;
+  const hinted = useFramedHint(userId);
   const record: OrganiserLoad = { loading: organiser.loading, organiser: organiser.organiser, error: organiser.error };
   const knownOrganiser = isKnownOrganiser({ signedIn, record, hinted });
+
+  // The record, once it's loaded, keeps this browser's hint true for next time (lib/organiser-frame-hint.ts):
+  // set for an approved organiser, cleared for anyone else. A failed load changes nothing.
+  const recordApproved = record.organiser?.status === "approved";
+  const recordSettled = signedIn && !record.loading && record.error === null;
+  useEffect(() => {
+    if (recordSettled) rememberFramed(userId, recordApproved);
+  }, [recordSettled, userId, recordApproved]);
 
   // Their For organisers goes to the dashboard: have it ready before they click.
   useEffect(() => {

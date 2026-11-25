@@ -523,6 +523,40 @@ describe("For organisers (the header's button and the drawer's)", () => {
     for (const link of organisersLinks(drawer)) expect(link).toHaveAttribute("aria-current", "page");
   });
 
+  it("keeps this browser's hint true to the record once it loads: set for an approved organiser, cleared otherwise", () => {
+    const hint = () => localStorage.getItem("sheltuh:organiser-frame");
+    organiser = { loading: false, organiser: { status: "approved" }, error: null };
+    renderNav(signedIn());
+    expect(hint()).toBe(LATTE_ID);
+    cleanup();
+    // Loading, or a failed load, changes nothing.
+    for (const load of [
+      { loading: true, organiser: null, error: null },
+      { loading: false, organiser: null, error: "Couldn't load your organiser status." },
+    ]) {
+      organiser = load;
+      renderNav(signedIn());
+      expect(hint()).toBe(LATTE_ID);
+      cleanup();
+    }
+    // A record that isn't approved (a stale hint) clears it.
+    organiser = { loading: false, organiser: { status: "pending" }, error: null };
+    const { drawer } = renderNav(signedIn());
+    expect(hint()).toBeNull();
+    for (const link of organisersLinks(drawer)) expect(link).toHaveAttribute("href", "/organisers/apply");
+    cleanup();
+    // Another account's hint is left alone; nobody signed out writes one.
+    localStorage.setItem("sheltuh:organiser-frame", "user-someone-else");
+    organiser = { loading: false, organiser: null, error: null };
+    renderNav(signedIn());
+    expect(hint()).toBe("user-someone-else");
+    cleanup();
+    localStorage.clear();
+    organiser = { loading: false, organiser: { status: "approved" }, error: null };
+    renderNav(fakeAuthValue({ status: "signed-out", email: undefined, userId: LATTE_ID }));
+    expect(hint()).toBeNull();
+  });
+
   it("the footer's For organisers follows the same rule; without the layout's provider it's the For organisers page", () => {
     organiser = { loading: false, organiser: { status: "approved" }, error: null };
     const footerLink = () =>
