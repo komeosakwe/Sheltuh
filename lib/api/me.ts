@@ -1,5 +1,5 @@
 import { apiFetch, type GetToken } from "./client";
-import type { AccountSummary, UsernameCheck } from "./types";
+import type { AccountSummary, MyTicketsPage, UsernameCheck } from "./types";
 
 /**
  * The signed-in member's own account summary (GET /api/me; docs/architecture.md,
@@ -11,6 +11,23 @@ import type { AccountSummary, UsernameCheck } from "./types";
 export async function getMe(getToken: GetToken, signal?: AbortSignal): Promise<AccountSummary> {
   const token = await getToken();
   return apiFetch<AccountSummary>("/me", { token, signal });
+}
+
+/**
+ * One page of the signed-in member's My tickets (GET /api/me/tickets;
+ * docs/architecture.md, "API"): their orders (by their verified email) and
+ * the tickets sent to them, upcoming first, with `counts` for both lists.
+ * Pass the previous page's `nextCursor` for the next. ApiError 400 (a bad
+ * cursor), 401 (signed out), 403 (email not verified); or the abort error if
+ * `signal` aborted.
+ */
+export async function listMyTickets(
+  getToken: GetToken,
+  options: { cursor?: string; signal?: AbortSignal } = {},
+): Promise<MyTicketsPage> {
+  const token = await getToken();
+  const suffix = options.cursor ? `?${new URLSearchParams({ cursor: options.cursor })}` : "";
+  return apiFetch<MyTicketsPage>(`/me/tickets${suffix}`, { token, signal: options.signal });
 }
 
 /**

@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@/lib/supabase/config", () => ({ isSupabaseConfigured: true }));
 
-const { checkUsername, clearMyUsername, getMe, setMyUsername } = await import("@/lib/api/me");
+const { checkUsername, clearMyUsername, getMe, listMyTickets, setMyUsername } = await import("@/lib/api/me");
 const { ApiError } = await import("@/lib/api/client");
 
 afterEach(() => {
@@ -37,6 +37,38 @@ describe("getMe", () => {
     const controller = new AbortController();
     controller.abort();
     await expect(getMe(getToken, controller.signal)).rejects.toMatchObject({ name: "AbortError" });
+  });
+});
+
+describe("listMyTickets", () => {
+  const empty = { items: [], counts: { upcoming: 0, past: 0 } };
+
+  it("GETs /api/me/tickets with the bearer token and returns the page", async () => {
+    const fetch = stub(empty);
+    await expect(listMyTickets(getToken)).resolves.toEqual(empty);
+    const [url, init] = fetch.mock.calls[0];
+    expect(url).toBe("/api/me/tickets");
+    expect(init.method ?? "GET").toBe("GET");
+    expect(init.body).toBeUndefined();
+    expect(init.headers.authorization).toBe("Bearer tok");
+  });
+
+  it("passes the cursor, encoded, and nothing else", async () => {
+    const fetch = stub(empty);
+    await listMyTickets(getToken, { cursor: "eyJvIjoyMH0=" });
+    expect(fetch.mock.calls[0][0]).toBe("/api/me/tickets?cursor=eyJvIjoyMH0%3D");
+  });
+
+  it("an error status is an ApiError (403: email not verified)", async () => {
+    stub({ error: "Verify your email address first." }, 403);
+    await expect(listMyTickets(getToken)).rejects.toSatisfy((err) => err instanceof ApiError && err.status === 403);
+  });
+
+  it("an aborted signal cancels it", async () => {
+    stub(empty);
+    const controller = new AbortController();
+    controller.abort();
+    await expect(listMyTickets(getToken, { signal: controller.signal })).rejects.toMatchObject({ name: "AbortError" });
   });
 });
 
