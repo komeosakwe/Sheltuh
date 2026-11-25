@@ -6108,7 +6108,7 @@ What that means:
   `lib/api/types.ts`, index in
   `supabase/migrations/20261205000000_member_refunded_orders_index.sql`;
   tests `tests/server/my-tickets.test.ts`, `tests/api-me.test.ts`. The page:
-  `app/(account)/tickets/page.tsx` over `components/tickets/MyTicketsList.tsx`
+  `app/(account)/tickets/(list)/page.tsx` over `components/tickets/MyTicketsList.tsx`
   (cards' words in `lib/my-tickets.ts`, demo `sampleMyTickets` in
   `lib/sample-order.ts`); tests `tests/my-tickets.test.ts`,
   `tests/MyTicketsList.test.tsx`, `e2e/my-tickets.spec.ts`.

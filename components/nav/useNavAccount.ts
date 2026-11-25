@@ -21,7 +21,7 @@ import {
 } from "@/lib/organiser-nav";
 
 /**
- * My tickets: the signed-in member's list (app/(account)/tickets/page.tsx; GET /api/me/tickets).
+ * My tickets: the signed-in member's list (app/(account)/tickets/(list)/page.tsx; GET /api/me/tickets).
  * Its pages under it (a received ticket, an Accept page) are its place too. /login's "Find my
  * tickets" stays on Help (components/auth/LoginLinks.tsx): that's for people not signed in.
  */

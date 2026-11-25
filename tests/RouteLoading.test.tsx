@@ -1,10 +1,12 @@
 // @vitest-environment jsdom
+import { existsSync } from "node:fs";
+import path from "node:path";
 import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 import SettingsLoading from "@/app/(account)/account/loading";
 import SavedLoading from "@/app/(account)/saved/loading";
 import AcceptTicketLoading from "@/app/(account)/tickets/accept/loading";
-import MyTicketsLoading from "@/app/(account)/tickets/loading";
+import MyTicketsLoading from "@/app/(account)/tickets/(list)/loading";
 import ReceivedTicketLoading from "@/app/(account)/tickets/received/[transferId]/loading";
 import DashboardLoading from "@/app/dashboard/loading";
 import EventLoading from "@/app/events/[slug]/loading";
@@ -47,6 +49,17 @@ describe("route loading states", () => {
     cleanup();
     render(<AcceptTicketLoading />);
     expect(screen.getByRole("progressbar", { name: "Opening your ticket" })).toBeInTheDocument();
+  });
+
+  it("My tickets' loading screen wraps the list only (its own route group), never a received ticket or an Accept link", () => {
+    // A loading.tsx wraps every route below its folder, and Next prefetches a dynamic route only as far as
+    // its first one, so one in app/(account)/tickets would open /tickets/received/{id} on the list's skeleton.
+    const tickets = path.join(process.cwd(), "app", "(account)", "tickets");
+    expect(existsSync(path.join(tickets, "loading.tsx"))).toBe(false);
+    expect(existsSync(path.join(tickets, "(list)", "loading.tsx"))).toBe(true);
+    expect(existsSync(path.join(tickets, "(list)", "page.tsx"))).toBe(true);
+    expect(existsSync(path.join(tickets, "received", "[transferId]", "page.tsx"))).toBe(true);
+    expect(existsSync(path.join(tickets, "accept", "page.tsx"))).toBe(true);
   });
 
   it("an organiser page: a loader named for the page (not the organiser record's \"Loading\")", () => {
