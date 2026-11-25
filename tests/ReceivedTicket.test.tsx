@@ -151,6 +151,7 @@ describe("ReceivedTicket", () => {
     api.configured = false;
     renderPage();
     expect(screen.getByRole("note")).toHaveTextContent("Tickets sent to you can’t be shown in this demo.");
+    expect(screen.getByRole("link", { name: "My tickets" })).toHaveAttribute("href", "/tickets");
     expect(getReceivedTicket).not.toHaveBeenCalled();
   });
 });

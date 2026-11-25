@@ -120,6 +120,25 @@ describe("TicketCard", () => {
     expect(screen.getByRole("link", { name: "View order, Here & Now" })).toHaveAttribute("href", "/b");
   });
 
+  it("the bar and Show ticket sit in one foot pushed to the card's bottom; no foot without them; the bar wraps", () => {
+    const { container, rerender } = render(<TicketCard {...base} state="transfer_pending" showTicket={{ href: "/a" }} statusAction={{ href: "/c", label: "Cancel" }} />);
+    const foot = container.querySelector("[data-ticket-foot]");
+    expect(foot).toHaveClass("mt-auto");
+    expect(foot?.querySelector("[data-ticket-status]")).toHaveClass("flex-wrap");
+    expect(within(foot as HTMLElement).getByRole("link", { name: "Show ticket" })).toBeInTheDocument();
+    // The bar's link: a 44px target from its `after:` inset, not a taller bar.
+    expect(within(foot as HTMLElement).getByRole("link", { name: "Cancel" })).toHaveClass("relative", "after:-inset-y-3");
+    rerender(<TicketCard {...base} state="active" />);
+    expect(container.querySelector("[data-ticket-foot]")).toBeNull();
+  });
+
+  it("is a container: the image goes above the words when the card is narrow (large text)", () => {
+    render(<TicketCard {...base} state="active" />);
+    const card = screen.getByRole("article");
+    expect(card).toHaveClass("@container");
+    expect(card.querySelector("[data-ticket-image]")?.parentElement).toHaveClass("flex-col", "@3xs:flex-row");
+  });
+
   it("says each state's own words when given none, and takes the heading level of where it sits", () => {
     const { rerender } = render(<TicketCard {...base} state="ended" headingLevel={2} />);
     expect(screen.getByText("Event ended")).toBeInTheDocument();
@@ -130,10 +149,11 @@ describe("TicketCard", () => {
     expect(screen.getByText("✓ Checked in")).toBeInTheDocument();
   });
 
-  it("one-line texts truncate so the count keeps its place; a card without a venue or count leaves them out", () => {
+  it("the holder truncates so the count keeps its place, the date wraps (a time is never cut off); a card without a venue or count leaves them out", () => {
     render(<TicketCard state="active" when={base.when} eventTitle={base.eventTitle} holder="A very long holder name · A very long ticket type name" />);
     expect(screen.getByText(/A very long holder name/)).toHaveClass("truncate", "min-w-0", "flex-1");
-    expect(screen.getByText(base.when)).toHaveClass("truncate");
+    expect(screen.getByText(base.when)).toHaveClass("break-words");
+    expect(screen.getByText(base.when)).not.toHaveClass("truncate");
     expect(screen.queryByText("Interconnect Studio")).toBeNull();
     expect(screen.queryByText("1 of 1")).toBeNull();
   });

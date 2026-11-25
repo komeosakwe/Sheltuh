@@ -126,10 +126,20 @@ async function signedIn(page: Page) {
   return { ticketReads };
 }
 
-/** Past's heading at the top of the screen (at once, not smoothly), for its screenshot. */
-async function scrollToPast(page: Page) {
-  await page.getByRole("heading", { level: 2, name: /^Past/ }).evaluate((el) => el.scrollIntoView({ block: "start", behavior: "instant" }));
+/** A list's heading at the top of the screen (at once, not smoothly), for its screenshot. */
+async function scrollToPast(page: Page, list: "Past" | "Upcoming" = "Past") {
+  await page.getByRole("heading", { level: 2, name: new RegExp(`^${list}`) }).evaluate((el) => el.scrollIntoView({ block: "start", behavior: "instant" }));
   await page.waitForFunction(() => window.scrollY > 0);
+}
+
+/** Nothing in the account panel (bar the Account tabs, which scroll in their own row) reaches past the screen's edge. */
+async function nothingPastTheEdge(page: Page) {
+  const past = await page.evaluate(() =>
+    [...document.querySelectorAll("[data-account-main] *")]
+      .filter((el) => el.getBoundingClientRect().right > document.documentElement.clientWidth + 0.5)
+      .map((el) => `${el.tagName} ${el.textContent?.slice(0, 30) ?? ""}`),
+  );
+  expect(past).toEqual([]);
 }
 
 async function noSidewaysScroll(page: Page) {
@@ -170,16 +180,28 @@ test.describe("My tickets at 1440px", () => {
       "href",
       "/tickets/received/0b5c2f8e-7d6a-4c1b-9e3f-2a1d4c5b6e7f",
     );
-    await expect(upcoming(page).getByText("1 waiting to be accepted")).toBeVisible();
+    await expect(upcoming(page).getByText("1 sent, waiting for them to accept")).toBeVisible();
+    // The buttons line up along the row's foot, whether or not a card has a status bar.
+    const bottoms = await Promise.all(
+      [0, 1, 2].map(async (i) => {
+        const box = await cards.nth(i).getByRole("link", { name: /^Show ticket/ }).boundingBox();
+        return Math.round((box?.y ?? 0) + (box?.height ?? 0));
+      }),
+    );
+    expect(new Set(bottoms).size).toBe(1);
+    // At the default text size the image is beside the words.
+    const image = await cards.first().locator("[data-ticket-image]").boundingBox();
+    const heading = await cards.first().getByRole("heading", { level: 3 }).boundingBox();
+    expect(heading?.x ?? 0).toBeGreaterThan((image?.x ?? 0) + (image?.width ?? 0));
     await expect(past(page).getByText("Refunded A$25.94")).toBeVisible();
     await noSidewaysScroll(page);
     await shot(page, "my-tickets-upcoming-1440");
 
-    await past(page).getByRole("button", { name: "Show more" }).click();
+    await past(page).getByRole("button", { name: "Show 1 more" }).click();
     await expect(past(page).getByRole("article")).toHaveCount(3);
     await expect(past(page).getByRole("link", { name: /^View order\s*, Record Shop Sessions$/ })).toBeFocused();
     await expect(past(page).getByText("2 sent. These QR codes no longer work.")).toBeVisible();
-    await expect(page.getByRole("button", { name: "Show more" })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: /^Show \d* ?more$/ })).toHaveCount(0);
     expect(ticketReads).toEqual(["", "?cursor=page-2"]);
     // No ticket code anywhere in the list.
     expect(await page.locator("main").innerText()).not.toMatch(/[A-Z0-9]{4}-[A-Z0-9]{4}/);
@@ -222,5 +244,33 @@ test.describe("My tickets at 390px", () => {
     await scrollToPast(page);
     await noSidewaysScroll(page);
     await shot(page, "my-tickets-past-390");
+  });
+});
+
+test.describe("My tickets at 320px with 200% text", () => {
+  test.use({ viewport: { width: 320, height: 640 } });
+
+  test("the image goes above the words, the date wraps, and nothing in the panel runs past the edge", async ({ page }) => {
+    await open(page);
+    // Chrome's default font size at 32px: every rem doubles.
+    await page.evaluate(() => document.documentElement.style.setProperty("font-size", "200%"));
+    const card = upcoming(page).getByRole("article").first();
+    const image = await card.locator("[data-ticket-image]").boundingBox();
+    const title = await card.getByRole("heading", { level: 3 }).boundingBox();
+    expect((image?.y ?? 0) + (image?.height ?? 0)).toBeLessThanOrEqual(title?.y ?? 0);
+    // The date line is whole (wrapped, not cut off).
+    // The date line comes first in the card's words (its time depends on when the suite runs).
+    const date = card.locator("p").first();
+    await expect(date).toHaveText(/·/);
+    expect(await date.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
+    // The page itself: nothing in the account panel runs past the screen (the Account tabs scroll sideways in their
+    // own row, by design). The site footer's logo and theme switch do overflow at this size: not this page's (the
+    // same on every page), so the whole document isn't checked here.
+    await nothingPastTheEdge(page);
+    await scrollToPast(page, "Upcoming");
+    await shot(page, "my-tickets-upcoming-320-200pct");
+    await scrollToPast(page);
+    await nothingPastTheEdge(page);
+    await shot(page, "my-tickets-past-320-200pct");
   });
 });

@@ -1,7 +1,7 @@
-import type { TicketCardState } from "@/components/tickets/TicketCard";
 import type { MyTicketItem, MyTicketOrderItem, MyTicketReceivedItem, MyTicketSection, MyTicketsPage } from "@/lib/api/types";
 import { eventZone, formatAud, formatDayWithYear, formatEventTime, zoneSuffix } from "@/lib/format";
 import { firstName } from "@/lib/person-name";
+import type { TicketCardState } from "@/lib/ticket-card-state";
 import { ticketStubTime } from "@/lib/ticket-times";
 
 /*
@@ -10,13 +10,13 @@ import { ticketStubTime } from "@/lib/ticket-times";
  * tested on their own (tests/my-tickets.test.ts).
  *
  * An order card has counts only (no recipient names, offer ids, check-in
- * times or refund dates), so its words are generic: "Waiting to be accepted",
- * "2 sent", "✓ Checked in", "Refunded A$25.94". A one-ticket order drops the
+ * times or refund dates), so its words are generic: "Waiting to be accepted"
+ * ("1 sent, waiting for them to accept" with several), "2 sent", "✓ Checked in", "Refunded A$25.94". A one-ticket order drops the
  * number. A card never carries a ticket code (the list has none).
  */
 
-/** The list's own path (the account tabs, the avatar menu and the drawer go here). */
-export const MY_TICKETS_PATH = "/tickets";
+/** Cards a page of GET /api/me/tickets holds: the API's default (lib/server/pagination.ts), which the list uses. */
+export const MY_TICKETS_PAGE_SIZE = 20;
 
 /** A card's identity across pages: an order and a received ticket can't share an id, but the kinds are kept apart anyway. */
 export function myTicketKey(item: MyTicketItem): string {
@@ -126,7 +126,7 @@ function orderCard(item: MyTicketOrderItem, now: Date): MyTicketCardModel {
       ...base,
       state: "transfer_pending",
       holder,
-      status: single ? "Waiting to be accepted" : `${item.pendingCount} waiting to be accepted`,
+      status: single ? "Waiting to be accepted" : `${item.pendingCount} sent, waiting for them to accept`,
       action: { kind: "show" },
     };
   }
@@ -198,11 +198,20 @@ export function splitMyTickets(items: readonly MyTicketItem[]): Record<MyTicketS
 }
 
 /**
- * Where "Show more" goes: under Upcoming while some of its cards are still to come (the pages walk the
- * upcoming cards first), else under Past. Null once the list is all in.
+ * Where "Show more" goes: under the list the last loaded card is in (the pages walk the upcoming cards first,
+ * then the past ones). Decided by what has loaded, not by the counts, which can drift from the pages (a card
+ * that moves to Past between two reads). Null once the list is all in.
  */
-export function showMoreSection(page: Pick<MyTicketsPage, "counts">, items: readonly MyTicketItem[], hasMore: boolean): MyTicketSection | null {
+export function showMoreSection(items: readonly MyTicketItem[], hasMore: boolean): MyTicketSection | null {
   if (!hasMore) return null;
-  const upcoming = items.filter((item) => item.section === "upcoming").length;
-  return upcoming < page.counts.upcoming ? "upcoming" : "past";
+  return items.at(-1)?.section ?? "upcoming";
+}
+
+/**
+ * How many cards "Show N more" brings: a page, or what the counts say is left when that's less. Null when the
+ * counts say nothing's left though the API has another page (they drifted): then it's "Show more".
+ */
+export function showMoreCount(counts: MyTicketsPage["counts"], loaded: number): number | null {
+  const left = counts.upcoming + counts.past - loaded;
+  return left > 0 ? Math.min(MY_TICKETS_PAGE_SIZE, left) : null;
 }

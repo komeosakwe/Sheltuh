@@ -32,8 +32,8 @@ const NEAR_CAP = 450;
  */
 export const SAVED_GRID = "grid grid-cols-1 gap-4 md:grid-cols-2 md:gap-y-6 xl:grid-cols-3";
 
-/** "Show 6 more" (the frames' small outline button, Label/Tag), 44px to touch. */
-const SHOW_MORE_CLASS =
+/** "Show 6 more" (the frames' small outline button, Label/Tag), 44px to touch. My tickets' Show more and Try again too. */
+export const SHOW_MORE_CLASS =
   "label-tag relative inline-flex h-10 items-center rounded-control border-control border-foreground bg-background px-5 text-foreground after:absolute after:-inset-y-0.5 after:inset-x-0 after:content-[''] hover:bg-foreground hover:text-background focus-visible:bg-foreground focus-visible:text-background aria-disabled:cursor-wait motion-safe:transition-colors motion-safe:duration-200 motion-safe:ease-out";
 
 type ListState =

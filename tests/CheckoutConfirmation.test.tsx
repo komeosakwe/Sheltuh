@@ -1552,7 +1552,7 @@ describe("CheckoutConfirmation: ticket transfers, signed in and the edges", () =
     return { getAccessToken };
   }
 
-  it("signed in: ← My tickets above the ticket, and above a refunded order's page; signed out: none", async () => {
+  it("signed in: ← My tickets above the ticket, and above a refunded order's page; signed out or as another account: none", async () => {
     getOrderBySession.mockResolvedValue(BASE);
     renderSignedIn();
     expect(await screen.findByRole("link", { name: "My tickets" })).toHaveAttribute("href", "/tickets");
@@ -1564,6 +1564,12 @@ describe("CheckoutConfirmation: ticket transfers, signed in and the edges", () =
     cleanup();
     getOrderBySession.mockResolvedValue(BASE);
     render(<CheckoutConfirmation />);
+    expect(await screen.findByRole("button", { name: "Manage order" })).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "My tickets" })).toBeNull();
+    // Signed in as another account (the order wants its buyer's: sign_in): their list wouldn't have it.
+    cleanup();
+    getOrderBySession.mockResolvedValue(SIGN_IN_FIRST);
+    renderSignedIn();
     expect(await screen.findByRole("button", { name: "Manage order" })).toBeInTheDocument();
     expect(screen.queryByRole("link", { name: "My tickets" })).toBeNull();
   });

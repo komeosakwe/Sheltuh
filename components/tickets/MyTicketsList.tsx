@@ -1,10 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useEffectEvent, useRef, useState, type ReactNode } from "react";
+import { useEffect, useEffectEvent, useRef, useState, useSyncExternalStore, type ReactNode, type Ref } from "react";
 import DemoNotice from "@/components/DemoNotice";
 import EventArt from "@/components/EventArt";
-import { SAVED_GRID } from "@/components/favourites/SavedPageContent";
+import { SAVED_GRID, SHOW_MORE_CLASS } from "@/components/favourites/SavedPageContent";
 import TicketCard from "@/components/tickets/TicketCard";
 import { Button, ButtonLink } from "@/components/ui/Button";
 import { EmptyState, Notice } from "@/components/ui/Section";
@@ -14,17 +14,14 @@ import type { MyTicketItem, MyTicketSection, MyTicketsPage } from "@/lib/api/typ
 import { accountKey } from "@/lib/auth/account";
 import { SessionExpiredError, useAuth } from "@/lib/auth/AuthContext";
 import { assignPoster } from "@/lib/live/assign-poster";
-import { MY_TICKETS_PATH, mergeMyTickets, myTicketCard, showMoreSection, splitMyTickets } from "@/lib/my-tickets";
+import { mergeMyTickets, myTicketCard, myTicketKey, showMoreCount, showMoreSection, splitMyTickets } from "@/lib/my-tickets";
+import { MY_TICKETS_HREF } from "@/lib/my-tickets-href";
 import { withNext } from "@/lib/safe-next-path";
 import { sampleEvents } from "@/lib/sample-events";
 import { sampleMyTickets } from "@/lib/sample-order";
 
 /** Back on the tab after this long, the list is read again (a card may have moved to Past, or a ticket arrived). */
 export const REFRESH_AFTER_MS = 30_000;
-
-/** "Show more" and Try again: the Saved page's small outline button, 44px to touch. */
-const SMALL_BUTTON_CLASS =
-  "label-tag relative inline-flex h-10 items-center rounded-control border-control border-foreground bg-background px-5 text-foreground after:absolute after:-inset-y-0.5 after:inset-x-0 after:content-[''] hover:bg-foreground hover:text-background focus-visible:bg-foreground focus-visible:text-background aria-disabled:cursor-wait motion-safe:transition-colors motion-safe:duration-200 motion-safe:ease-out";
 
 type Failure = "signed-out" | "unverified" | "failed";
 
@@ -35,21 +32,59 @@ function failureOf(error: unknown): Failure {
   return "failed";
 }
 
+/** What the status line says when the list arrives. */
+function countsMessage(counts: MyTicketsPage["counts"]): string {
+  return counts.upcoming + counts.past === 0 ? "No tickets yet." : `Your tickets: ${counts.upcoming} upcoming, ${counts.past} past.`;
+}
+
 /**
  * /tickets, My tickets (docs/design/my-ticket.md §5.14): the signed-in
  * member's orders (by their verified email) and the tickets sent to them,
  * from GET /api/me/tickets, in two lists, Upcoming and Past. The demo shows
  * sample cards (lib/sample-order.ts sampleMyTickets).
+ *
+ * One status line (polite, always there, outside anything busy) says what's
+ * happening: loading, the counts when the list arrives, more shown, updated.
  */
 export default function MyTicketsList() {
   const auth = useAuth();
-  if (!isApiConfigured || !auth.configured) return <DemoTickets />;
-  if (auth.status === "loading") return <TicketsLoading />;
-  if (auth.status === "signed-out") return <SignedOut />;
-  return <LiveTickets key={accountKey(auth) ?? ""} getToken={auth.getAccessToken} email={auth.email} />;
+  const [message, setMessage] = useState("");
+  const demo = !isApiConfigured || !auth.configured;
+  const said = demo || auth.status === "signed-out" ? "" : auth.status === "loading" ? "Loading your tickets…" : message;
+  return (
+    <>
+      <p role="status" data-my-tickets-status="" className="sr-only">
+        {said}
+      </p>
+      {demo ? (
+        <DemoTickets />
+      ) : auth.status === "loading" ? (
+        <TicketsLoading />
+      ) : auth.status === "signed-out" ? (
+        <SignedOut />
+      ) : (
+        <LiveTickets key={accountKey(auth) ?? ""} getToken={auth.getAccessToken} email={auth.email} announce={setMessage} />
+      )}
+    </>
+  );
 }
 
+const noSubscription = () => () => undefined;
+
+/**
+ * The demo's samples are dated from now, so they're drawn in the browser only: /tickets is a static page, and
+ * dates made when it was built would differ from the browser's when it hydrates. The card shapes until then.
+ */
 function DemoTickets() {
+  const mounted = useSyncExternalStore(
+    noSubscription,
+    () => true,
+    () => false,
+  );
+  return mounted ? <DemoList /> : <TicketsLoading />;
+}
+
+function DemoList() {
   const [page] = useState(() => sampleMyTickets(Date.now()));
   const [now] = useState(() => new Date());
   return (
@@ -63,9 +98,24 @@ function DemoTickets() {
 type Load =
   | { status: "loading" }
   | { status: "failed"; failure: Failure }
-  | { status: "ready"; items: MyTicketItem[]; counts: MyTicketsPage["counts"]; nextCursor?: string };
+  /** `pages`: how many pages are in (1, then one more for each "Show more"). */
+  | { status: "ready"; items: MyTicketItem[]; counts: MyTicketsPage["counts"]; nextCursor?: string; pages: number };
 
-function LiveTickets({ getToken, email }: { getToken: GetToken; email?: string }) {
+/**
+ * Where focus goes once the list has drawn what changed (a control that had it may be gone):
+ * - `start`: the list's first place: the Upcoming heading, the "No tickets yet." line, a state's title, or Try again.
+ * - `card`: a card's link (the first new card after Show more, or the one focused before a refresh); if it's
+ *   gone, its section's heading. `kept`: the element focused before; nothing moves while it's still there.
+ * - `section`: a section's heading.
+ * - `more`: the Show more button, else its section's heading (a page that brought nothing).
+ */
+type FocusRequest =
+  | { to: "start" }
+  | { to: "card"; key: string; section: MyTicketSection; kept?: Element }
+  | { to: "section"; section: MyTicketSection; kept?: Element }
+  | { to: "more"; section: MyTicketSection };
+
+function LiveTickets({ getToken, email, announce }: { getToken: GetToken; email?: string; announce: (message: string) => void }) {
   const [load, setLoad] = useState<Load>({ status: "loading" });
   const [attempt, setAttempt] = useState(0);
   const [more, setMore] = useState<"idle" | "loading" | "failed">("idle");
@@ -73,59 +123,117 @@ function LiveTickets({ getToken, email }: { getToken: GetToken; email?: string }
   const [now, setNow] = useState(() => new Date());
   const loadedAt = useRef(0);
   const busy = useRef<AbortController | null>(null);
+  const rootRef = useRef<HTMLDivElement>(null);
+  const stateTitleRef = useRef<HTMLHeadingElement>(null);
+  const focusRequest = useRef<FocusRequest | null>(null);
 
   useEffect(() => {
     const controller = new AbortController();
     busy.current = controller;
+    announce("Loading your tickets…");
     listMyTickets(getToken, { signal: controller.signal }).then(
       (page) => {
+        if (controller.signal.aborted) return;
         loadedAt.current = Date.now();
         setNow(new Date());
-        setLoad({ status: "ready", items: page.items, counts: page.counts, nextCursor: page.nextCursor });
+        setLoad({ status: "ready", items: page.items, counts: page.counts, nextCursor: page.nextCursor, pages: 1 });
+        announce(countsMessage(page.counts));
       },
       (error: unknown) => {
-        if (!controller.signal.aborted) setLoad({ status: "failed", failure: failureOf(error) });
+        if (controller.signal.aborted) return;
+        setLoad({ status: "failed", failure: failureOf(error) });
+        announce("");
       },
     );
     return () => controller.abort();
-  }, [getToken, attempt]);
+  }, [getToken, attempt, announce]);
 
   // Leaving the page: a refresh or "Show more" still on its way is dropped.
   useEffect(() => () => busy.current?.abort(), []);
 
-  // Back on the tab (or back to this page from the browser's cache) a while later: the first page again, quietly
-  // (the cards stay up meanwhile). The pages are offsets, so the list starts over rather than patching.
-  function refresh(force: boolean) {
+  // Focus, once what changed is drawn.
+  useEffect(() => {
+    const request = focusRequest.current;
+    const root = rootRef.current;
+    if (!request || !root || load.status === "loading") return;
+    focusRequest.current = null;
+    if ("kept" in request && request.kept?.isConnected && document.activeElement === request.kept) return;
+    const find = (selector: string) => root.querySelector<HTMLElement>(selector);
+    const heading = (section: MyTicketSection) => find(`#my-tickets-${section}`);
+    const start = () => stateTitleRef.current ?? find("[data-my-tickets-focus]");
+    const target =
+      request.to === "card"
+        ? (find(`[data-my-ticket="${CSS.escape(request.key)}"] a`) ?? heading(request.section) ?? heading("upcoming") ?? start())
+        : request.to === "section"
+          ? (heading(request.section) ?? heading("upcoming") ?? start())
+          : request.to === "more"
+            ? (find("[data-my-tickets-more]") ?? heading(request.section) ?? start())
+            : start();
+    target?.focus();
+  }, [load, more]);
+
+  /** The list was replaced by a signed-out or unverified state: its title takes focus, and says it. */
+  function lost(failure: Failure) {
+    focusRequest.current = { to: "start" };
+    setMore("idle");
+    setLoad({ status: "failed", failure });
+    announce("");
+  }
+
+  /**
+   * The first page again, quietly: the cards stay up meanwhile. Automatic (back on the tab after a while, or
+   * back from the browser's cache) only while just the first page is in: the pages are offsets, so a refresh
+   * starts the list over, and it mustn't take away cards someone asked for with Show more. `manual`: the
+   * refresh note's Try again, which always runs.
+   */
+  function refresh(how: "auto" | "auto-now" | "manual") {
     if (load.status !== "ready" || more === "loading") return;
-    if (!force && Date.now() - loadedAt.current < REFRESH_AFTER_MS) return;
+    if (how !== "manual" && load.pages > 1) return;
+    if (how === "auto" && Date.now() - loadedAt.current < REFRESH_AFTER_MS) return;
+    const before = load;
     busy.current?.abort();
     const controller = new AbortController();
     busy.current = controller;
     listMyTickets(getToken, { signal: controller.signal }).then(
       (page) => {
+        if (controller.signal.aborted) return;
         loadedAt.current = Date.now();
+        const changed = JSON.stringify([page.items, page.counts]) !== JSON.stringify([before.items, before.counts]);
+        if (how === "manual") {
+          // Its button goes with the note: the list's first heading takes focus.
+          focusRequest.current = { to: "section", section: "upcoming" };
+          announce("Tickets updated.");
+        } else if (changed) {
+          // Focus stays on its card (found again if it moved to the other list), else goes to its list's heading.
+          const focused = document.activeElement;
+          const card = focused instanceof HTMLElement && rootRef.current?.contains(focused) ? focused.closest<HTMLElement>("[data-my-ticket]") : null;
+          const section = (card?.closest("section")?.getAttribute("aria-labelledby")?.replace("my-tickets-", "") ?? "upcoming") as MyTicketSection;
+          if (card?.dataset.myTicket) focusRequest.current = { to: "card", key: card.dataset.myTicket, section, kept: focused ?? undefined };
+          else if (focused && rootRef.current?.contains(focused)) focusRequest.current = { to: "section", section, kept: focused };
+          announce("Your tickets were updated.");
+        }
+        if (!changed && how !== "manual") return;
         setNow(new Date());
         setRefreshFailed(false);
-        setMore("idle");
-        setLoad({ status: "ready", items: page.items, counts: page.counts, nextCursor: page.nextCursor });
+        setLoad({ status: "ready", items: page.items, counts: page.counts, nextCursor: page.nextCursor, pages: 1 });
       },
       (error: unknown) => {
         if (controller.signal.aborted) return;
         const failure = failureOf(error);
         // Signed out or unverified meanwhile: that's the page now. Otherwise the cards stay, with a note.
         if (failure === "failed") setRefreshFailed(true);
-        else setLoad({ status: "failed", failure });
+        else lost(failure);
       },
     );
   }
-  const onReturn = useEffectEvent((force: boolean) => refresh(force));
+  const onReturn = useEffectEvent((how: "auto" | "auto-now") => refresh(how));
 
   useEffect(() => {
     const onVisible = () => {
-      if (document.visibilityState === "visible") onReturn(false);
+      if (document.visibilityState === "visible") onReturn("auto");
     };
     const onPageShow = (event: PageTransitionEvent) => {
-      if (event.persisted) onReturn(true);
+      if (event.persisted) onReturn("auto-now");
     };
     document.addEventListener("visibilitychange", onVisible);
     window.addEventListener("pageshow", onPageShow);
@@ -137,96 +245,118 @@ function LiveTickets({ getToken, email }: { getToken: GetToken; email?: string }
 
   function showMore() {
     if (load.status !== "ready" || !load.nextCursor || more === "loading") return;
-    const cursor = load.nextCursor;
+    const before = load;
+    const cursor = before.nextCursor;
+    const section = showMoreSection(before.items, true) ?? "upcoming";
     setMore("loading");
+    announce("Loading more tickets…");
     // A quiet refresh on its way would start the list over under this page: this page wins.
     busy.current?.abort();
     const controller = new AbortController();
     busy.current = controller;
     listMyTickets(getToken, { cursor, signal: controller.signal }).then(
       (page) => {
+        if (controller.signal.aborted) return;
+        const items = mergeMyTickets(before.items, page.items);
+        const added = items.slice(before.items.length);
+        if (added[0]) {
+          focusRequest.current = { to: "card", key: myTicketKey(added[0]), section: added[0].section };
+          announce(`${added.length} more ${added.length === 1 ? "ticket" : "tickets"} shown.`);
+        } else {
+          focusRequest.current = { to: "more", section };
+          announce("No more tickets.");
+        }
         setMore("idle");
-        setLoad((current) =>
-          current.status === "ready"
-            ? { status: "ready", items: mergeMyTickets(current.items, page.items), counts: page.counts, nextCursor: page.nextCursor }
-            : current,
-        );
+        setLoad({ status: "ready", items, counts: page.counts, nextCursor: page.nextCursor, pages: before.pages + 1 });
       },
       (error: unknown) => {
         if (controller.signal.aborted) return;
         const failure = failureOf(error);
-        if (failure === "failed") setMore("failed");
-        else setLoad({ status: "failed", failure });
+        if (failure !== "failed") return lost(failure);
+        setMore("failed");
+        announce("");
       },
     );
   }
 
   function retry() {
+    focusRequest.current = { to: "start" };
     setLoad({ status: "loading" });
     setMore("idle");
     setRefreshFailed(false);
     setAttempt((n) => n + 1);
   }
 
-  if (load.status === "loading") return <TicketsLoading />;
-  if (load.status === "failed") {
-    if (load.failure === "signed-out") return <SignedOut ended />;
-    if (load.failure === "unverified") {
-      return (
+  let content: ReactNode;
+  if (load.status === "loading") content = <TicketsLoading />;
+  else if (load.status === "failed") {
+    content =
+      load.failure === "signed-out" ? (
+        <SignedOut ended titleRef={stateTitleRef} />
+      ) : load.failure === "unverified" ? (
         <EmptyState
-          title="Confirm your email to see your tickets"
+          title="Verify your email to see your tickets"
+          headingLevel={2}
+          titleRef={stateTitleRef}
           mark={false}
           action={
-            <ButtonLink size="lg" href={withNext("/verify", MY_TICKETS_PATH, email ? { email } : {})}>
+            <ButtonLink size="lg" href={withNext("/verify", MY_TICKETS_HREF, email ? { email } : {})}>
               Verify your email
             </ButtonLink>
           }
         >
-          Your tickets are found by the email you bought them with, so it needs confirming first.
+          Your tickets are found by the email you bought them with, so it needs verifying first.
         </EmptyState>
+      ) : (
+        <div className="flex flex-col items-start gap-3">
+          <Notice tone="danger" role="alert">
+            Couldn&rsquo;t load your tickets. Check your connection, then try again.
+          </Notice>
+          <Button variant="outline" size="lg" onClick={retry} data-my-tickets-focus="">
+            Try again
+          </Button>
+        </div>
       );
-    }
-    return (
-      <div className="flex flex-col items-start gap-3">
-        <Notice tone="danger" role="alert">
-          Couldn&rsquo;t load your tickets.
-        </Notice>
-        <Button variant="outline" size="lg" onClick={retry}>
-          Try again
-        </Button>
-      </div>
+  } else {
+    const section = showMoreSection(load.items, Boolean(load.nextCursor));
+    content = (
+      <>
+        {refreshFailed && (
+          <div className="flex flex-col items-start gap-3">
+            <Notice tone="danger" role="alert">
+              Couldn&rsquo;t check for changes. These are your tickets as they were.
+            </Notice>
+            <button type="button" onClick={() => refresh("manual")} className={SHOW_MORE_CLASS}>
+              Try again
+            </button>
+          </div>
+        )}
+        <TicketLists
+          items={load.items}
+          counts={load.counts}
+          now={now}
+          more={{ section, count: showMoreCount(load.counts, load.items.length), state: more, onShowMore: showMore }}
+        />
+      </>
     );
   }
 
   return (
-    <div className="flex flex-col gap-6">
-      {refreshFailed && (
-        <div className="flex flex-col items-start gap-3">
-          <Notice tone="danger" role="alert">
-            Couldn&rsquo;t check for changes. These are your tickets as they were.
-          </Notice>
-          <button type="button" onClick={() => refresh(true)} className={SMALL_BUTTON_CLASS}>
-            Try again
-          </button>
-        </div>
-      )}
-      <TicketLists
-        items={load.items}
-        counts={load.counts}
-        now={now}
-        more={{ section: showMoreSection(load, load.items, Boolean(load.nextCursor)), state: more, onShowMore: showMore }}
-      />
+    <div ref={rootRef} className="flex flex-col gap-6">
+      {content}
     </div>
   );
 }
 
 /** Signed out (or the session ended): sign in, back here; or the email from checkout, which needs no account. */
-function SignedOut({ ended = false }: { ended?: boolean }) {
+function SignedOut({ ended = false, titleRef }: { ended?: boolean; titleRef?: Ref<HTMLHeadingElement> }) {
   return (
     <EmptyState
       title={ended ? "Sign in again to see your tickets" : "Sign in to see your tickets"}
+      headingLevel={2}
+      titleRef={titleRef}
       action={
-        <ButtonLink size="lg" href={withNext("/login", MY_TICKETS_PATH)}>
+        <ButtonLink size="lg" href={withNext("/login", MY_TICKETS_HREF)}>
           Sign in
         </ButtonLink>
       }
@@ -236,13 +366,10 @@ function SignedOut({ ended = false }: { ended?: boolean }) {
   );
 }
 
-/** Three cards' shapes while the list loads (no shimmer), said once to screen readers. */
+/** Three cards' shapes while the list loads (no shimmer); the status line says it. */
 function TicketsLoading() {
   return (
     <div aria-busy="true" className="flex flex-col gap-4">
-      <p role="status" className="sr-only">
-        Loading your tickets…
-      </p>
       <div className="h-7 w-40 rounded-badge bg-surface" aria-hidden="true" />
       <ul aria-hidden="true" className={SAVED_GRID} data-my-tickets-loading="">
         {[0, 1, 2].map((i) => (
@@ -267,11 +394,13 @@ function TicketsLoading() {
 interface MoreControls {
   /** Where "Show more" sits; null once everything is in. */
   section: MyTicketSection | null;
+  /** "Show 20 more"; null: "Show more". */
+  count: number | null;
   state: "idle" | "loading" | "failed";
   onShowMore: () => void;
 }
 
-/** The two lists, Upcoming then Past, with "Show more" under the one the next page continues. */
+/** The two lists, Upcoming then Past, with "Show more" under the one the last card loaded is in. */
 function TicketLists({
   items,
   counts,
@@ -285,35 +414,14 @@ function TicketLists({
   demo?: boolean;
   more?: MoreControls;
 }) {
-  const [announcement, setAnnouncement] = useState("");
-  const pendingFocus = useRef<string | null>(null);
-  const listsRef = useRef<HTMLDivElement>(null);
-  const shownBefore = useRef(items.length);
-
-  // After "Show more", focus goes to the first card that came in (its link), and the new total is said.
-  useEffect(() => {
-    if (items.length > shownBefore.current) {
-      const added = items.length - shownBefore.current;
-      const first = items[shownBefore.current];
-      shownBefore.current = items.length;
-      if (pendingFocus.current !== null && first) {
-        pendingFocus.current = null;
-        const key = myTicketCard(first, now).key;
-        const target = listsRef.current?.querySelector<HTMLElement>(`[data-my-ticket="${CSS.escape(key)}"] a`);
-        target?.focus();
-        setAnnouncement(`${added} more ${added === 1 ? "ticket" : "tickets"} shown.`);
-      }
-    } else {
-      shownBefore.current = items.length;
-    }
-  }, [items, now]);
-
   const total = counts.upcoming + counts.past;
   if (total === 0 && items.length === 0 && !more?.section) {
     return (
       <div className="flex flex-col items-start gap-4">
         <div className="flex flex-col gap-1">
-          <p className="body-m">No tickets yet.</p>
+          <p tabIndex={-1} data-my-tickets-focus="" className="body-m outline-offset-2">
+            No tickets yet.
+          </p>
           {!demo && <p className="body-s text-muted">Tickets bought with another email address aren&rsquo;t listed here.</p>}
         </div>
         <ButtonLink variant="outline" href="/events">
@@ -334,24 +442,24 @@ function TicketLists({
         )}
         <button
           type="button"
+          data-my-tickets-more=""
           aria-disabled={more.state === "loading" ? true : undefined}
           onClick={() => {
-            if (more.state === "loading") return;
-            pendingFocus.current = "";
-            more.onShowMore();
+            if (more.state !== "loading") more.onShowMore();
           }}
-          className={SMALL_BUTTON_CLASS}
+          className={SHOW_MORE_CLASS}
         >
-          {more.state === "failed" ? "Try again" : more.state === "loading" ? "Loading…" : "Show more"}
+          {more.state === "failed" ? "Try again" : more.state === "loading" ? "Loading…" : more.count ? `Show ${more.count} more` : "Show more"}
         </button>
       </div>
     ) : null;
-  // The pages walk the upcoming cards first: while some are still to come, Past waits (its count is in its heading).
-  const pastReached = more?.section !== "upcoming";
+  // The pages walk the upcoming cards first: until one past card is in (or the list is), Past waits, its count
+  // in its heading.
+  const pastReached = lists.past.length > 0 || !more?.section;
 
   return (
-    <div ref={listsRef} className="mt-6 flex flex-col gap-12">
-      <TicketSection id="my-tickets-upcoming" title="Upcoming" count={counts.upcoming}>
+    <div className="mt-6 flex flex-col gap-12">
+      <TicketSection id="my-tickets-upcoming" title="Upcoming" count={counts.upcoming} first>
         {lists.upcoming.length > 0 ? (
           <CardGrid items={lists.upcoming} now={now} demo={demo} />
         ) : (
@@ -366,27 +474,38 @@ function TicketLists({
         )}
         {showMore("upcoming")}
       </TicketSection>
-      {counts.past > 0 && (
+      {(counts.past > 0 || lists.past.length > 0) && (
         <TicketSection id="my-tickets-past" title="Past" count={counts.past}>
           {pastReached ? (
             <CardGrid items={lists.past} now={now} demo={demo} />
           ) : (
-            <p className="body-s text-muted">They&rsquo;re listed once all your upcoming tickets are shown.</p>
+            <p className="body-s text-muted">Show all your upcoming tickets to see these.</p>
           )}
           {showMore("past")}
         </TicketSection>
       )}
-      <p role="status" className="sr-only">
-        {more?.state === "loading" ? "Loading more tickets…" : announcement}
-      </p>
     </div>
   );
 }
 
-function TicketSection({ id, title, count, children }: { id: string; title: string; count: number; children: ReactNode }) {
+/** A list and its heading, "Upcoming · 3": focusable by script (tabIndex -1) when what had focus goes. */
+function TicketSection({
+  id,
+  title,
+  count,
+  first = false,
+  children,
+}: {
+  id: string;
+  title: string;
+  count: number;
+  /** The list's first place (focused after a retry). */
+  first?: boolean;
+  children: ReactNode;
+}) {
   return (
     <section aria-labelledby={id} className="flex flex-col gap-4">
-      <h2 id={id} className="text-xl leading-7 font-semibold text-foreground">
+      <h2 id={id} tabIndex={-1} data-my-tickets-focus={first ? "" : undefined} className="text-xl leading-7 font-semibold text-foreground outline-offset-2">
         {title}
         <span aria-hidden="true">&nbsp;·</span>
         <span className="sr-only">,</span> {count}

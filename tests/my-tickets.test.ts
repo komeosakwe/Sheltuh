@@ -6,7 +6,9 @@ import {
   myTicketHref,
   myTicketKey,
   myTicketWhen,
+  MY_TICKETS_PAGE_SIZE,
   NO_DATE_WHEN,
+  showMoreCount,
   showMoreSection,
   splitMyTickets,
   UNLISTED_WHEN,
@@ -99,11 +101,11 @@ describe("myTicketCard: orders (counts only, so generic words)", () => {
     expect(card.status).toBeUndefined();
   });
 
-  it("one on offer: Waiting to be accepted (a number with several tickets)", () => {
+  it("one on offer: Waiting to be accepted (how many were sent, with several tickets)", () => {
     expect(myTicketCard(order({ pendingCount: 1 }), NOW)).toMatchObject({ state: "transfer_pending", status: "Waiting to be accepted" });
     expect(myTicketCard(order({ ticketCount: 3, heldCount: 3, pendingCount: 1 }), NOW)).toMatchObject({
       state: "transfer_pending",
-      status: "1 waiting to be accepted",
+      status: "1 sent, waiting for them to accept",
       count: "3 tickets",
     });
   });
@@ -201,10 +203,19 @@ describe("pages", () => {
     expect(splitMyTickets([a, c, b])).toEqual({ upcoming: [a, b], past: [c] });
   });
 
-  it("Show more goes under Upcoming while some upcoming cards are still to come, else under Past", () => {
-    expect(showMoreSection({ counts: { upcoming: 3, past: 2 } }, [a, b], true)).toBe("upcoming");
-    expect(showMoreSection({ counts: { upcoming: 2, past: 2 } }, [a, b], true)).toBe("past");
-    expect(showMoreSection({ counts: { upcoming: 2, past: 2 } }, [a, b, c], false)).toBeNull();
+  it("Show more goes under the list of the last card loaded, whatever the counts say", () => {
+    expect(showMoreSection([a, b], true)).toBe("upcoming");
+    expect(showMoreSection([a, c], true)).toBe("past");
+    // The counts drifted (they still say 3 upcoming), but a past card is in: the pages have reached Past.
+    expect(showMoreSection([a, b, c], true)).toBe("past");
+    expect(showMoreSection([], true)).toBe("upcoming");
+    expect(showMoreSection([a, b, c], false)).toBeNull();
+  });
+
+  it("Show N more: a page, or what's left by the counts; none left by them (drift): plain Show more", () => {
+    expect(showMoreCount({ upcoming: 30, past: 10 }, 20)).toBe(MY_TICKETS_PAGE_SIZE);
+    expect(showMoreCount({ upcoming: 3, past: 4 }, 5)).toBe(2);
+    expect(showMoreCount({ upcoming: 3, past: 2 }, 5)).toBeNull();
   });
 });
 

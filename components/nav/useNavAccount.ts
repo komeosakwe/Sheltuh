@@ -9,7 +9,7 @@ import { needsYouTotal } from "@/lib/admin-summary";
 import type { ProfileRecord } from "@/lib/api/types";
 import { useAuth, type AuthContextValue } from "@/lib/auth/AuthContext";
 import { useOrganiser } from "@/lib/auth/useOrganiser";
-import { MY_TICKETS_PATH } from "@/lib/my-tickets";
+import { MY_TICKETS_HREF } from "@/lib/my-tickets-href";
 import { useProfile } from "@/lib/auth/useProfile";
 
 /**
@@ -17,7 +17,7 @@ import { useProfile } from "@/lib/auth/useProfile";
  * Its pages under it (a received ticket, an Accept page) are its place too. /login's "Find my
  * tickets" stays on Help (components/auth/LoginLinks.tsx): that's for people not signed in.
  */
-export const MY_TICKETS_HREF = MY_TICKETS_PATH;
+export { MY_TICKETS_HREF };
 
 export const ORGANISERS_HREF = "/organisers/apply";
 

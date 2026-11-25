@@ -79,9 +79,12 @@ export default function ReceivedTicket({ transferId }: { transferId: string }) {
 
   if (!configured) {
     return (
-      <Message title="Received tickets are on the live site">
-        <DemoNotice>Tickets sent to you can’t be shown in this demo.</DemoNotice>
-      </Message>
+      <>
+        <MyTicketsBackLink />
+        <Message title="Received tickets are on the live site">
+          <DemoNotice>Tickets sent to you can’t be shown in this demo.</DemoNotice>
+        </Message>
+      </>
     );
   }
   if (auth.status === "loading") return <LoadingState text="Loading your ticket…" />;

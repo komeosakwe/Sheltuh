@@ -558,6 +558,8 @@ export default function CheckoutConfirmation() {
   }
 
   const offered = order.tickets.some((ticket) => ticket.transfer);
+  // Signed in, but the order wants its buyer's account (Manage order's "Switch account").
+  const signedInAsOther = signedIn && transfers?.reason === "sign_in";
   const entriesCount = order.tickets.length + (order.transferredTickets?.length ?? 0);
   const sendTicketLabel = (() => {
     if (sendFor === null || entriesCount < 2) return undefined;
@@ -567,8 +569,10 @@ export default function CheckoutConfirmation() {
 
   return (
     <>
-      {/* Signed in, the way back to the list (a card there opened this page); not for a visitor with only the link. */}
-      {signedIn && <MyTicketsBackLink className="mb-6 lg:mb-8" />}
+      {/* Signed in, the way to the member's own My tickets, which lists this order when it's theirs. Not for a
+          visitor with only the link, nor when the order says the account isn't the buyer's (transfers.reason
+          `sign_in` while signed in: another account, so the list wouldn't have it). */}
+      {signedIn && !signedInAsOther && <MyTicketsBackLink className="mb-6 lg:mb-8" />}
       <MyTicketView
         order={order}
         sessionId={sessionId}

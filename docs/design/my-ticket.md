@@ -474,7 +474,7 @@ disabled: principle 4.
 - **As built (25 Nov 2026, B1):** the sub is "Tickets you've bought or been sent." (transfer exists). A card's
   "Show ticket →" opens `/checkout/success?session_id={orderId}` (an order) or `/tickets/received/{transferId}`;
   a past card has no button, so its bar links "View order" / "View ticket" instead. Order cards say states
-  2, 3, 4 and 7 with counts ("1 waiting to be accepted", "2 sent", "✓ Checked in", "Refunded A$25.94": no
+  2, 3, 4 and 7 with counts ("1 sent, waiting for them to accept", "2 sent", "✓ Checked in", "Refunded A$25.94": no
   names, check-in times or refund dates, which the list doesn't carry); a received card has its check-in time.
   An unlisted event shows "No longer listed" where the date goes.
 
