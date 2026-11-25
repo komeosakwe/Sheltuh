@@ -5,6 +5,7 @@ import OverviewContent from "@/components/dashboard/overview/OverviewContent";
 import { DashFrameContext } from "@/components/dashboard/ui/DashFrameContext";
 import type { OrganiserEventPerformance, OrganiserEventSummary, OrganiserOverview, OrganiserRecord } from "@/lib/api/types";
 import type { AuthContextValue } from "@/lib/auth/AuthContext";
+import { rememberFramed } from "@/lib/organiser-frame-hint";
 import { fakeAuthValue, FakeAuthProvider } from "./test-utils/fakeAuth";
 
 /**
@@ -21,8 +22,9 @@ vi.mock("@/lib/api/organiser-summary", () => ({
 type Organiser = Pick<OrganiserRecord, "organiserId" | "status" | "displayName">;
 let organiser: Organiser | null = { organiserId: "org-1", status: "approved", displayName: "Here & Now" };
 let organiserError: string | null = null;
+let organiserLoading = false;
 vi.mock("@/lib/auth/useOrganiser", () => ({
-  useOrganiser: () => ({ loading: false, organiser, error: organiserError, refetch: vi.fn() }),
+  useOrganiser: () => ({ loading: organiserLoading, organiser, error: organiserError, refetch: vi.fn() }),
 }));
 
 // Tuesday 17 November 2026, midday in Melbourne.
@@ -111,6 +113,8 @@ beforeEach(() => {
   getOrganiserOverview.mockReset();
   organiser = { organiserId: "org-1", status: "approved", displayName: "Here & Now" };
   organiserError = null;
+  organiserLoading = false;
+  localStorage.clear();
 });
 
 afterEach(() => {
@@ -424,5 +428,34 @@ describe("Overview — in the frame", () => {
     const page = document.querySelector("[data-overview]");
     expect(page).toHaveClass("-mx-4", "md:-mx-6", "-mb-6", "col-lg:flex-row", "col-lg:-mt-14");
     expect(screen.getByRole("region", { name: "Performance" })).toHaveClass("bg-hover", "col-lg:w-100");
+  });
+});
+
+describe("Overview — asked for alongside the organiser record", () => {
+  const auth = () => fakeAuthValue({ userId: "u1" });
+
+  it("for a returning organiser (this browser's hint), the numbers are asked for while the record still loads", () => {
+    getOrganiserOverview.mockReturnValue(new Promise(() => {}));
+    organiserLoading = true;
+    organiser = null;
+    rememberFramed("u1", true);
+    renderOverview(auth());
+    expect(getOrganiserOverview).toHaveBeenCalledTimes(1);
+    // The gate still waits for the record before showing anything of the organiser's.
+    expect(screen.queryByRole("heading", { name: /Welcome back/ })).toBeNull();
+  });
+
+  it("without the hint, or for anyone who isn't an approved organiser, nothing is asked for", () => {
+    organiserLoading = true;
+    organiser = null;
+    renderOverview(auth());
+    expect(getOrganiserOverview).not.toHaveBeenCalled();
+    cleanup();
+
+    organiserLoading = false;
+    organiser = { organiserId: "org-1", status: "pending", displayName: "Here & Now" };
+    rememberFramed("u1", true);
+    renderOverview(auth());
+    expect(getOrganiserOverview).not.toHaveBeenCalled();
   });
 });

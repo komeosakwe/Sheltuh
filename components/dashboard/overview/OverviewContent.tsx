@@ -12,7 +12,9 @@ import { LoadingState } from "@/components/ui/ProgressLoader";
 import { getOrganiserOverview } from "@/lib/api/organiser-summary";
 import type { OrganiserOverview, OrganiserRecord } from "@/lib/api/types";
 import { useAuth } from "@/lib/auth/AuthContext";
-import { NEW_EVENT_HREF } from "@/lib/organiser-nav";
+import { useOrganiser } from "@/lib/auth/useOrganiser";
+import { useFramedHint } from "@/lib/organiser-frame-hint";
+import { isKnownOrganiser, NEW_EVENT_HREF } from "@/lib/organiser-nav";
 import { formatLongWeekdayDate } from "@/lib/format";
 import DraftsBar from "./DraftsBar";
 import HighlightBanner from "./HighlightBanner";
@@ -24,17 +26,20 @@ export const DRAFTS_HREF = "/dashboard/events?filter=drafts";
 
 type Load = { status: "loading" } | { status: "error"; message: string } | { status: "ready"; data: OrganiserOverview };
 
+type OverviewLoad = ReturnType<typeof useOverview>;
+
 /**
- * The Overview's numbers (GET /api/organisers/me/overview), again on `retry`. While a retry runs the
- * error stays (its Try again busy, so focus isn't lost with it); `retrying` says so.
+ * The Overview's numbers (GET /api/organisers/me/overview) once `enabled`, again on `retry`. While a
+ * retry runs the error stays (its Try again busy, so focus isn't lost with it); `retrying` says so.
  */
-function useOverview() {
+function useOverview(enabled: boolean) {
   const auth = useAuth();
   const getToken = auth.getAccessToken;
   const [attempt, setAttempt] = useState(0);
   const [retrying, setRetrying] = useState(false);
   const [load, setLoad] = useState<Load>({ status: "loading" });
   useEffect(() => {
+    if (!enabled) return;
     const controller = new AbortController();
     getOrganiserOverview(getToken, { signal: controller.signal })
       .then((data) => {
@@ -47,7 +52,7 @@ function useOverview() {
         setRetrying(false);
       });
     return () => controller.abort();
-  }, [getToken, attempt]);
+  }, [getToken, attempt, enabled]);
   function retry() {
     setRetrying(true);
     setAttempt((n) => n + 1);
@@ -70,17 +75,26 @@ function useOverview() {
  * Performance saying what will show there).
  */
 export default function OverviewContent() {
+  // The numbers are asked for alongside the organiser's record rather than after it, for an account
+  // that's an approved organiser as far as the page knows (its record, or while that loads, this
+  // browser's hint: lib/organiser-nav.ts isKnownOrganiser). The API checks it either way (403 for
+  // anyone else), and the gate shows the numbers only to an approved organiser.
+  const auth = useAuth();
+  const record = useOrganiser();
+  const signedIn = auth.configured && auth.status === "signed-in";
+  const hinted = useFramedHint(signedIn ? auth.userId : undefined);
+  const overview = useOverview(isKnownOrganiser({ signedIn, record, hinted }));
   return (
     <OrganiserGate title="Overview" signInText="Sign in to see your dashboard.">
-      {(organiser) => <Overview organiser={organiser} />}
+      {(organiser) => <Overview organiser={organiser} overview={overview} />}
     </OrganiserGate>
   );
 }
 
-function Overview({ organiser }: { organiser: OrganiserRecord }) {
+function Overview({ organiser, overview }: { organiser: OrganiserRecord; overview: OverviewLoad }) {
   const welcome = useJoinedWelcome();
   const framed = useDashFrame() !== null;
-  const { load, retry, retrying } = useOverview();
+  const { load, retry, retrying } = overview;
   const now = useToday();
   const data = load.status === "ready" ? load.data : null;
   const headingRef = useRef<HTMLHeadingElement>(null);
