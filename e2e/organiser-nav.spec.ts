@@ -121,8 +121,9 @@ test.describe("desktop 1440", () => {
     await expectOverview(page);
     expect(paths).not.toContain("/organisers/apply");
     expect(await heroSeen(page)).toBe(false);
-    // On the dashboard it's the current page's link.
-    await expect(organisers).toHaveAttribute("aria-current", "page");
+    // On the dashboard it isn't marked current: the avatar's dots mark the place.
+    await expect(organisers).not.toHaveAttribute("aria-current");
+    await expect(header.locator("[data-header-avatar]")).toHaveAttribute("data-current", "");
   });
 
   test("reaching /organisers/apply another way before the record loads: Opening your dashboard…, never the page", async ({ page }) => {

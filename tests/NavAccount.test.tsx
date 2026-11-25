@@ -497,14 +497,26 @@ describe("For organisers (the header's button and the drawer's)", () => {
     expect(prefetch).not.toHaveBeenCalled();
   });
 
-  it("is the current page on the dashboard's pages once it goes there, and on the apply page when it goes there", () => {
+  it("isn't current on the dashboard's pages when it goes there (the avatar and Your events mark them); is on the apply page", () => {
     organiser = { loading: false, organiser: { status: "approved" }, error: null };
     for (const path of ["/dashboard", "/dashboard/events"]) {
       pathname = path;
       const { drawer } = renderNav(signedIn());
-      for (const link of organisersLinks(drawer)) expect(link).toHaveAttribute("aria-current", "page");
+      for (const link of organisersLinks(drawer)) expect(link).not.toHaveAttribute("aria-current");
+      // One current marker for the place: the avatar's dots, and Your events in the drawer.
+      const [desktopNav] = screen.getAllByRole("navigation", { name: "Primary" });
+      expect(within(desktopNav).getByRole("button", { name: "Account" })).toHaveAttribute("data-current", "");
+      expect(within(drawer).getByRole("link", { name: "Your events", hidden: true })).toHaveAttribute("aria-current", "page");
       cleanup();
     }
+    // A hinted account's link goes to /dashboard while the record loads: not current there either.
+    localStorage.setItem("sheltuh:organiser-frame", LATTE_ID);
+    organiser = { loading: true, organiser: null, error: null };
+    pathname = "/dashboard";
+    const hinted = renderNav(signedIn());
+    for (const link of organisersLinks(hinted.drawer)) expect(link).not.toHaveAttribute("aria-current");
+    cleanup();
+    localStorage.clear();
     pathname = "/organisers/apply";
     organiser = { loading: false, organiser: { status: "pending" }, error: null };
     const { drawer } = renderNav(signedIn());

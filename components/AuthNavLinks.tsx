@@ -45,12 +45,13 @@ const NOT_CONFIGURED = "Accounts aren't configured in this environment yet";
  * organisers nav button. Signed in: the For organisers nav button, Admin with what's waiting
  * (admins only), the Messages chip with its unread count, and the avatar, which opens the
  * avatar menu (components/nav/AccountMenu.tsx; never in the demo). For organisers, here and in the
- * drawer, goes straight to /dashboard for an approved organiser (NavAccount's organisersHref).
+ * drawer, goes straight to /dashboard for an approved organiser (NavAccount's organisersHref), and is then
+ * never marked current (organisersCurrent: the avatar marks the dashboard).
  */
 export function HeaderAccount({ account }: { account: NavAccount }) {
-  const { auth, current, unreadCount, adminWaiting, organisersHref } = account;
+  const { auth, current, unreadCount, adminWaiting, organisersHref, organisersCurrent } = account;
   const organisers = (
-    <Link href={organisersHref} aria-current={current(organisersHref)} className={headerButtonClass}>
+    <Link href={organisersHref} aria-current={organisersCurrent} className={headerButtonClass}>
       For organisers
     </Link>
   );
@@ -103,10 +104,11 @@ export function HeaderAccount({ account }: { account: NavAccount }) {
  * what's waiting), then For organisers. Settings and signing out are on /account.
  */
 export function MenuAccount({ account }: { account: NavAccount }) {
-  const { auth, current, adminWaiting, profile, profileHref, profileCurrent, name, showEvents, organisersHref } = account;
+  const { auth, current, adminWaiting, profile, profileHref, profileCurrent, name, showEvents, organisersHref, organisersCurrent } =
+    account;
 
   const organisersButton = (
-    <Link href={organisersHref} aria-current={current(organisersHref)} className="btn btn-outline btn-lg w-full">
+    <Link href={organisersHref} aria-current={organisersCurrent} className="btn btn-outline btn-lg w-full">
       For organisers
     </Link>
   );

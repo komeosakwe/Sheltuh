@@ -11,7 +11,13 @@ import { useAuth, type AuthContextValue } from "@/lib/auth/AuthContext";
 import { useOrganiser } from "@/lib/auth/useOrganiser";
 import { useProfile } from "@/lib/auth/useProfile";
 import { useFramedHint } from "@/lib/organiser-frame-hint";
-import { isKnownOrganiser, OVERVIEW_HREF, organisersHref, type OrganiserLoad } from "@/lib/organiser-nav";
+import {
+  isKnownOrganiser,
+  ORGANISERS_HREF,
+  OVERVIEW_HREF,
+  organisersHref,
+  type OrganiserLoad,
+} from "@/lib/organiser-nav";
 
 /**
  * Where "My tickets" goes until members have a tickets list (owner, 18 Nov 2026: Q2; the list
@@ -68,6 +74,12 @@ export interface NavAccount {
   knownOrganiser: boolean;
   /** Where the header's and the drawer's For organisers goes: /dashboard for a known organiser, else the For organisers page. */
   organisersHref: string;
+  /**
+   * aria-current for For organisers: only when it goes to the For organisers page and that's the page.
+   * Never when it goes to /dashboard: there the avatar (and the drawer's Your events) already marks
+   * the place, and two current links for one place would read and look doubled.
+   */
+  organisersCurrent: "page" | undefined;
   /** The page is one of the avatar menu's: the header's avatar keeps its dots. */
   avatarCurrent: boolean;
 }
@@ -143,6 +155,7 @@ function useLoadNavAccount(): NavAccount {
     organiser: record,
     knownOrganiser,
     organisersHref: organisersHref(knownOrganiser),
+    organisersCurrent: knownOrganiser ? undefined : current(ORGANISERS_HREF),
     avatarCurrent: AVATAR_MENU_PAGES.some((href) => current(href) === "page") || current(profileHref) === "page",
   };
 }
