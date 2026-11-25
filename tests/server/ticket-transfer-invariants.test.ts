@@ -130,7 +130,10 @@ describe("the sender's side", () => {
     expect(Buffer.from(await applePass.arrayBuffer()).toString("latin1")).not.toContain(issued);
   });
 
-  it("3. the buyer's ticket email, rebuilt by a resend and by an email change, never carries the recipient's code", async () => {
+  it("3. the buyer's ticket email, rebuilt by a resend and by an email change, never carries the recipient's code, nor the sent ticket's own", async () => {
+    // The transfer emails the offer and the accept queued.
+    await api.runDeferred();
+    api.sendEmail.mockClear();
     const [job] = await api.db.query<{ id: string }>(
       `select id::text as id from private.email_outbox where order_id = $1 and kind = 'ticket_email'`,
       [order.orderId],
@@ -150,6 +153,9 @@ describe("the sender's side", () => {
       const text = JSON.stringify(message);
       expect(text).not.toContain(issued);
       expect(text).not.toContain(`SH1:${issued}`);
+      // The sent ticket is shown as sent: no code, no QR (ticket 2, still the buyer's, has the only QR).
+      expect(text).not.toContain(codes[0]);
+      expect(message.inlineImages?.filter((i) => i.cid.startsWith("ticket-qr")).map((i) => i.cid)).toEqual(["ticket-qr-2@sheltuh.com.au"]);
     }
   });
 });
@@ -249,6 +255,8 @@ describe("7. the recipient's code is read in one place", () => {
     "lib/server/handlers/ticket-transfers.ts",
     "lib/server/ticket-transfers.ts",
     "lib/server/ticket-transfer-email.ts",
+    // The outbox's transfer delivery reads the recipient's code for their own ticket email only.
+    "lib/server/email-outbox.ts",
   ]);
 
   it("no other source file mentions issued_code", () => {

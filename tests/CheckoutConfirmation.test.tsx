@@ -1646,4 +1646,100 @@ describe("CheckoutConfirmation: ticket transfers, signed in and the edges", () =
     await act(async () => finishReload(OFFERED));
     expect(screen.queryByText("Waiting for Sam to accept")).toBeNull();
   });
+
+  describe("the account changes under the page (signed out, or another account in another tab)", () => {
+    // What the server answers once the request no longer controls the order: who the offer went to, and Cancel, go.
+    const UNCONTROLLED: CustomerOrder = {
+      ...SIGN_IN_FIRST,
+      tickets: [
+        { ...SIGN_IN_FIRST.tickets[0], transfer: { status: "pending", expiresAt: "2027-03-01T00:00:00.000Z", canCancel: false } },
+        SIGN_IN_FIRST.tickets[1],
+      ],
+    };
+    const signedIn = (userId: string) =>
+      fakeAuthValue({ status: "signed-in", email: "mia@example.com", userId, getAccessToken: vi.fn().mockResolvedValue(`token-${userId}`) });
+    const signedOut = fakeAuthValue({ status: "signed-out", email: undefined, userId: undefined });
+
+    function renderWith(value: AuthContextValue) {
+      const view = render(
+        <FakeAuthProvider value={value}>
+          <CheckoutConfirmation />
+        </FakeAuthProvider>,
+      );
+      return (next: AuthContextValue) =>
+        view.rerender(
+          <FakeAuthProvider value={next}>
+            <CheckoutConfirmation />
+          </FakeAuthProvider>,
+        );
+    }
+
+    it("signed out: the order is read again without the account, and the recipient's name and Cancel go", async () => {
+      getOrderBySession.mockResolvedValueOnce(OFFERED).mockResolvedValueOnce(UNCONTROLLED);
+      const switchTo = renderWith(signedIn("u-mia"));
+      expect(await screen.findByText("Waiting for Sam to accept")).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Cancel sending this ticket" })).toBeInTheDocument();
+      expect(getOrderBySession).toHaveBeenCalledTimes(1);
+
+      switchTo(signedOut);
+      expect(await screen.findByText("Waiting for them to accept")).toBeInTheDocument();
+      expect(getOrderBySession).toHaveBeenCalledTimes(2);
+      // Read with the access there is now: no account token.
+      expect(getOrderBySession).toHaveBeenLastCalledWith(ORD, undefined);
+      expect(screen.queryByText(/Sam/)).toBeNull();
+      expect(screen.queryByRole("button", { name: "Cancel sending this ticket" })).toBeNull();
+    });
+
+    it("an answer on its way for the previous account isn't shown once the account changed", async () => {
+      let finishOld: (order: CustomerOrder) => void = () => {};
+      getOrderBySession
+        .mockResolvedValueOnce(OFFERED)
+        // The quiet re-read after a refused cancel, still on its way when the account changes.
+        .mockImplementationOnce(() => new Promise<CustomerOrder>((resolve) => (finishOld = resolve)))
+        // Then the new account's reads (it doesn't control the order: read once more for it, as on sign-in).
+        .mockResolvedValue(UNCONTROLLED);
+      cancelTicketTransfer.mockRejectedValueOnce(new ApiError(409, "Can't now.", undefined, { code: "transfer_not_pending" }));
+      const switchTo = renderWith(signedIn("u-mia"));
+      fireEvent.click(await screen.findByRole("button", { name: "Cancel sending this ticket" }));
+      await waitFor(() => expect(getOrderBySession).toHaveBeenCalledTimes(2));
+
+      // Another account in another tab: read again for it.
+      switchTo(signedIn("u-other"));
+      expect(await screen.findByText("Waiting for them to accept")).toBeInTheDocument();
+      expect(getOrderBySession).toHaveBeenNthCalledWith(3, ORD, undefined, expect.any(Function));
+
+      // The previous account's answer lands last: it doesn't put the name or Cancel back.
+      await act(async () => finishOld(OFFERED));
+      expect(screen.queryByText("Waiting for Sam to accept")).toBeNull();
+      expect(screen.queryByRole("button", { name: "Cancel sending this ticket" })).toBeNull();
+    });
+
+    it("signed out while a cancel is on its way: the cancel's answer is stale, so the order is read again and the offer goes", async () => {
+      let finishCancel: (answer: { order: CustomerOrder }) => void = () => {};
+      getOrderBySession
+        .mockResolvedValueOnce(OFFERED)
+        // The read for the sign-out comes back before the cancel went through: the paying browser's token
+        // still has control, so it's the offer, unchanged.
+        .mockResolvedValueOnce(OFFERED)
+        // The read after the cancel's stale answer: cancelled.
+        .mockResolvedValueOnce(BASE);
+      cancelTicketTransfer.mockImplementationOnce(() => new Promise((resolve) => (finishCancel = resolve)));
+      const switchTo = renderWith(signedIn("u-mia"));
+      fireEvent.click(await screen.findByRole("button", { name: "Cancel sending this ticket" }));
+      await waitFor(() => expect(cancelTicketTransfer).toHaveBeenCalledTimes(1));
+
+      switchTo(signedOut);
+      await waitFor(() => expect(getOrderBySession).toHaveBeenCalledTimes(2));
+      expect(screen.getByText("Waiting for Sam to accept")).toBeInTheDocument();
+
+      // The cancel goes through: its answer isn't shown (stale), but the order is read again with what's here now.
+      await act(async () => finishCancel({ order: BASE }));
+      await waitFor(() => expect(getOrderBySession).toHaveBeenCalledTimes(3));
+      expect(getOrderBySession).toHaveBeenLastCalledWith(ORD, undefined);
+      await waitFor(() => expect(screen.queryByText("Waiting for Sam to accept")).toBeNull());
+      expect(screen.queryByRole("button", { name: "Cancel sending this ticket" })).toBeNull();
+      // It did happen: the toast says so.
+      expect(screen.getByText("Cancelled. Your QR code still works.")).toBeInTheDocument();
+    });
+  });
 });
