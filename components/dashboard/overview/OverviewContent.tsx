@@ -12,7 +12,8 @@ import { LoadingState } from "@/components/ui/ProgressLoader";
 import { getOrganiserOverview } from "@/lib/api/organiser-summary";
 import type { OrganiserOverview, OrganiserRecord } from "@/lib/api/types";
 import { accountKey } from "@/lib/auth/account";
-import { useAuth } from "@/lib/auth/AuthContext";
+import { AccountMismatchError, useAuth } from "@/lib/auth/AuthContext";
+import { useAccountToken } from "@/lib/auth/useAccountToken";
 import { useOrganiser } from "@/lib/auth/useOrganiser";
 import { useFramedHint } from "@/lib/organiser-frame-hint";
 import { isKnownOrganiser, NEW_EVENT_HREF } from "@/lib/organiser-nav";
@@ -35,7 +36,9 @@ type OverviewLoad = ReturnType<typeof useOverview>;
  */
 function useOverview(enabled: boolean) {
   const auth = useAuth();
-  const getToken = auth.getAccessToken;
+  // As the account the page shows, only (its numbers are that account's): with someone else's session by
+  // then, no request is made, and the page stays loading until it re-renders for them (it starts again).
+  const getToken = useAccountToken(auth);
   const [attempt, setAttempt] = useState(0);
   const [retrying, setRetrying] = useState(false);
   const [load, setLoad] = useState<Load>({ status: "loading" });
@@ -49,6 +52,11 @@ function useOverview(enabled: boolean) {
       })
       .catch((err: unknown) => {
         if (controller.signal.aborted) return;
+        if (err instanceof AccountMismatchError) {
+          setLoad({ status: "loading" });
+          setRetrying(false);
+          return;
+        }
         setLoad({ status: "error", message: err instanceof Error ? err.message : "Something went wrong." });
         setRetrying(false);
       });

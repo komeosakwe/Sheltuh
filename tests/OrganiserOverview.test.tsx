@@ -1,12 +1,12 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import OverviewContent from "@/components/dashboard/overview/OverviewContent";
 import { DashFrameContext } from "@/components/dashboard/ui/DashFrameContext";
 import type { OrganiserEventPerformance, OrganiserEventSummary, OrganiserOverview, OrganiserRecord } from "@/lib/api/types";
 import type { AuthContextValue } from "@/lib/auth/AuthContext";
 import { rememberFramed } from "@/lib/organiser-frame-hint";
-import { fakeAuthValue, FakeAuthProvider } from "./test-utils/fakeAuth";
+import { fakeAuthValue, FakeAuthProvider, switchableSession } from "./test-utils/fakeAuth";
 
 /**
  * The organiser dashboard's Overview (Latte's frames 430:7340, 492:14153, 492:14487; organiser-dashboard
@@ -367,12 +367,30 @@ describe("Overview — a new organiser, loading and errors (not drawn)", () => {
     expect(screen.getByRole("button", { name: "Try again" })).not.toHaveAttribute("aria-disabled");
   });
 
-  it("asks only for the organiser's own overview, with their token", async () => {
+  it("asks only for the organiser's own overview, with their own account's token", async () => {
     getOrganiserOverview.mockResolvedValue(overview());
-    const auth = fakeAuthValue();
+    const auth = fakeAuthValue({ userId: "u1", email: "org@example.com" });
     renderOverview(auth);
     await loaded();
-    expect(getOrganiserOverview).toHaveBeenCalledWith(auth.getAccessToken, expect.objectContaining({ signal: expect.any(AbortSignal) }));
+    expect(getOrganiserOverview).toHaveBeenCalledWith(expect.any(Function), expect.objectContaining({ signal: expect.any(AbortSignal) }));
+    const getToken = getOrganiserOverview.mock.calls[0][0] as () => Promise<string>;
+    await expect(getToken()).resolves.toBe("fake-access-token");
+    expect(auth.getAccessTokenFor).toHaveBeenCalledWith({ userId: "u1", email: "org@example.com" });
+  });
+
+  it("with someone else's session by then (another tab signed in), it stays loading: no error, no numbers", async () => {
+    const session = switchableSession({ userId: "u1" });
+    getOrganiserOverview.mockImplementation(async (getToken: () => Promise<string>) => {
+      await getToken();
+      return overview();
+    });
+    session.become({ userId: "u2" });
+    renderOverview(fakeAuthValue({ userId: "u1", ...session.auth }));
+    await waitFor(() => expect(session.auth.getAccessTokenFor).toHaveBeenCalledWith({ userId: "u1", email: "organiser@example.com" }));
+    await act(async () => {});
+    expect(screen.getByRole("progressbar", { name: "Loading your overview" })).toBeInTheDocument();
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(screen.queryByRole("region", { name: "This week" })).toBeNull();
   });
 });
 
