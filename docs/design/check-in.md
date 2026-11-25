@@ -6,7 +6,7 @@ Status: built (components/check-in/, components/tickets/); this spec tracks the 
 plus tablet.
 
 **Code read:** `app/globals.css`, `app/layout.tsx`, `docs/design-system.md`, `docs/design/*.md`, `docs/pwa.md`,
-`docs/architecture.md` ("Check-in"), `docs/REMEDIATION_PLAN.md` (Phase 2), `lib/api/check-ins.ts`,
+`docs/architecture.md` ("Check-in"), `lib/api/check-ins.ts`,
 `lib/api/types.ts` (check-in types), `lib/ticket-code.ts`, `lib/format.ts`, `lib/pwa/theme.ts`, `next.config.ts`,
 `components/tickets/{TicketStub,LinearBarcode,UBarcode}.tsx`, `tests/TicketStub.test.tsx`,
 `components/CheckoutConfirmation.tsx`, `app/checkout/success/page.tsx`, `app/dashboard/[eventId]/page.tsx`,
@@ -739,7 +739,7 @@ door.", is the only lever. It's deliberately next to the code rather than in a b
 ## 7. Dependencies, proposals and out of scope
 
 **Dependencies (for the manager to route):**
-- **`qrcodegen` (MIT)**, vendored as a single file per `REMEDIATION_PLAN.md`. It's shared with the ticket-email PNG
+- **`qrcodegen` (MIT)**, vendored as a single file. It's shared with the ticket-email PNG
   (backend).
 - **`barcode-detector` polyfill (MIT, ZXing-WASM)**: a new npm dependency, dynamically imported on this route only.
   **Self-host the `.wasm`.** Its default loader fetches from a CDN, which would be a new third-party request. If a

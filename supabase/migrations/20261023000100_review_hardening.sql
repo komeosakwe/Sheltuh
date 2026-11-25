@@ -36,7 +36,7 @@
 --    re-run).
 --
 -- 3. Admin check-in for platform-managed organisers' events (owner decision,
---    21 Oct 2026, docs/FEATURE_PLAN.md). ticket_check_ins_guard now allows a
+--    21 Oct 2026). ticket_check_ins_guard now allows a
 --    check-in row (scan or undo) for a platform-managed organiser's event
 --    when its actor is an admin (auth.users.raw_app_meta_data ->> 'role' =
 --    'admin', the app_metadata.role the API reads), and refuses one by an

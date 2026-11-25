@@ -29,7 +29,7 @@ against a deployed site.
   the organiser's editor at `app/dashboard/[eventId]/seat-map/page.tsx` and the
   admin's at `app/admin/events/[eventId]/seat-map/page.tsx`; the seat shown at
   check-in (`lib/server/handlers/check-ins.ts`, `seat_section`/`seat_row`/`seat_label`).
-  Plan: `docs/SEATING_PLAN.md`. Caveat from that doc: there's no on/off
+  Plan: the owner's planning notes (private). Caveat from that plan: there's no on/off
   switch, and seated events shouldn't be approved for real on-sales until
   per-visitor hold protection is chosen.
 - **View-only plan image or document: not done.** No table, route or UI

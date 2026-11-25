@@ -375,7 +375,7 @@ revoke all on function private.purge_analytics() from public, anon, authenticate
 
 
 -- ===== 20261014000000_email_outbox.sql =====
--- Reliable ticket email (docs/REMEDIATION_PLAN.md, fix 2).
+-- Reliable ticket email.
 --
 -- Until now the ticket email was sent once, best-effort, straight after an
 -- order was paid; a failure was logged and never retried. Now:
@@ -657,7 +657,7 @@ revoke all on function private.resend_email_job(bigint, interval) from public, a
 
 
 -- ===== 20261014000100_free_order_protection.sql =====
--- Free-ticket abuse protection (docs/REMEDIATION_PLAN.md, fix 1).
+-- Free-ticket abuse protection.
 --
 -- Free checkout used to issue tickets to anyone, instantly, for any address,
 -- with no limit. Now (no IP addresses, no CAPTCHA):
@@ -1968,7 +1968,7 @@ revoke all on function private.record_payment_refund(text, integer, boolean) fro
 
 
 -- ===== 20261021000000_ticket_check_in.sql =====
--- Ticket check-in at the door (QR check-in plan, step B1; docs/REMEDIATION_PLAN.md, Fix 3).
+-- Ticket check-in at the door (QR check-in plan, step B1).
 --
 -- An organiser scans (or types) a ticket code for one of their events. The
 -- API (lib/server/handlers/check-ins.ts) calls private.check_in_ticket, which
@@ -2322,7 +2322,7 @@ revoke all on function private.purge_analytics() from public, anon, authenticate
 
 
 -- ===== 20261021120000_listing_fixes.sql =====
--- Listing fixes (docs/FEATURE_PLAN.md, B1).
+-- Listing fixes (B1).
 --
 -- 1. events.is_free means "has ticket types, and every one is free". It was
 --    `not exists (a paid ticket type)`, which is also true for an event with
@@ -2685,7 +2685,7 @@ revoke all on function private.undo_check_in(uuid, uuid, uuid, uuid, text, integ
 
 
 -- ===== 20261022000000_external_ticketing.sql =====
--- External ticketing (docs/FEATURE_PLAN.md, B2; docs/architecture.md,
+-- External ticketing (B2; docs/architecture.md,
 -- "External ticketing"): an event whose tickets are sold on another site,
 -- which Sheltüh lists and links to.
 --
@@ -3237,7 +3237,7 @@ revoke all on function private.purge_analytics() from public, anon, authenticate
 
 
 -- ===== 20261022000100_admin_event_authoring.sql =====
--- Admin event authoring (docs/FEATURE_PLAN.md, B3; docs/architecture.md,
+-- Admin event authoring (B3; docs/architecture.md,
 -- "Admin authoring"): admins create platform-managed organisers (no owner
 -- account) and create or edit events for any organiser.
 --
@@ -3817,7 +3817,7 @@ revoke all on function private.record_outbound_click(uuid, integer, interval) fr
 
 
 -- ===== 20261023000000_trending.sql =====
--- Trending (docs/FEATURE_PLAN.md, B4; docs/architecture.md, "Trending").
+-- Trending (B4; docs/architecture.md, "Trending").
 --
 --   * private.event_curation: an admin's per-event boost (0.5 to 2, default
 --     1) and exclusion from trending. One row per event, written only by
@@ -4192,7 +4192,7 @@ revoke all on function private.set_event_curation(uuid, uuid, numeric, boolean, 
 --    re-run).
 --
 -- 3. Admin check-in for platform-managed organisers' events (owner decision,
---    21 Oct 2026, docs/FEATURE_PLAN.md). ticket_check_ins_guard now allows a
+--    21 Oct 2026). ticket_check_ins_guard now allows a
 --    check-in row (scan or undo) for a platform-managed organiser's event
 --    when its actor is an admin (auth.users.raw_app_meta_data ->> 'role' =
 --    'admin', the app_metadata.role the API reads), and refuses one by an
@@ -4385,7 +4385,7 @@ revoke all on function private.ticket_check_ins_guard() from public, anon, authe
 
 -- ===== 20261023000200_trending_distinct.sql =====
 -- Trending: eligibility counts distinct people, not actions (manager decision,
--- 21 Oct 2026, docs/FEATURE_PLAN.md; docs/architecture.md, "Trending").
+-- 21 Oct 2026; docs/architecture.md, "Trending").
 --
 --   * private.refresh_trending is replaced. An event is eligible only when at
 --     least 3 DIFFERENT people engaged with it in the 14-day window
@@ -5260,7 +5260,7 @@ revoke all on function private.events_waitlist_release() from public, anon, auth
 
 -- ===== 20261024000100_member_profiles.sql =====
 -- Member profiles and profile photos (docs/architecture.md, "Member
--- profiles"; owner request 21 Oct 2026, docs/FEATURE_PLAN.md).
+-- profiles"; owner request 21 Oct 2026).
 --
 --   * public.profiles gains:
 --       - public_id: an opaque, random id for the profile's URL
@@ -5732,7 +5732,7 @@ revoke all on function private.admin_remove_profile_content(uuid, uuid, text[], 
 -- ===== 20261024000200_organiser_follows.sql =====
 -- Organiser follows, "events hosted" and the featured video
 -- (docs/architecture.md, "Following organisers" and "Organiser profiles";
--- owner request 21 Oct 2026, docs/FEATURE_PLAN.md).
+-- owner request 21 Oct 2026).
 --
 --   * public.organiser_follows: a verified member follows an approved
 --     organiser (one row per pair; keyed on the account, like favourites).
@@ -6290,7 +6290,7 @@ revoke all on function private.events_followers_announce() from public, anon, au
 
 
 -- ===== 20261101000000_reserved_seating.sql =====
--- Reserved seating, part 1: seat maps (docs/SEATING_PLAN.md, docs/architecture.md
+-- Reserved seating, part 1: seat maps (docs/architecture.md
 -- "Reserved seating"). Part 2 (20261101000100_seat_holds.sql) adds holds,
 -- sales, and the checkout, fulfilment, refund and check-in changes.
 --
@@ -6836,8 +6836,8 @@ revoke all on function private.admin_set_event_ticketing(uuid, uuid, text, text,
 
 
 -- ===== 20261101000100_seat_holds.sql =====
--- Reserved seating, part 2: holds and sales (docs/SEATING_PLAN.md,
--- docs/architecture.md "Reserved seating"; part 1 is
+-- Reserved seating, part 2: holds and sales (docs/architecture.md
+-- "Reserved seating"; part 1 is
 -- 20261101000000_reserved_seating.sql).
 --
 --   * event_seats gains hold_order_id / hold_expires_at (a pending order's

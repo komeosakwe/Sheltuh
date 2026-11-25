@@ -37,7 +37,7 @@ const EVENT_NOT_FOUND = "Event not found.";
  * a guessed future version can't be cached with the current map in it.
  */
 export const SEAT_MAP_CACHE = "public, max-age=31536000, s-maxage=3600, immutable";
-/** Availability: shared by every buyer, at most 5 seconds old at the CDN (docs/SEATING_PLAN.md). */
+/** Availability: shared by every buyer, at most 5 seconds old at the CDN. */
 export const SEAT_AVAILABILITY_CACHE = "public, max-age=0, s-maxage=5";
 
 interface MapMeta {

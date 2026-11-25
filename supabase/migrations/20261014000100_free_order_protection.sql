@@ -1,4 +1,4 @@
--- Free-ticket abuse protection (docs/REMEDIATION_PLAN.md, fix 1).
+-- Free-ticket abuse protection.
 --
 -- Free checkout used to issue tickets to anyone, instantly, for any address,
 -- with no limit. Now (no IP addresses, no CAPTCHA):

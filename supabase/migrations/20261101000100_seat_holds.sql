@@ -1,5 +1,5 @@
--- Reserved seating, part 2: holds and sales (docs/SEATING_PLAN.md,
--- docs/architecture.md "Reserved seating"; part 1 is
+-- Reserved seating, part 2: holds and sales (docs/architecture.md
+-- "Reserved seating"; part 1 is
 -- 20261101000000_reserved_seating.sql).
 --
 --   * event_seats gains hold_order_id / hold_expires_at (a pending order's

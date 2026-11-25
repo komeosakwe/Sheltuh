@@ -1,5 +1,5 @@
 -- Trending: eligibility counts distinct people, not actions (manager decision,
--- 21 Oct 2026, docs/FEATURE_PLAN.md; docs/architecture.md, "Trending").
+-- 21 Oct 2026; docs/architecture.md, "Trending").
 --
 --   * private.refresh_trending is replaced. An event is eligible only when at
 --     least 3 DIFFERENT people engaged with it in the 14-day window

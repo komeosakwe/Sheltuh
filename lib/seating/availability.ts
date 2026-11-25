@@ -5,8 +5,8 @@
  * One bit per seat, by its `position` in the map (lib/seating/template.ts,
  * flattenSeats): bit `p` is the (7 − p % 8)th bit of byte ⌊p / 8⌋, most
  * significant first. 1 means the seat can't be chosen: sold, held by someone
- * checking out, or blocked. The three look the same on purpose (decision 3,
- * docs/SEATING_PLAN.md): the public sees no sales split. The bytes travel as
+ * checking out, or blocked. The three look the same on purpose (decision 3
+ * of the owner's seating plan, private): the public sees no sales split. The bytes travel as
  * standard base64 (`A–Z a–z 0–9 + /`, `=` padded): 10,000 seats is 1,250
  * bytes, about 1.7 KB of text.
  */

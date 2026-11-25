@@ -215,7 +215,7 @@ describe("who can check in", () => {
 
 // ---------------------------------------------------------------------------
 // Admins at the door: platform-managed organisers' events only (owner
-// decision, docs/FEATURE_PLAN.md; 20261023000100_review_hardening.sql)
+// decision, 21 Oct 2026; 20261023000100_review_hardening.sql)
 // ---------------------------------------------------------------------------
 
 const FREE_TICKETS = [{ id: "free", name: "Free entry", priceCents: 0, feePolicy: "buyer-pays", quantityAvailable: 50 }];

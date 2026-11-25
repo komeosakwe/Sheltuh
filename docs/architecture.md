@@ -532,7 +532,7 @@ admin and message times) is in the platform's zone, Australia/Melbourne.
      and no `on_behalf_of` the platform's payment method settings and
      domains apply, not the connected account's; Link's availability in
      Australia. Afterpay, Klarna, Zip and PayPal stay off (no buy-now-pay-later
-     without repricing, `docs/FEATURE_PLAN.md`).
+     without repricing; the owner's planning notes, private).
 3. `POST /api/stripe/webhook`:
    - The signature is verified.
    - `checkout.session.completed` (when the session is paid) or
@@ -803,7 +803,7 @@ admin and message times) is in the platform's zone, Australia/Melbourne.
 - **Order ids in request logs.** The id is in the path of
   `/api/orders/by-session/{orderId}/…` and in the query of
   `/checkout/pay?order=` and `/checkout/success?session_id=`, so Vercel's
-  request logs hold it (see `docs/REMEDIATION_PLAN.md`). Before adding a
+  request logs hold it. Before adding a
   log drain or sharing logs, redact `ord_[0-9a-f]{32}` in them (replace
   with the short reference, or `ord_[redacted]`).
 - **`GET …/payment` and paid checkout are rate-limited per client and per
@@ -3492,7 +3492,7 @@ scanner at `/dashboard/[eventId]/check-in` (`components/check-in/*`,
 - **Who.** The approved organiser who owns the event (`requireApprovedOrganiser`;
   ownership is checked again inside `check_in_ticket`), and admins for events
   of platform-managed organisers (no owner account; owner decision, 21 Oct
-  2026, `docs/FEATURE_PLAN.md`), whatever that organiser's status. Anyone
+  2026), whatever that organiser's status. Anyone
   else's event is a 404, an admin's included (an organiser's event, or one
   that doesn't exist); a non-admin without an approved organiser a 403;
   signed out a 401. An admin who also owns an organiser checks in for its
@@ -5599,7 +5599,7 @@ address).
 ## Reserved seating
 
 Optional seat maps for concert-style events (owner request, 21 Oct 2026;
-`docs/SEATING_PLAN.md`, design `docs/design/seating.md`;
+the owner's planning notes, private; design `docs/design/seating.md`;
 `supabase/migrations/20261101000000_reserved_seating.sql` and
 `20261101000100_seat_holds.sql`; `lib/server/handlers/seating.ts`, the seated
 branch of `lib/server/handlers/orders.ts`, `lib/seating/*`, `lib/api/seating.ts`).
@@ -7100,7 +7100,7 @@ sign-up and password reset on the real project after deploying.
   (`supabase-setup.md`); Stripe's own receipts probably won't (unverified).
   Apple's user IDs and relay addresses are **per developer team**: moving to
   a different Apple team later (e.g. the Pty Ltd's) breaks matching for
-  hidden-email users (`PROJECT_CONTEXT.md`, action items).
+  hidden-email users (the owner's private notes).
 - **Apple secret expiry.** Supabase's Apple provider needs a client secret
   JWT that Apple caps at 15,777,000 seconds (about 6 months). When it
   expires, Apple sign-in fails for everyone (Google and email keep working).
@@ -7765,7 +7765,7 @@ ad pixels: it is PostHog (above) with campaign tags on links.
   organiser's publish of a seated event always goes to review, so it stays
   an admin's call). There's no seating on/off switch.
 - Add to calendar on `/checkout/success` (the event page has it;
-  `CustomerOrder` carries no event start, end or venue; `docs/FEATURE_PLAN.md`).
+  `CustomerOrder` carries no event start, end or venue).
 - Drop `private.user_reports.reported_avatar` (inline photo copies, superseded
   by `private.report_photos` in `20261102000100_social_hardening.sql`) once
   no report has one (reports made before it are deleted 2 years after

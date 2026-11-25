@@ -12,7 +12,7 @@
  * - "Who's going and communities…" → "Who's going…": there's no communities feature.
  * - "You can save and finish later." is dropped: the application has no draft.
  * - "87% of event-goers…" → "13 of 15 people we spoke to…": the source is 15 interviews
- *   (docs/PROJECT_CONTEXT.md), not event-goers at large.
+ *   (the owner's planning notes, private), not event-goers at large.
  * - "Clear pricing" is true as drawn: free tickets carry no fee, paid tickets one booking fee each
  *   (lib/fees.ts), and organisers are paid out through Stripe Connect.
  */
@@ -56,7 +56,7 @@ export const PUBLISH_STEPS: readonly { title: string; body: string }[] = [
 
 export const WHY_EYEBROW = "Why Sheltüh?";
 export const WHY_TITLE = "Creative audiences, not everyone.";
-/** The interviews' figure (docs/PROJECT_CONTEXT.md, "Stage and validation"): 13 of 15 is 87%. */
+/** The interviews' figure (the owner's planning notes, private): 13 of 15 is 87%. */
 export const WHY_STAT = {
   figure: "13 of 15",
   caption: "people we spoke to skipped an event because they didn’t know anyone going",

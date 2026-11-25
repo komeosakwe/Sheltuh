@@ -6,7 +6,7 @@ import { approvedOrganiser, signUpAdmin } from "./helpers/fixtures";
 import { seatedEvent, seatStates } from "./helpers/seating";
 import { createTestDb } from "./helpers/test-db";
 
-// Reserved seating under real concurrency (docs/SEATING_PLAN.md: "Real-Postgres
+// Reserved seating under real concurrency (the owner's seating plan: "Real-Postgres
 // race tests are required"). PGlite is one connection, so these run only with
 // TEST_DATABASE_URL (CLAUDE.md, "Quality gates"); the API's postgres.js pool
 // runs up to 5 requests at once.

@@ -167,7 +167,7 @@ stay hidden until both providers are set up here **and**
 last. You can do just Google; Apple costs US$99 a year. Decide first which
 entity enrols with Apple: Apple's user IDs and relay addresses belong to the
 developer team, so moving to another team later (e.g. a Pty Ltd's) breaks
-sign-in matching for people who hid their email (`PROJECT_CONTEXT.md`).
+sign-in matching for people who hid their email (the owner's private notes).
 
 Throughout, `<ref>` is your Supabase project ref, and the **callback URL**
 is `https://<ref>.supabase.co/auth/v1/callback` (copy it from Supabase →
@@ -1305,7 +1305,7 @@ behaviours aren't covered by the automated tests):
    - Settings → Payment methods (the platform's default configuration):
      **on**: Cards, Apple Pay, Google Pay, Link. **Off**: Afterpay/Clearpay,
      Klarna, Zip, PayPal and other buy-now-pay-later or redirect methods
-     (`docs/FEATURE_PLAN.md`: not without repricing). Redirect-based ones
+     (not without repricing). Redirect-based ones
      would send the buyer away and back to `/checkout/success`.
    - Settings → Adaptive Pricing: **off**. The code pins it off on every
      session anyway (`adaptive_pricing: { enabled: false }`), so buyers pay

@@ -1,4 +1,4 @@
--- Trending (docs/FEATURE_PLAN.md, B4; docs/architecture.md, "Trending").
+-- Trending (B4; docs/architecture.md, "Trending").
 --
 --   * private.event_curation: an admin's per-event boost (0.5 to 2, default
 --     1) and exclusion from trending. One row per event, written only by

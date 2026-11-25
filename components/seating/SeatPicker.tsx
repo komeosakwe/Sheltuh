@@ -66,7 +66,7 @@ import SeatLine from "./SeatLine";
 import SeatList, { seatPriceText } from "./SeatList";
 import SeatMap, { type SeatMapControl } from "./SeatMap";
 
-/** Availability is polled this often while the page is visible (docs/SEATING_PLAN.md). */
+/** Availability is polled this often while the page is visible. */
 export const AVAILABILITY_POLL_MS = 10_000;
 /** After this many failed polls in a row, say availability may be out of date (§5.2). */
 const STALE_AFTER_FAILURES = 3;

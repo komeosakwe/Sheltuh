@@ -28,7 +28,7 @@ import { requireEventOperator } from "./organiser-guard";
  * 20261021130000_check_in_followups.sql and 20261023000100_review_hardening.sql).
  *
  * The approved organiser who owns the event, and admins for platform-managed
- * organisers' events (no owner account; owner decision, docs/FEATURE_PLAN.md),
+ * organisers' events (no owner account; owner decision, 21 Oct 2026),
  * only: another organiser's event is a 404 (for an admin too), a non-admin
  * without an approved organiser a 403, signed out a 401. An admin is the
  * acting account: the log records them, and the rate limit is theirs.

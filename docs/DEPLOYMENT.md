@@ -1005,7 +1005,7 @@ live. Details are in [`supabase-setup.md`](supabase-setup.md) and
       `supabase-setup.md` §1, "Sign in with Google and Apple", and
       `architecture.md`, same section). In order:
       - Decide which entity enrols with Apple (Apple's user IDs and relay
-        addresses are per developer team; `PROJECT_CONTEXT.md`).
+        addresses are per developer team; the owner's private notes).
       - Set up the Google client, and the Apple App ID, Services ID, key and
         client secret (`npm run apple-client-secret`), then Supabase's
         providers. Site URL is exactly `https://sheltuh.com.au`; **no
@@ -1351,8 +1351,8 @@ Git → Ignored Build Step. GitHub Actions CI is unaffected.
        every 2 minutes, which Hobby refuses to deploy. The plan change alone
        doesn't touch the other cron schedules: edit `vercel.json` and
        redeploy as in "Cron schedules" above.
-5. [ ] Domain: attach `sheltuh.com.au` (see PROJECT_CONTEXT for the Cloudflare
-       notes). Keep its Cloudflare record **DNS only** (grey cloud): a
+5. [ ] Domain: attach `sheltuh.com.au` (see the owner's private notes for the
+       Cloudflare setup). Keep its Cloudflare record **DNS only** (grey cloud): a
        Cloudflare proxy in front would be a second, unmanaged cache over
        the CDN windows below, and would break client-IP rate limiting. The landing page currently lives on a Cloudflare Worker; decide
        when the app replaces it.

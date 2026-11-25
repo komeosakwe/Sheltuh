@@ -1,4 +1,4 @@
--- Admin event authoring (docs/FEATURE_PLAN.md, B3; docs/architecture.md,
+-- Admin event authoring (B3; docs/architecture.md,
 -- "Admin authoring"): admins create platform-managed organisers (no owner
 -- account) and create or edit events for any organiser.
 --
