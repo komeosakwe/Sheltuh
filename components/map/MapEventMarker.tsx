@@ -57,7 +57,7 @@ export function EventMarkerMark({
           : "bg-foreground ring-2 ring-background group-hover:scale-105"
       }`}
     >
-      <EventArt poster={event.poster} title={event.title} imageUrl={event.imageUrl} imageFocus={event.imageFocus} className="h-full w-full rounded-dot" />
+      <EventArt poster={event.poster} title={event.title} imageUrl={event.imageUrl} imageFocus={event.imageFocus} sizes="48px" className="h-full w-full rounded-dot" />
     </span>
   );
 }

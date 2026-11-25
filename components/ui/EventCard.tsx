@@ -11,6 +11,7 @@ import { cardGoing, cardGoingFaces, cardState, cardWhenParts, cardWhereLabel, ca
 import { soonFields } from "@/lib/soon";
 import type { TrendingSignal } from "@/lib/home-sections";
 import type { SheltuhEvent } from "@/lib/types";
+import { CARD_PHOTO_SIZES } from "@/lib/responsive-image";
 
 /** The image box: 2:1 at every width (Round 2 §1.5), radius 16 (the rules' card anatomy). */
 const MEDIA = "aspect-[2/1]";
@@ -116,6 +117,7 @@ export default function EventCard({
   signal,
   showSave = true,
   priority = false,
+  imageSizes = CARD_PHOTO_SIZES,
   now = new Date(),
   surface = "default",
   className = "",
@@ -126,6 +128,8 @@ export default function EventCard({
   showSave?: boolean;
   /** The image loads eagerly (a card in the page's first row); by default it is lazy. */
   priority?: boolean;
+  /** The photo's box at each width (EventArt `sizes`); by default the home grid's columns. */
+  imageSizes?: string;
   now?: Date;
   /** What the card sits on: `cream` for a cream panel (an outlined white card, Round 2 §1.5). */
   surface?: "default" | "cream";
@@ -166,6 +170,7 @@ export default function EventCard({
           title={event.title}
           fit="poster"
           priority={priority}
+          sizes={imageSizes}
           // Sold out: the image at 60%. Ended: greyed; it's still there to look at, but nothing's on.
           className={`${MEDIA} w-full ${state === "ended" ? "grayscale" : state === "sold-out" ? "opacity-60" : ""}`.trim()}
         />

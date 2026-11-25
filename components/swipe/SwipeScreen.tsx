@@ -61,6 +61,7 @@ export default function SwipeScreen({
           imageFocus={event.imageFocus}
           title={event.title}
           priority={first}
+          sizes="100vw"
           className="h-full w-full"
         />
       </div>

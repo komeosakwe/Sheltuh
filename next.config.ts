@@ -86,6 +86,24 @@ export const nextConfig: NextConfig = {
   // sample photo named by the event (a dynamic path). The key is the route path as a picomatch
   // glob (brackets escaped); the files are from the project root. tests/next-config.test.ts pins
   // it; `npm run build` then lists them in the route's .nft.json (docs/architecture.md, "Story card").
+  // The image optimizer (/_next/image): next/image's stock photos (public/events, public/home) and event photos
+  // (lib/responsive-image.ts), resized to the box that shows them and served as AVIF or WebP. Organisers'
+  // photos are stored as uploaded (up to 24 megapixels), so a phone otherwise downloads every one at full size.
+  // Only these paths: anything else is a 400. An event photo is the published one's route at a version
+  // (`?v=`, which changes with the photo; the route itself refuses a draft's to anyone without a token, and
+  // the optimizer never sends one). An optimized copy lasts as long as its source may be cached
+  // (`minimumCacheTTL`, the event photo's hour, EVENT_IMAGE_CACHE): an unpublished event's photo stops being
+  // served within the hour, as it does without the optimizer (Next has no way to purge a copy sooner).
+  images: {
+    localPatterns: [
+      { pathname: "/api/events/*/image" },
+      { pathname: "/events/**", search: "" },
+      { pathname: "/home/**", search: "" },
+    ],
+    formats: ["image/avif", "image/webp"],
+    minimumCacheTTL: 3600,
+  },
+
   outputFileTracingIncludes: {
     "/events/\\[slug\\]/story-card": ["./app/fonts/og/InstrumentSans-*.ttf", "./public/events/*.{jpg,jpeg,png,webp}"],
   },

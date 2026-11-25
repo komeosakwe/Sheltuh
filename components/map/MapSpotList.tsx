@@ -72,6 +72,7 @@ export default function MapSpotList({ events, onChoose, onClose }: MapSpotListPr
                 title={event.title}
                 imageUrl={event.imageUrl}
                 imageFocus={event.imageFocus}
+                sizes="40px"
                 className="h-10 w-10 shrink-0 rounded-dot"
               />
               <span className="min-w-0">

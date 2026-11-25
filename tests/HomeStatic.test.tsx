@@ -298,7 +298,10 @@ describe("GuideCard and CreatorsCard", () => {
     const photo = container.querySelector("[aria-hidden='true'] .aspect-\\[2\\/1\\]");
     expect(photo).toHaveClass("lg:aspect-[3/1]");
     expect(photo?.parentElement).toHaveClass("lg:w-100");
-    expect(photo?.querySelector("img")).toHaveAttribute("src", "/events/street-market.jpg");
+    // The stock photo, at the size its box needs (lib/responsive-image.ts): full width, then 400px from 1024px.
+    const img = photo?.querySelector("img");
+    expect(img).toHaveAttribute("src", expect.stringContaining(`/_next/image?url=${encodeURIComponent("/events/street-market.jpg")}&w=`));
+    expect(img).toHaveAttribute("sizes", "(min-width: 1024px) 400px, 100vw");
     const cta = screen.getByRole("link", { name: "List your event" });
     expect(cta).toHaveAttribute("href", "/organisers/apply");
     expect(cta).toHaveClass("btn-outline");

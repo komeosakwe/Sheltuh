@@ -550,5 +550,5 @@ function CardArt({ item, demo }: { item: MyTicketItem; demo: boolean }) {
   if (!slug) return null;
   // The demo's samples have their own art; a live event's is generated from its slug, as everywhere else.
   const poster = (demo ? sampleEvents.find((event) => event.slug === slug)?.poster : undefined) ?? assignPoster(slug);
-  return <EventArt poster={poster} title={item.eventTitle} imageUrl={item.imageUrl} imageFocus={item.imageFocus} className="size-full" />;
+  return <EventArt poster={poster} title={item.eventTitle} imageUrl={item.imageUrl} imageFocus={item.imageFocus} sizes="88px" className="size-full" />;
 }

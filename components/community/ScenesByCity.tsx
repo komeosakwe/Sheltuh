@@ -66,7 +66,7 @@ export default function ScenesByCity({ className = "" }: { className?: string })
                 >
                   <span aria-hidden="true" className="flex size-24 shrink-0 items-center justify-center overflow-hidden rounded-control bg-surface">
                     {lead ? (
-                      <EventArt poster={lead.poster} imageUrl={lead.imageUrl} imageFocus={lead.imageFocus} title="" className="size-full" />
+                      <EventArt poster={lead.poster} imageUrl={lead.imageUrl} imageFocus={lead.imageFocus} title="" sizes="96px" className="size-full" />
                     ) : (
                       <DotsMark size="md" className="text-muted" />
                     )}

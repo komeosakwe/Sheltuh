@@ -8,6 +8,7 @@ import { ButtonLink } from "@/components/ui/Button";
 import { useMotionOk } from "@/components/ui/useMotionOk";
 import { cardCta, categoryLabel, slideFacts } from "@/lib/event-card";
 import { FEATURED_MAX } from "@/lib/home-sections";
+import { BANNER_PHOTO_SIZES } from "@/lib/responsive-image";
 import { useVisibleInterval } from "@/lib/use-visible-interval";
 import type { SheltuhEvent } from "@/lib/types";
 import { ArrowRightIcon, PauseIcon, PlayIcon } from "./icons";
@@ -307,6 +308,7 @@ export default function FeaturedCarousel({
                   title={event.title}
                   fit={event.bannerFit === "whole" ? "contain" : "poster"}
                   priority={i === 0}
+                  sizes={BANNER_PHOTO_SIZES}
                   className="size-full"
                 />
               </div>

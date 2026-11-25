@@ -26,6 +26,9 @@ import SceneMap from "@/components/SceneMap";
 import { loadLocation } from "@/lib/location-loader";
 import { MAP_NEAR_ZOOM } from "@/lib/map-layout";
 
+/** The event photo, as the optimizer serves it at the marker's, card's or row's size (lib/responsive-image.ts). */
+const PHOTO_COPY = expect.stringContaining(`/_next/image?url=${encodeURIComponent("/events/photo-night.jpg")}&w=`);
+
 const sizeDescriptors = {
   clientWidth: Object.getOwnPropertyDescriptor(HTMLElement.prototype, "clientWidth"),
   clientHeight: Object.getOwnPropertyDescriptor(HTMLElement.prototype, "clientHeight"),
@@ -151,7 +154,7 @@ describe("SceneMap photo markers", () => {
     expect(marker).toHaveAttribute("data-category", "live-music");
     expect(marker.querySelector(".bg-foreground")).not.toBeNull();
     expect(marker.querySelector(".bg-signal")).toBeNull();
-    expect(marker.querySelector("img")).toHaveAttribute("src", "/events/photo-night.jpg");
+    expect(marker.querySelector("img")).toHaveAttribute("src", PHOTO_COPY);
     expect(marker.querySelector("img")).toHaveAttribute("loading", "lazy");
 
     const theatre = await markerButton("Poster Only");
@@ -206,7 +209,7 @@ describe("SceneMap photo markers", () => {
 
     const card = screen.getAllByRole("region", { name: "Selected event" })[0];
     const photo = card.querySelector("img");
-    expect(photo).toHaveAttribute("src", "/events/photo-night.jpg");
+    expect(photo).toHaveAttribute("src", PHOTO_COPY);
     const title = within(card).getByText("Photo Night");
     expect(photo?.compareDocumentPosition(title) ?? 0).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
     expect(card).toHaveTextContent(/Fri 20 Nov, 8:00 pm/);
@@ -309,7 +312,7 @@ describe("SceneMap photo markers", () => {
     await renderMap([withPhoto, noPhoto]);
     await markerButton("Photo Night");
     const row = screen.getByRole("link", { name: "Photo Night" }).closest("div.grid") as HTMLElement;
-    expect(row.querySelector("img")).toHaveAttribute("src", "/events/photo-night.jpg");
+    expect(row.querySelector("img")).toHaveAttribute("src", PHOTO_COPY);
   });
 });
 

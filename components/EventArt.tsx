@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
+import { responsivePhoto } from "@/lib/responsive-image";
 import type { EventPoster, ImageFocus } from "@/lib/types";
 
 /**
@@ -187,6 +188,7 @@ export default function EventArt({
   priority = false,
   motion = false,
   fit = "cover",
+  sizes,
 }: {
   poster: EventPoster;
   title: string;
@@ -232,11 +234,23 @@ export default function EventArt({
    * only moves the backdrop.
    */
   fit?: "cover" | "auto" | "poster" | "contain";
+  /**
+   * How wide the box is at each screen width (the `<img>` `sizes` attribute, e.g. "(min-width: 768px) 50vw,
+   * 100vw"): with it, an event photo is served at the size the box needs, in a modern format
+   * (lib/responsive-image.ts), not at its full uploaded size. Must match the box's layout. Without it the
+   * photo is used as it is (editor previews, small marks).
+   */
+  sizes?: string;
 }) {
   const [failedUrl, setFailedUrl] = useState<string | null>(null);
   const [containedUrl, setContainedUrl] = useState<string | null>(null);
-  /** The photo that has loaded: `contain`'s CSS backdrop (which `loading="lazy"` doesn't cover) waits for it. */
-  const [loadedUrl, setLoadedUrl] = useState<string | null>(null);
+  /**
+   * The photo that has loaded, and the copy of it the browser chose (`currentSrc`, one of the srcset's): the
+   * blurred backdrop (which `loading="lazy"` doesn't cover) waits for it, and reuses that copy, so it costs
+   * no second download.
+   */
+  const [loaded, setLoaded] = useState<{ url: string; src: string } | null>(null);
+  const loadedUrl = loaded?.url ?? null;
   /** `poster`: the loaded image that's a portrait poster, and whether the box is portrait now. */
   const [portraitUrl, setPortraitUrl] = useState<string | null>(null);
   const [boxPortrait, setBoxPortrait] = useState(false);
@@ -248,6 +262,8 @@ export default function EventArt({
       (fit === "auto" && containedUrl === imageUrl) ||
       (fit === "poster" && portraitUrl === imageUrl && !boxPortrait));
   const position = imageFocus ? `${imageFocus.x}% ${imageFocus.y}%` : undefined;
+  const photo = imageUrl ? responsivePhoto(imageUrl, sizes) : null;
+  const backdropSrc = loaded && loaded.url === imageUrl ? loaded.src : photo?.src;
 
   // `poster`: the box's shape can change with the viewport (the banner is 4:5 below 640px and 2:1 or
   // 5:2 from it), so it's observed rather than measured once on load. The first observation reports
@@ -273,7 +289,11 @@ export default function EventArt({
    */
   function fitLoaded(img: HTMLImageElement) {
     // Whatever the fit now: a photo loaded under another fit (the editor's preview, before "whole") is loaded still.
-    if (img.naturalWidth) setLoadedUrl(imageUrl ?? null);
+    if (img.naturalWidth && imageUrl) {
+      const src = img.currentSrc || img.src;
+      // Unchanged keeps the same object: the ref callback below runs on every render, so a new one would loop.
+      setLoaded((was) => (was?.url === imageUrl && was.src === src ? was : { url: imageUrl, src }));
+    }
     if (fit === "cover" || fit === "contain" || !img.naturalWidth || !img.naturalHeight) return;
     const portraitPoster = img.naturalHeight / img.naturalWidth >= PORTRAIT_POSTER;
     if (fit === "poster") {
@@ -300,17 +320,19 @@ export default function EventArt({
           black, so the letterboxing reads as the poster's own colours. Decorative (the box is aria-hidden).
           `contain` (always whole): only once the photo has loaded, so a lazy photo off screen (a later banner
           slide) isn't fetched early by its backdrop; the photo itself is contained from the first paint. */}
-      {contain && imageUrl && (fit !== "contain" || loadedUrl === imageUrl) && (
+      {contain && backdropSrc && (fit !== "contain" || loadedUrl === imageUrl) && (
         <div
           data-art-backdrop=""
           className="absolute inset-0 scale-125 bg-cover bg-center opacity-60 blur-2xl"
-          style={{ backgroundImage: `url(${JSON.stringify(imageUrl)})`, backgroundPosition: position }}
+          style={{ backgroundImage: `url(${JSON.stringify(backdropSrc)})`, backgroundPosition: position }}
         />
       )}
-      {showImage ? (
+      {showImage && photo ? (
         // eslint-disable-next-line @next/next/no-img-element -- remote/organiser-supplied URLs; sized by the parent
         <img
-          src={imageUrl}
+          src={photo.src}
+          srcSet={photo.srcSet}
+          sizes={photo.sizes}
           alt=""
           loading={priority === true ? "eager" : "lazy"}
           fetchPriority={priority ? "high" : undefined}

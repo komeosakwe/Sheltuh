@@ -91,6 +91,8 @@ export default function SceneCards({ className = "" }: { className?: string }) {
                   imageFocus={data.lead.imageFocus}
                   title={data.lead.title}
                   fit="auto"
+                  // As the filler photo beside it: a 288px card in the row, a third of the page from 1024px.
+                  sizes="(min-width: 1024px) 33vw, 288px"
                   className="size-full"
                 />
               ) : (
