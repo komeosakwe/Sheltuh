@@ -10,7 +10,7 @@ plus tablet.
 `lib/api/types.ts` (check-in types), `lib/ticket-code.ts`, `lib/format.ts`, `lib/pwa/theme.ts`, `next.config.ts`,
 `components/tickets/{TicketStub,LinearBarcode,UBarcode}.tsx`, `tests/TicketStub.test.tsx`,
 `components/CheckoutConfirmation.tsx`, `app/checkout/success/page.tsx`, `app/dashboard/[eventId]/page.tsx`,
-`components/dashboard/DashboardContent.tsx`, `components/analytics/{AnalyticsGate,StatGrid,TicketTypeTable,shared}.tsx`,
+`components/dashboard/DashboardContent.tsx` (since replaced by the Events tab, `components/dashboard/events/EventsContent.tsx`), `components/analytics/{AnalyticsGate,StatGrid,TicketTypeTable,shared}.tsx`,
 `components/ui/{Button,Field,Section}.tsx`, `components/messages/ReportDialog.tsx`, `components/Nav.tsx`.
 
 **Facts that shape this spec:**
@@ -266,7 +266,7 @@ Same order as phones. The viewfinder stays 4:3 (528×396).
 
 #### 5.A2 Header and counters (`CheckInHeader.tsx`)
 
-- **Row:** on the left, the back link `backLinkClass` "← Your events" to `/dashboard`. On the right, the eyebrow
+- **Row:** on the left, the back link `backLinkClass` "← Your events" to `/dashboard/events`. On the right, the eyebrow
   "Door check-in" with the date (`formatEventDateTimeRange(startsAt)`). Phones: the date is a second eyebrow line,
   "Sat 18 Oct, 7:00 pm", right-aligned under "Door check-in" inside the 44px row, so it adds no height. `md+`: one
   line, "Door check-in · Sat 18 Oct, 7:00 pm". Nothing sits between the h1 and the counters.
@@ -618,6 +618,10 @@ Results never steal focus. Every interactive element is at least 44×44 (`min-h-
 48px).
 
 #### 5.A14 Dashboard entry point (`DashboardContent.tsx`)
+
+*Superseded (Nov 2026):* the events list is now the dashboard's Events tab (`components/dashboard/events/EventsContent.tsx`,
+organiser-dashboard plan OD-5). A published Sheltüh-ticketed event's Check-in is in its card's "···" menu
+(`lib/organiser-event-card.ts`). The original spec, for the record:
 
 - For `published` events only, add a "Check-in" link next to "Analytics", to `/dashboard/{id}/check-in`. It uses the
   same `eyebrow inline-flex min-h-11 items-center border-l border-background px-4 underline underline-offset-4`

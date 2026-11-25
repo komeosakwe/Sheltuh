@@ -160,6 +160,23 @@
   }
 }
 
+/* `col-lg:` is `lg:` for layouts that split the page's own column (the event editor's rail beside its
+   form, an event report's two columns): from 1024px, except inside the organiser dashboard's frame
+   (DashFrame, [data-organiser-main]), where the 264px sidebar leaves the page only 608px at 1024, so
+   they split from 1280px (`xl`) there instead. */
+@custom-variant col-lg {
+  @media (width >= 64rem) {
+    &:not(:where([data-organiser-main] *)) {
+      @slot;
+    }
+  }
+  @media (width >= 80rem) {
+    &:where([data-organiser-main] *) {
+      @slot;
+    }
+  }
+}
+
 /* Ink and orange are sections, not themes (brand-direction-one.md §2.3): every shared
    component inverts inside them with no class changes. The page theme is Light (:root) or
    Dark ([data-theme="dark"]); paper pins a subtree to Light. */
@@ -602,6 +619,35 @@ h4 {
     line-height: 2.5rem;
   }
 }
+/* The organiser dashboard's type (Latte's dashboard frames 430:7340, 492:14153, 492:14487), where the frames
+   step differently from heading-h2 / heading-h3: `heading-dash` is the Overview's greeting, "Nice work!" and
+   "Performance" (24/32 on phones, Heading/H2 32/40 from 768); `heading-dash-section` is "Upcoming events"
+   (Heading/H3 24/32 at every width); `figure-dash` is a Dash stat's number (Heading/H2 32/40 at every width). */
+@utility heading-dash {
+  font-family: var(--face-sans);
+  font-weight: 600;
+  letter-spacing: -0.015em;
+  font-size: 1.5rem;
+  line-height: 2rem;
+  @media (width >= 48rem) {
+    font-size: 2rem;
+    line-height: 2.5rem;
+  }
+}
+@utility heading-dash-section {
+  font-family: var(--face-sans);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  font-size: 1.5rem;
+  line-height: 2rem;
+}
+@utility figure-dash {
+  font-family: var(--face-sans);
+  font-weight: 600;
+  letter-spacing: -0.015em;
+  font-size: 2rem;
+  line-height: 2.5rem;
+}
 @utility heading-h3 {
   font-family: var(--face-sans);
   font-weight: 600;
@@ -861,6 +907,15 @@ h4 {
   @media (width >= 80rem) {
     --page-margin: 4rem;
   }
+}
+
+/* Inside the organiser dashboard's frame (components/dashboard/OrganiserShell.tsx, DashFrame) the
+   frame's main column spaces the page, so the page's own container (ui/Section `Page`) gives up its
+   gutters, padding and width cap. Unlayered, so it wins over the container's utilities. */
+[data-organiser-main] > [data-page] {
+  max-width: none;
+  margin-inline: 0;
+  padding: 0;
 }
 
 /* The active-nav "umlaut" (brand-direction-one.md §5 #2; the rules' Navigation board): two rounded

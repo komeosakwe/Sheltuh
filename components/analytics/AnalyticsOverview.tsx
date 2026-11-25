@@ -28,7 +28,7 @@ const PATH = "/dashboard/analytics";
 
 /** /dashboard/analytics (docs/design/favourites-analytics.md §5.18): every one of the organiser's events. */
 export default function AnalyticsOverview() {
-  // The organiser sub-nav (app/dashboard/layout.tsx) is the way back to Your events.
+  // The organiser nav (app/dashboard/layout.tsx) is the way back to Your events.
   return (
     <AnalyticsGate title="Analytics" returnTo={PATH}>
       {(getToken) => <OverviewReport getToken={getToken} />}

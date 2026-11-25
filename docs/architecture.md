@@ -3224,6 +3224,17 @@ caller's own events (`lib/server/handlers/organiser-summary.ts`, routes
 `OrganiserEventSummaryPage` and friends in `lib/api/types.ts`). No migration:
 they read existing tables through existing indexes.
 
+The pages: the Overview is the dashboard's home, `/dashboard`
+(`components/dashboard/overview/*`), and the events list is the Events tab,
+`/dashboard/events`; the nav (`lib/organiser-nav.ts`) lists both. Both show
+only what the summaries say: no stand-in numbers, and what they can't say
+(Latte's unexplained "3", who follows) is left out. The Events tab's cards
+keep what the old list said for the undrawn stages (Sheltüh's note, the next
+step, the paid-draft payouts line) and its other actions (View public page,
+Orders, Analytics, Check-in) in a "···" menu per card
+(`lib/organiser-event-card.ts`) until the Manage tabs hold them; `?filter=`
+in the address opens a filter.
+
 - **Access.** `requireCaller`, then the caller's own approved organiser
   (`requireApprovedOrganiser`): signed out 401; a member, an applicant, a
   suspended organiser or an admin with no organiser of their own 403. The
@@ -3830,6 +3841,152 @@ featured banner crops the photo or shows it whole.
   70%`, but there was no spare room in the box to move). Any new marker content
   with a photo goes in `.scene-marker`. `e2e/map-image-focus.spec.ts` checks
   the box the photo actually fills, as well as its `object-position`.
+
+## Story card
+
+The "I’m going." card a ticket holder posts to an Instagram story or feed
+(design: `docs/design/story-card.md`; renderer: `lib/story-card.ts`,
+`lib/server/story-card-photo.ts`, `lib/server/story-card-render.tsx`). The
+route that serves it is `GET /events/{slug}/story-card?format=story|square`
+(`app/events/[slug]/story-card/route.ts` over
+`lib/server/handlers/story-card.ts`): a JPEG, 1080 × 1920 (story) or
+1080 × 1080 (square). The share buttons that use it come later (only on
+ticket-holder pages); this is just the image.
+
+- **A page route, not `/api`, and no image extension.** The demo build may
+  make no `/api/*` call (`e2e/demo.spec.ts`), and `/events/[slug]/…` follows
+  the `.ics` file. The path doesn't end in `.jpg` because the service worker
+  keeps same-origin images with an image extension for 7 days
+  (`public/sw.js` `routeFor`), which would show a stale tag;
+  `tests/service-worker.test.ts` checks the card is bypassed.
+- **Public per event** (owner decision, 24 Nov 2026; owner question 46). The
+  card shows only what the public event page shows: the title, date and
+  time, venue and suburb, the tag ("In 3 days", "Tomorrow", "Tonight",
+  "Today", "On now") and the cover photo. Never a price, ticket, QR, order,
+  buyer, organiser contact or attendee. Gating it to ticket holders would
+  need a credential in an image URL (history, logs, proxies) and lose the
+  CDN, and would break the emailed link for guest buyers; anyone can
+  screenshot the event page anyway. The handler never reads
+  `Authorization` or cookies, so every caller gets the same bytes
+  (`tests/server/story-card.test.ts` checks a signed-in caller gets the
+  same response; `tests/server/private-gets.test.ts` lists it as public
+  on purpose).
+- **Visibility.** Live: `findStoryCardEvent` (`lib/server/story-card-data.ts`)
+  reads the card's fields, the photo's version (`event_images.updated_at`,
+  whole seconds, as its public `?v=`) and focus, under the event page's rule
+  (`slug = $1 and status = 'published'`: the unique index on `events.slug`;
+  a slug that isn't one is refused without a query). No bytes. An event
+  that has ended (`ends_at`, or the start when there's none) has no card.
+  Demo (no Supabase): the sample events (`getEventBySlug`) with their
+  `public/events/` photos (`readDemoPhoto`), drawn at the demo clock
+  (`demoCardNow`: 3 days before the start, since most samples are past).
+- **Answers.**
+
+  | Status | When | Cache-Control |
+  | --- | --- | --- |
+  | 200 `image/jpeg` | published, not ended | `public, max-age=0, s-maxage={N}` (below), `ETag` |
+  | 304 | `If-None-Match` names the current version (a list, weak tags and `*` included) | the same headers as the 200 |
+  | 400 `{error, fieldErrors.format}` | `format` missing, repeated or not `story`/`square`, or **any other query parameter**, as the handler sees the query: after Next's normalisation (below), so `?x=1` is refused but other spellings of the canonical URL get the card. Checked before any read | `private, no-store` |
+  | 404 `{error: "Event not found."}` | malformed or unknown slug; draft, in review, rejected, unpublished; ended. One body for all | `private, no-store` |
+  | 429 | more than 20 draws in 10 minutes from this client (`STORY_CARD_RATE_LIMIT`, bucket `story_cards`), `Retry-After: 600` | `private, no-store` |
+  | 503 | this instance's render slots are full (2 drawing, 6 waiting: `STORY_CARD_RENDER_SLOTS`), `Retry-After: 30` | `private, no-store` |
+  | 500 | the drawing failed (logged with the redacted message only) | `private, no-store` |
+
+  A 200 also has `Content-Disposition: inline;
+  filename="sheltuh-{slug}-{format}.jpg"`, `X-Content-Type-Options:
+  nosniff` and `X-Robots-Tag: noindex` (a card is for sharing, not image
+  search). The handler sets no `Vary`; Next adds `vary: rsc,
+  next-router-state-tree, next-router-prefetch, next-router-segment-prefetch`
+  (seen on `next start`; headers browsers don't send for an image), and
+  what Vercel sends is checked on the first deploy (`docs/DEPLOYMENT.md`,
+  "Story card"). Next answers `HEAD` with the `GET` handler, so a `HEAD` is a draw
+  too (rate-limited the same).
+- **The CDN window, N** (`storyCardFreshSeconds`, `lib/story-card.ts`): the
+  smallest of an hour, the time to the next midnight in the **event's**
+  zone (when "In 3 days" becomes "In 2 days"), to the start and to the end
+  (when "Today" becomes "On now", and when the card is gone), less the time
+  the drawing took, and at least 1 second. So a shared copy never shows a
+  tag past its change, and a takedown or an admin's edit stops being served
+  within an hour. `max-age=0`: a browser asks again each time (the CDN
+  answers with a 304 while its copy is fresh). No `stale-while-revalidate`,
+  which could serve yesterday's tag.
+- **The version (the ETag)** is `storyCardVersion`: a hash of the renderer
+  version (`STORY_CARD_RENDERER_VERSION`, bumped with any design change),
+  the format, the title, the date line, the place, the tag, the photo's
+  version and its focus. Not `events.updated_at`, which changes for things
+  the card doesn't show. The 304 is decided after the visibility read and
+  before anything else: no photo is read, no rate-limit hit is taken and
+  nothing is drawn.
+- **A draw** takes a render slot first (`inStoryCardSlot`; a 503 when they're
+  full, before any database work beyond the visibility read), then, inside
+  it: one hit on the client's limit (`takeClientLimit`: a keyed hash
+  of the IP, `private.client_rate_limits`, no migration; it fails open
+  without `STRIPE_WEBHOOK_SECRET` or a client IP, like the other per-client
+  limits), the photo's bytes (`findPublicEventCover`, the same
+  published rule; if the event was unpublished in between, a 404 rather than
+  a card without its photo), and `drawStoryCard` (the
+  photo work in sharp with the upload's 24-megapixel cap and encode timeout,
+  Satori, then a JPEG). A photo that can't be decoded gives the no-photo
+  card. The demo has no rate limit (no database); the slots still apply.
+- **What the handler sees of the URL.** Next normalises the request URL
+  before the route handler runs (`normalizeCdnUrl` in
+  `next/dist/server/server-utils.js`): the query is parsed and re-formatted,
+  so percent-escapes are decoded, an empty trailing `&` disappears and
+  Next's own `nxtP…` keys are dropped; the slug parameter arrives decoded
+  too. So `?format=story&`, `?f%6Frmat=st%6Fry`, `?format=story&nxtPa=1` and
+  `/events/%6Eeon-static/story-card?format=story` all reach the handler as
+  the canonical URL and get the card, while each is a separate CDN key. The
+  strict query refuses genuinely different parameters (`?x=1`, a second
+  `format`), not every spelling of the same ones. See the accepted risk
+  below; there's no server-side cache of drawn cards.
+- **No network at render time.** next/og fetches a fallback face from
+  Google Fonts, or an emoji from a CDN, for any character its fonts lack.
+  Every string is fitted to the card's fonts first (`fitToStoryCardFont`:
+  emoji and other scripts dropped, accents the fonts lack taken off; an empty
+  title becomes the venue's name, then "Event"), and
+  `tests/server/story-card-render.test.ts` checks the coverage table against
+  the font files.
+- **Files on disk.** The renderer reads its four TTFs (`app/fonts/og/`), and
+  the demo the sample photo the event names (a dynamic path, which the
+  build's file tracing can't follow). `next.config.ts`
+  `outputFileTracingIncludes` adds both to the route's function bundle on
+  Vercel (`tests/next-config.test.ts` pins it); `npm run build` lists them in
+  `.next/server/app/events/[slug]/story-card/route.js.nft.json`. The route
+  runs on the Node runtime (the default; sharp and `fs` need it), never edge.
+
+### Accepted risks (story card)
+
+- **Anyone with an event's link can make its card.** It holds only public
+  fields; the owner chose this over a gated card (question 46). The share
+  page that links it will be noindex and not linked from the event page.
+- **Takedowns lag by up to an hour.** An unpublished event's or an edited
+  event's card can still be served from the CDN until N runs out (an hour at
+  most; "CDN windows"). A card someone already saved or posted can't be
+  recalled. For one that can't wait, purge the CDN from Vercel's dashboard.
+- **Render cost under abuse.** One draw is about a second of CPU. The
+  per-client limit and the per-instance slots bound one client and one
+  instance, but each CDN region misses separately and a distributed client
+  beats a per-IP limit; new instances cost money rather than fail. The
+  escalation is a Vercel firewall rule on the path (`docs/DEPLOYMENT.md`,
+  "Story card", optional). The query is strict, but only as Next hands it
+  over: other spellings of the canonical URL (an escaped letter, a trailing
+  `&`, a `nxtP…` key, an escaped slug) are separate CDN keys that each draw
+  once more. More keys means more draws, still capped by the per-client
+  limit and the per-instance slots; a flood refused because the slots are
+  full costs only the visibility read each.
+- **A 304 stored by the CDN** (needs verification, as for images): the 304
+  carries the 200's `public` header. If Vercel stored a 304 answered to a
+  conditional request on a miss, everyone would get an empty card for up to
+  N. Checked on the first deploy (`docs/DEPLOYMENT.md`, "Story card").
+- **Fails open** without `STRIPE_WEBHOOK_SECRET` or a client IP header (as
+  every per-client limit): the slots still bound each instance.
+- **The photo can change between the two reads** (only an admin can replace
+  a published event's photo): that card's bytes are newer than its ETag for
+  one CDN window. Harmless: the next draw has the new version.
+- **A glyph the coverage table wrongly claims** would make next/og fetch from
+  Google Fonts at render time (with only the card's public text). The table
+  is checked against the files in tests.
+- **Demo deployments** have no rate limit (no database), only the slots.
 
 ## Admin authoring
 
@@ -5676,6 +5833,7 @@ without one. The UI keeps showing the API's words, which already say when
 | `GET /events?q&category&pricing&onOrAfter&upcoming&cursor&limit` | public (published only), soonest first. `onOrAfter` (`YYYY-MM-DD`, 400 otherwise): events starting on or after that date in each event's own zone (`(starts_at at time zone time_zone)::date`, with a coarse `starts_at` bound a day earlier for `events_status_starts_idx`). `upcoming=1` (or `true`): only events that haven't ended (`ends_at > now()`, in progress included); the home page and /events always send it. `recent` (`1`/`true`, `only`, `0`/`false`; additive, needs `upcoming=1` else 400; any other value 400): also lists events that ended within the last 14 days (`RECENT_EVENT_DAYS`, `lib/recent-events.ts`), after every upcoming one and most recently ended first (`only`: just those; the app no longer asks for it since the home's "Recently on" was removed in redesign PR 3, and the server still answers it; /events sends `1`, except in near-a-suburb mode). They stay openable by slug but can't be bought (`orders_not_ended`); their cards say "Ended". The map stays upcoming-only. `pricing=free`: has ticket types, all free, or is external with `externalFree`; `paid`: has a paid ticket type (an event with no ticket types is neither, and so is an external event that isn't free: its price isn't known). 400 for an unknown `category`, `pricing` or `upcoming` value. Every item carries `ticketingMode`, `externalFree`, `externalProvider` and, for external events only, `externalTicketUrl` (see "External ticketing"). 200: `public, max-age=0, s-maxage=60, stale-while-revalidate=120` (shared at the CDN: "CDN windows"), except with a non-empty `q`: `private, no-store` (a search is never shared). With `upcoming`, the page's ids are selected first (`lib/server/upcoming-page.ts`) |
 | `GET /events/slug/{slug}` | public (published only); a list item's shape plus, for an approved organiser, the Host card's `organiserWebsiteUrl`, `organiserSocialLinks` and `organiserBio` (see "Organiser profiles"). 200: `public, max-age=0, s-maxage=15, stale-while-revalidate=45` ("CDN windows"). Query parameters are ignored (the seat page's `?seatMapVersion=` only makes a new cache key). Every public event (list, slug, favourites, organiser profile, trending) carries `soldOut`, and per ticket type `soldOut` and `remaining` (only when 10 or fewer are left): see "Waitlist" |
 | `GET /events/{slug}/calendar.ics` (a page route, not under `/api`: `app/events/[slug]/calendar.ics/route.ts`) | public (published only; demo mode: the sample events). The event as an iCalendar file (`lib/calendar.ts` `buildIcs`, its URL from `NEXT_PUBLIC_SITE_URL`), `text/calendar; charset=utf-8`, `Content-Disposition: inline`, `public, max-age=300, s-maxage=300`. 404 (JSON, `private, no-store`) otherwise. No personal data |
+| `GET /events/{slug}/story-card?format=story\|square` (a page route, not under `/api`: `app/events/[slug]/story-card/route.ts`) | public (published and not ended; demo mode: the sample events at the demo clock). The "I’m going." story card as `image/jpeg`, 1080 × 1920 or 1080 × 1080. 200: `public, max-age=0, s-maxage={N}` (N at most an hour and never past the next tag change), ETag and 304. 400 for any other query; 404 (one body) for anything not published or ended; 429 (20 draws per 10 minutes per client), 503 (render slots), all `private, no-store`. No token read, no personal data. See "Story card" |
 | `POST /events/{eventId}/waitlist` `{email?}` · `DELETE /events/{eventId}/waitlist` | POST: public (a member's token is read, optionally). 201/200 `{status: "joined", maskedEmail, alreadyJoined}` for a member's own verified email; 202 `{status: "confirmation_sent", expiresInHours}` for anyone else, whatever the address's history; 400 email; 404 not published; 409 external, ended or not sold out; 503 busy (the platform caps; the link is emailed after the response, so a failed send isn't reported). DELETE: signed in, leaves (204, idempotent) |
 | `GET /events/{eventId}/waitlist/status` | signed in: `{joined, maskedEmail?}`; 404 not published |
 | `POST /waitlist/confirm` `{token}` · `POST /waitlist/leave` `{token}` | public (the emailed token is the credential). Confirm: 200 `{status: "joined", eventTitle, eventSlug, ticketsAvailable}` (also when already on the list); 400; 404; 410 expired or used; 409 closed. Leave: 200 `{status: "left", eventTitle?}` (the title only while the event is published; idempotent); 400; 404 |
@@ -5881,6 +6039,7 @@ the same URL that someone ran that search moments ago.
 | Event image, organiser logo and cover (current `v` only) | `public, max-age=3600, s-maxage=3600`, ETag (304) | about an hour (two at most, if the CDN dropped `Age`) |
 | Seat map (current `v` only) | `public, max-age=31536000, s-maxage=3600, immutable` | about an hour at the CDN; a year in a browser that already has it (a new map is a new URL) |
 | Calendar `.ics` | `public, max-age=300, s-maxage=300` | 5 minutes (plus a browser's 5) |
+| Story card `GET /events/{slug}/story-card` | `public, max-age=0, s-maxage={N}`, ETag (304); N is at most 3600 and ends at the next tag change (midnight in the event's zone, the start, the end) | about an hour at most (never past a tag change); a browser revalidates every time |
 
 What that means:
 
@@ -5895,7 +6054,7 @@ What that means:
   profile, or an admin's edit can still be served from the CDN for up to
   about 3 minutes in the feed and on a profile, about 1 minute on the event
   page (checkout refuses at once), and about an hour for an image, a logo,
-  a cover or a seat map at the CDN (an admin's cover removal included). `max-age` equals `s-maxage` for images and
+  a cover or a seat map at the CDN (an admin's cover removal included), and up to an hour for a story card (less when its tag changes sooner). `max-age` equals `s-maxage` for images and
   logos on purpose: a browser counts the CDN copy's `Age` against `max-age`
   (RFC 9111), so a copy is never stale on arrival and the whole chain still
   ends an hour after the function answered. A browser that already loaded
@@ -6005,7 +6164,7 @@ What that means:
   the join path, the unavailable copy); `components/admin/OrganiserLinksAdmin.tsx`
   (on `/admin/invites`); `app/organisers/join/page.tsx` with
   `components/organisers/OrganiserJoinFlow.tsx`; the welcome in
-  `components/dashboard/DashboardContent.tsx`; tests
+  `components/dashboard/JoinedWelcome.tsx` (on the Overview); tests
   `tests/server/organiser-links.test.ts`, `tests/OrganiserLinksAdmin.test.tsx`,
   `tests/OrganiserJoinFlow.test.tsx`, `e2e/organiser-links.spec.ts`.
 - `lib/auth/AuthContext.tsx`: Supabase Auth in the browser.
@@ -6122,6 +6281,16 @@ What that means:
   image's `id` (`generateImageMetadata`) is a hash of what the card shows,
   so its URL changes when the card does. Pages with nothing of their own
   inherit the site's `app/opengraph-image.tsx`.
+- Story card ("Story card"): rules `lib/story-card.ts` (browser-safe), photo
+  work `lib/server/story-card-photo.ts`, drawing
+  `lib/server/story-card-render.tsx`, live read
+  `lib/server/story-card-data.ts`, handlers
+  `lib/server/handlers/story-card.ts` (`getStoryCard`, `getDemoStoryCard`,
+  `storyCardRoute`), route `app/events/[slug]/story-card/route.ts`, fonts
+  `app/fonts/og/InstrumentSans-*.ttf`, tracing `next.config.ts`
+  `outputFileTracingIncludes`, previews `scripts/preview-story-cards.ts`;
+  tests `tests/story-card.test.ts`, `tests/server/story-card-render.test.ts`,
+  `tests/server/story-card.test.ts`.
 
 ## Event clips
 

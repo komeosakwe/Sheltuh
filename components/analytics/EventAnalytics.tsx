@@ -365,8 +365,8 @@ function ReportBody({
         </details>
       </Panel>
 
-      <div className="flex flex-col gap-12 sm:gap-16 lg:grid lg:grid-cols-12 lg:gap-14">
-        <div className="lg:col-span-7">
+      <div className="flex flex-col gap-12 sm:gap-16 col-lg:grid col-lg:grid-cols-12 col-lg:gap-14">
+        <div className="col-lg:col-span-7">
           <TicketTypeTable
             types={data.byTicketType}
             totals={data.totals}
@@ -374,7 +374,7 @@ function ReportBody({
             wholeLife={range.preset === "all"}
           />
         </div>
-        <div className="lg:col-span-5">
+        <div className="col-lg:col-span-5">
           <TrafficSources sources={data.bySource} counted={counted} />
         </div>
       </div>

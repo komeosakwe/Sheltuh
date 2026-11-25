@@ -111,6 +111,16 @@ export function formatEventWeekday(isoLike: string, timeZone: string = PLATFORM_
 }
 
 /**
+ * Today's date in words, as the organiser Overview's greeting draws it: "Tuesday, 17 November", in
+ * the zone (Melbourne by default), no year.
+ */
+export function formatLongWeekdayDate(date: Date, timeZone: string = PLATFORM_TIME_ZONE): string {
+  const parts = cachedDateTimeFormat("en-AU", { timeZone, weekday: "long", day: "numeric", month: "long" }).formatToParts(date);
+  const part = (type: Intl.DateTimeFormatPartTypes) => parts.find((p) => p.type === type)?.value ?? "";
+  return `${part("weekday")}, ${part("day")} ${part("month")}`;
+}
+
+/**
  * A day, in the zone (Melbourne by default): "Sat 26 Sep", with the year
  * when it isn't `now`'s year there ("Fri 25 Sep 2025").
  */

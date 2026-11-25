@@ -25,8 +25,6 @@ import { findPublicEventCover, findPublicOrganiserLogo, findPublicOrganiserShare
  * and a photo that can't be read is `null` (the card without it).
  */
 
-const { width: CARD_WIDTH, height: CARD_HEIGHT } = SHARE_CARD_SIZE;
-
 /** Largest decoded image drawn, in pixels (the same cap as uploads: lib/server/avatar.ts). */
 const MAX_INPUT_PIXELS = 24_000_000;
 
@@ -37,8 +35,40 @@ function logFailure(what: string, err: unknown) {
   console.error(`${what} preview card unavailable:`, redactForLog(err instanceof Error ? err.message : "unknown error"));
 }
 
-function dataUrl(mime: string, bytes: Uint8Array): string {
+/** Bytes as a data URL (Satori draws images from these). Shared with the story card. */
+export function dataUrl(mime: string, bytes: Uint8Array): string {
   return `data:${mime};base64,${Buffer.from(bytes).toString("base64")}`;
+}
+
+/** A photo's focus point: percent from the left and top, as the site's own object-position (null: the middle). */
+export type PhotoFocus = { x: number; y: number } | null;
+
+/** Where a cover crop sits: scale the photo to `resize`, then take `extract`. */
+export interface CoverCrop {
+  resize: { width: number; height: number };
+  extract: { left: number; top: number; width: number; height: number };
+}
+
+/**
+ * The crop that covers `size` with a photo of w × h (after EXIF rotation),
+ * keeping its focus point in view: object-position's maths, so a card crops
+ * as the site's pages do. Shared with the story card (lib/server/story-card-photo.ts).
+ */
+export function coverCrop(w: number, h: number, size: { width: number; height: number }, focus: PhotoFocus): CoverCrop {
+  const scale = Math.max(size.width / w, size.height / h);
+  const scaledWidth = Math.max(size.width, Math.round(w * scale));
+  const scaledHeight = Math.max(size.height, Math.round(h * scale));
+  const fx = Math.min(100, Math.max(0, focus?.x ?? 50)) / 100;
+  const fy = Math.min(100, Math.max(0, focus?.y ?? 50)) / 100;
+  return {
+    resize: { width: scaledWidth, height: scaledHeight },
+    extract: {
+      left: Math.round(fx * (scaledWidth - size.width)),
+      top: Math.round(fy * (scaledHeight - size.height)),
+      width: size.width,
+      height: size.height,
+    },
+  };
 }
 
 /**
@@ -46,27 +76,18 @@ function dataUrl(mime: string, bytes: Uint8Array): string {
  * photo's focus point (percent from the left and top, as the site's own
  * object-position: default the middle) stays in view. Null if it can't be decoded.
  */
-export async function coverToCardImage(bytes: Uint8Array, focus: { x: number; y: number } | null): Promise<string | null> {
+export async function coverToCardImage(bytes: Uint8Array, focus: PhotoFocus): Promise<string | null> {
   try {
     const image = sharp(bytes, { limitInputPixels: MAX_INPUT_PIXELS });
     const { width = 0, height = 0, orientation = 1 } = await image.metadata();
     // EXIF orientations 5-8 are turned a quarter: rotate() swaps the sides.
     const [w, h] = orientation >= 5 ? [height, width] : [width, height];
     if (w < 1 || h < 1) return null;
-    const scale = Math.max(CARD_WIDTH / w, CARD_HEIGHT / h);
-    const scaledWidth = Math.max(CARD_WIDTH, Math.round(w * scale));
-    const scaledHeight = Math.max(CARD_HEIGHT, Math.round(h * scale));
-    const fx = Math.min(100, Math.max(0, focus?.x ?? 50)) / 100;
-    const fy = Math.min(100, Math.max(0, focus?.y ?? 50)) / 100;
+    const crop = coverCrop(w, h, SHARE_CARD_SIZE, focus);
     const jpeg = await image
       .rotate()
-      .resize(scaledWidth, scaledHeight, { fit: "fill" })
-      .extract({
-        left: Math.round(fx * (scaledWidth - CARD_WIDTH)),
-        top: Math.round(fy * (scaledHeight - CARD_HEIGHT)),
-        width: CARD_WIDTH,
-        height: CARD_HEIGHT,
-      })
+      .resize(crop.resize.width, crop.resize.height, { fit: "fill" })
+      .extract(crop.extract)
       .flatten({ background: "#000000" })
       .jpeg({ quality: 82 })
       .toBuffer();
@@ -95,7 +116,8 @@ export async function logoToCardImage(bytes: Uint8Array): Promise<string | null>
 /** The demo's sample photos live in public/events/: a path like that and no other is read. */
 const DEMO_PHOTO_PATH = /^\/events\/[A-Za-z0-9._-]+$/;
 
-async function readDemoPhoto(imageUrl: string): Promise<Uint8Array | null> {
+/** A demo sample photo's bytes (public/events/), or null for any other path or a file that can't be read. */
+export async function readDemoPhoto(imageUrl: string): Promise<Uint8Array | null> {
   if (!DEMO_PHOTO_PATH.test(imageUrl)) return null;
   try {
     return await readFile(path.join(process.cwd(), "public", imageUrl));

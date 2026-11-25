@@ -67,6 +67,8 @@ export default function ShareButton({
   fill = false,
   copyLabel = "Link to this event",
   copiedInLabel = false,
+  label,
+  buttonClassName,
 }: ShareTarget & {
   title: string;
   /** The copy-by-hand popover's field label. */
@@ -85,6 +87,13 @@ export default function ShareButton({
   /** The share sheet's message, e.g. "{title} · {Sat 24 Oct, 7:00 pm} · {venue}". */
   text?: string;
   className?: string;
+  /**
+   * Other words on the button, with no icon and an arrow after them (the organiser Overview's
+   * "Share event →" chip): it's then named "{label}: {title}", so the name starts with what's shown.
+   */
+  label?: string;
+  /** The button's look in place of the Secondary button's (with `label`). */
+  buttonClassName?: string;
 }) {
   const [status, setStatus] = useState("");
   const [manualUrl, setManualUrl] = useState<string | null>(null);
@@ -226,13 +235,22 @@ export default function ShareButton({
         type="button"
         onClick={share}
         // While "Copied" shows, the name starts with it too (WCAG 2.5.3, label in name), then says what it does.
-        aria-label={copied ? `Copied. Share ${title}` : `Share ${title}`}
+        aria-label={copied ? `Copied. Share ${title}` : label ? `${label}: ${title}` : `Share ${title}`}
         aria-expanded={open ? true : undefined}
         aria-controls={open ? popoverId : undefined}
-        className={fill ? actionRowClass : secondaryActionClass}
+        className={buttonClassName ?? (fill ? actionRowClass : secondaryActionClass)}
       >
-        {copied ? <CopiedIcon /> : <ShareIcon />}
-        {copiedInLabel ? (
+        {label ? (
+          <>
+            {label}
+            <span aria-hidden="true">→</span>
+          </>
+        ) : copied ? (
+          <CopiedIcon />
+        ) : (
+          <ShareIcon />
+        )}
+        {label ? null : copiedInLabel ? (
           // Both labels in one grid cell, the one not showing invisible, so the button is always as wide as
           // the wider ("Copied") and the row it shares never shifts.
           <span className="grid justify-items-center">

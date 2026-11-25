@@ -161,6 +161,7 @@ const PUBLIC_GETS = new Set([
   "getSeatAvailability",
   "getEventClip",
   "eventCalendarRoute",
+  "storyCardRoute", // story-card.test.ts pins its headers and that a token changes nothing
   "getExternalGoingSummary", // external-going.test.ts pins its cache header
 ]);
 

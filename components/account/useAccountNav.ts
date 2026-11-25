@@ -113,7 +113,5 @@ export function useAccountNav(pathname: string): AccountNav {
   return { account, items, summary };
 }
 
-/** A pill's number: capped at 99+. */
-export function shownCount(count: number): string {
-  return count > 99 ? "99+" : String(count);
-}
+/** A pill's number: capped at 99+ (lib/counts.ts; the dashboard sidebar shares it). */
+export { shownCount } from "@/lib/counts";

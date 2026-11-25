@@ -1,4 +1,5 @@
 import { DOOR_EVENTS_HREF } from "@/components/admin/event-queue-filters";
+import { EVENTS_HREF } from "@/lib/organiser-nav";
 
 /**
  * Where the door's way back goes: an organiser's own events, or, for an
@@ -15,7 +16,7 @@ export interface DoorWayBack {
 }
 
 export const ORGANISER_WAY_BACK: DoorWayBack = {
-  href: "/dashboard",
+  href: EVENTS_HREF,
   label: "Your events",
   backTo: "Back to your events",
 };

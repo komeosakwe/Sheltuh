@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useSyncExternalStore } from "react";
+import { useDashFrame } from "@/components/dashboard/ui/DashFrameContext";
 import SeatDialog from "@/components/seating/SeatDialog";
 import { Button } from "@/components/ui/Button";
 import type { SheltuhEvent } from "@/lib/types";
@@ -23,6 +24,18 @@ function useIsXl(): boolean {
   return useSyncExternalStore(subscribe, getSnapshot, () => false);
 }
 
+/**
+ * Where the preview goes. From 1280px it's a panel beside the form, except inside the organiser
+ * dashboard's frame (DashFrame), whose page column is at most 960px: three columns don't fit there,
+ * so the preview stays in its sheet at every width. `besideFrom` hides what only belongs below
+ * 1280px (the Preview button) where the panel takes over; inside the frame it's never hidden.
+ */
+export function usePreviewPlacement(): { beside: boolean; besideFrom: string } {
+  const framed = useDashFrame() !== null;
+  const xl = useIsXl();
+  return { beside: xl && !framed, besideFrom: framed ? "" : "xl:hidden" };
+}
+
 interface PreviewProps {
   event: SheltuhEvent;
   missing: PreviewMissing;
@@ -34,9 +47,9 @@ interface PreviewProps {
  * remains. Below 1280px the same preview is in a sheet (PreviewButton).
  */
 export function PreviewPanel({ event, missing }: PreviewProps) {
-  const xl = useIsXl();
+  const { beside } = usePreviewPlacement();
   const [shownPanel, setShownPanel] = useState(true);
-  if (!xl) return null;
+  if (!beside) return null;
 
   return (
     <aside
@@ -83,12 +96,13 @@ export function PreviewPanel({ event, missing }: PreviewProps) {
  */
 export function PreviewButton({ event, missing }: PreviewProps) {
   const [open, setOpen] = useState(false);
+  const { besideFrom } = usePreviewPlacement();
   return (
     <>
       <Button
         variant="outline"
         size="sm"
-        className="min-h-11 xl:hidden"
+        className={`min-h-11 ${besideFrom}`.trim()}
         aria-haspopup="dialog"
         onClick={() => setOpen(true)}
       >

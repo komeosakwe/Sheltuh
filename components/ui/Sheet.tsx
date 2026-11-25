@@ -1,8 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useId, useRef, type MouseEvent, type PointerEvent, type ReactNode } from "react";
+import { useId, type ReactNode } from "react";
 import { buttonClass } from "@/components/ui/Button";
+import { useModalDialog } from "@/components/ui/useModalDialog";
 
 interface SheetProps {
   open: boolean;
@@ -35,53 +36,15 @@ interface SheetProps {
  * doesn't scroll while it's open.
  */
 export default function Sheet({ open, onClose, title, subtitle, dismissLabel = "Close", children }: SheetProps) {
-  const ref = useRef<HTMLDialogElement>(null);
+  const { ref, scrimProps, close } = useModalDialog(open);
   const titleId = useId();
-
-  useEffect(() => {
-    const dialog = ref.current;
-    if (!dialog) return;
-    if (open && !dialog.open) dialog.showModal();
-    if (!open && dialog.open) dialog.close();
-  }, [open]);
-
-  useEffect(() => {
-    if (!open) return;
-    const root = document.documentElement;
-    const before = root.style.overflow;
-    root.style.overflow = "hidden";
-    return () => {
-      root.style.overflow = before;
-    };
-  }, [open]);
-
-  // A press on the scrim closes it only when it starts and ends there. A drag between the scrim and the sheet
-  // (a text selection, either way) ends with a click on the dialog, their common ancestor, and mustn't close it.
-  const press = useRef({ down: false, up: false });
-
-  // The dialog element itself is only hit outside its padding box, which is the scrim.
-  function onPressStart(event: PointerEvent<HTMLDialogElement>) {
-    press.current = { down: event.target === event.currentTarget, up: false };
-  }
-
-  function onPressEnd(event: PointerEvent<HTMLDialogElement>) {
-    press.current = { ...press.current, up: event.target === event.currentTarget };
-  }
-
-  function onScrimPress(event: MouseEvent<HTMLDialogElement>) {
-    const { down, up } = press.current;
-    press.current = { down: false, up: false };
-    if (down && up && event.target === event.currentTarget) event.currentTarget.close();
-  }
 
   return (
     <dialog
       ref={ref}
       aria-labelledby={titleId}
       onClose={onClose}
-      onPointerDown={onPressStart}
-      onPointerUp={onPressEnd}
-      onClick={onScrimPress}
+      {...scrimProps}
       className="m-0 mt-auto max-h-dvh w-full max-w-none overflow-y-auto rounded-t-sheet bg-card p-0 text-foreground backdrop:bg-ink/50 md:m-auto md:w-120 md:rounded-sheet md:backdrop:bg-ink/40 motion-safe:open:transition-transform motion-safe:open:duration-200 motion-safe:open:ease-out motion-safe:starting:open:translate-y-8"
     >
       {open && (
@@ -96,7 +59,7 @@ export default function Sheet({ open, onClose, title, subtitle, dismissLabel = "
             </div>
             <button
               type="button"
-              onClick={() => ref.current?.close()}
+              onClick={close}
               aria-label="Close"
               className="-mt-2 -mr-3 inline-flex size-11 shrink-0 items-center justify-center rounded-control text-foreground hover:bg-surface max-md:hidden"
             >
@@ -104,7 +67,7 @@ export default function Sheet({ open, onClose, title, subtitle, dismissLabel = "
             </button>
           </div>
           {children}
-          <button type="button" onClick={() => ref.current?.close()} className={buttonClass("outline", "md", "w-full md:hidden")}>
+          <button type="button" onClick={close} className={buttonClass("outline", "md", "w-full md:hidden")}>
             {dismissLabel}
           </button>
         </div>

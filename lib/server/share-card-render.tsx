@@ -40,7 +40,8 @@ export const CARD_CACHE = "public, max-age=3600, s-maxage=3600";
 /** Cache for the plain brand card served in place of one that can't be shown (not found, or a passing error). */
 export const FALLBACK_CARD_CACHE = "public, max-age=300, s-maxage=300";
 
-function Mark({ mark, width, color }: { mark: BrandMark; width: number; color: string }) {
+/** A brand mark (components/brand/marks.ts), whole, at its own ratio, in one colour. Shared with the story card. */
+export function Mark({ mark, width, color }: { mark: BrandMark; width: number; color: string }) {
   return (
     <svg
       xmlns="http://www.w3.org/2000/svg"
