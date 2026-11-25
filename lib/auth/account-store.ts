@@ -38,8 +38,8 @@ export interface AccountStore<T> {
    * Loads `account`'s record: joins a request already in flight for it, or does nothing when its answer
    * settled within FRESH_MS. `recheck` (a sign-in): asks again however fresh the answer is, still joining
    * one in flight. `force` (after a user action): always a new request, which overtakes any in flight.
-   * `fetcher` must not reject (errors are part of `T`). Resolves once the answer it started or joined
-   * has settled.
+   * Errors are part of `T`; a `fetcher` that rejects anyway is no answer: nothing settles, and the next
+   * load asks again. Resolves once the answer it started or joined has settled, or been dropped.
    */
   load: (account: string, fetcher: () => Promise<T>, options?: { force?: boolean; recheck?: boolean }) => Promise<void>;
   /** Replaces the settled answer with `next(current)` (null: unchanged); any answer still in flight is dropped. */
@@ -78,12 +78,15 @@ export function createAccountStore<T>(): AccountStore<T> {
         emit();
       }
       const id = ++generation;
-      const done = fetcher().then((value) => {
+      const finished = () => {
         if (inFlight?.id === id) inFlight = null;
+      };
+      const done = fetcher().then((value) => {
+        finished();
         if (generation !== id) return;
         settled = { account, value, at: Date.now() };
         emit();
-      });
+      }, finished);
       inFlight = { account, id, done };
       return done;
     },

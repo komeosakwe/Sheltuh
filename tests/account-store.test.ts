@@ -113,6 +113,16 @@ describe("createAccountStore", () => {
     expect(store.snapshot()).toMatchObject({ account: "b", value: "b's" });
   });
 
+  it("a fetcher that rejects isn't left in flight: nothing settles, and the next load asks again", async () => {
+    const store = createAccountStore<string>();
+    await expect(store.load("a", () => Promise.reject(new Error("no")))).resolves.toBeUndefined();
+    expect(store.snapshot()).toBeNull();
+    const next = vi.fn(() => Promise.resolve("a's"));
+    await store.load("a", next);
+    expect(next).toHaveBeenCalledTimes(1);
+    expect(store.snapshot()).toMatchObject({ account: "a", value: "a's" });
+  });
+
   it("clear (a Sign out) forgets it and drops anything in flight; resetAccountStores clears every store", async () => {
     const store = createAccountStore<string>();
     const other = createAccountStore<number>();
