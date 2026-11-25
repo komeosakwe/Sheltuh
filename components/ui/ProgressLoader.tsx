@@ -149,10 +149,19 @@ export function LoadingIndicator({
  * your account"), so screen readers hear what's loading once, from the
  * progressbar, rather than twice. Shown only while loading.
  */
-export function LoadingState({ text, className = "" }: { text: string; className?: string }) {
+export function LoadingState({
+  text,
+  announce,
+  className = "",
+}: {
+  text: string;
+  /** Also say `text` once in a polite status: for a loader that stands in for a whole page. */
+  announce?: boolean;
+  className?: string;
+}) {
   return (
     <div className={className || undefined}>
-      <LoadingIndicator label={text.replace(/…$/, "")} />
+      <LoadingIndicator label={text.replace(/…$/, "")} announce={announce} />
     </div>
   );
 }

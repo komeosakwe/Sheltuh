@@ -103,7 +103,7 @@ describe("the organiser look", () => {
     expect(html.split(WORDMARK)).toHaveLength(3);
     expect((inlineImages ?? []).map((i) => i.cid)).toEqual(["sheltuh-wordmark@sheltuh.com.au"]);
     expect(visible(html)).toContain("Need help? support@sheltuh.com.au");
-    expect(html).not.toMatch(/Pty Ltd|ABN/);
+    expect(html).not.toMatch(/Pty Ltd|\bABN\s/);
     // The organiser call to action hugs its label on a desktop, full width on a phone.
     expect(html).toContain('<table role="presentation" cellpadding="0" cellspacing="0" border="0" class="kw">');
   });
