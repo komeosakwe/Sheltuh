@@ -3175,6 +3175,102 @@ export interface AccountSummary {
   upcomingCount: number;
 }
 
+/**
+ * Which list a My tickets card is in (GET /api/me/tickets). `upcoming`: the
+ * caller still holds a ticket of it and its event hasn't ended (in progress
+ * included; an unlisted event too, shown as no longer listed). `past`:
+ * everything else (ended, refunded, every ticket sent away, a void received
+ * ticket).
+ */
+export type MyTicketSection = "upcoming" | "past";
+
+/**
+ * What every My tickets card has. The event's details are public ones, sent
+ * only while it's published (`eventListed`), on every card, valid or not (a
+ * past or void card too, unlike the ticket and received pages); unset
+ * otherwise.
+ */
+interface MyTicketEventFields {
+  section: MyTicketSection;
+  /** An order: the event's title when it was placed (as on its ticket page). A received ticket: the event's title. */
+  eventTitle: string;
+  eventListed: boolean;
+  eventSlug?: string;
+  eventStartsAt?: string;
+  eventEndsAt?: string;
+  /** Sent with the times (as CustomerOrder's). */
+  eventTimeZone?: AustralianTimeZone;
+  eventState?: StateCode;
+  venueName?: string;
+  suburb?: string;
+  imageUrl?: string;
+  imageFocus?: ImageFocus;
+}
+
+/**
+ * An order the caller bought: a `paid`, `refunded` or
+ * `oversold_refund_required` order whose buyer email is the caller's
+ * verified email (ignoring case; the exact address). Its page is
+ * `/checkout/success?session_id={orderId}`. Never its codes, buyer name or
+ * email, Stripe ids or fee split.
+ */
+export interface MyTicketOrderItem extends MyTicketEventFields {
+  kind: "order";
+  orderId: string;
+  status: "paid" | "refunded" | "oversold_refund_required";
+  /** As CustomerOrder.refundReason: set only for `refunded` and `oversold_refund_required`. */
+  refundReason?: "oversold" | "refunded";
+  /** What the buyer paid, all-inclusive. */
+  totalCents: number;
+  /** The order's tickets (one per person, a group's included); 0 when none were ever issued (oversold). */
+  ticketCount: number;
+  /** Tickets of it the caller still holds (not sent to someone who accepted them); 0 unless the order is paid. */
+  heldCount: number;
+  /** Held tickets on offer to someone (an offer in progress that hasn't expired). */
+  pendingCount: number;
+  /** Held tickets checked in at the door. */
+  checkedInCount: number;
+  /** The ticket type's name when all its tickets are of one type; unset otherwise (and with no tickets). */
+  ticketTypeName?: string;
+}
+
+/**
+ * A ticket someone sent the caller and they accepted (by their account). Its
+ * page is `/tickets/received/{transferId}`. Nothing from the sender's order:
+ * no order id or reference, buyer, amounts or other tickets; and no code.
+ */
+export interface MyTicketReceivedItem extends MyTicketEventFields {
+  kind: "received";
+  transferId: string;
+  /** The transfer's reference ("#1A2B3C4D"), never the order's. */
+  reference: string;
+  /** As ReceivedTicket.status: `void` once the order it came from was refunded, or it was sent on. */
+  status: "valid" | "void";
+  fromName: string;
+  holderName: string;
+  acceptedAt: string;
+  ticketTypeName: string;
+  /** Only while `valid`, once it's been checked in. */
+  checkedInAt?: string;
+}
+
+export type MyTicketItem = MyTicketOrderItem | MyTicketReceivedItem;
+
+/**
+ * GET /api/me/tickets?cursor&limit: one page of the caller's My tickets
+ * (verified email required; never cached), one card per order or received
+ * ticket. Upcoming cards first, by the event's start, soonest first; then
+ * past ones, by the event's end, newest first: a refunded or sent-away card
+ * of an event that's still to come is past too, and sorts first. `counts`
+ * are the caller's whole lists, on every page (an empty one too). Not AccountSummary.upcomingCount (distinct published
+ * events not started yet): `counts.upcoming` is cards whose event hasn't ended.
+ */
+export interface MyTicketsPage {
+  items: MyTicketItem[];
+  nextCursor?: string;
+  counts: { upcoming: number; past: number };
+}
+
 /** POST /api/me/username/check {username}: whether the caller could have that username. */
 export interface UsernameCheck {
   /** The name as it would be stored (normalised: "@Latte" is "latte"). */

@@ -318,6 +318,8 @@ select version, file, coalesce(applied, false) as applied
                    and pg_get_constraintdef(oid) like '%before_you_go_ok%')
       and exists (select 1 from fn where proname = 'create_event_draft' and prosrc like '%before_you_go_of%')
       and exists (select 1 from fn where proname = 'edit_event_draft' and prosrc like '%before_you_go_of%')
-      and exists (select 1 from fn where proname = 'admin_edit_event' and prosrc like '%before_you_go_of%'))
+      and exists (select 1 from fn where proname = 'admin_edit_event' and prosrc like '%before_you_go_of%')),
+    ('20261205000000', 'member_refunded_orders_index',
+      to_regclass('public.orders_refunded_email_idx') is not null)
   ) as m(version, file, applied)
  order by version;

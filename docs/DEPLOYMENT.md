@@ -68,7 +68,7 @@ live. Details are in [`supabase-setup.md`](supabase-setup.md) and
 
       Then run every file that's missing, in filename order, one SQL Editor
       query per file (or `npx supabase db push`), up to and including the
-      newest, currently `20261204000000_event_before_you_go.sql`. Never
+      newest, currently `20261205000000_member_refunded_orders_index.sql`. Never
       skip one or change the order: later files rely on earlier ones
       (`20261023000100_review_hardening.sql` stops with a list of event ids
       if a stored ticket link breaks a newer rule; fix those and re-run it).
@@ -665,6 +665,19 @@ live. Details are in [`supabase-setup.md`](supabase-setup.md) and
           **Destructive once any offer is accepted**: dropping
           `ticket_transfers` voids every recipient's code and revives the
           senders' (roll the app forward instead).
+      63. `20261205000000_member_refunded_orders_index.sql` (My tickets,
+          docs/architecture.md "API", `GET /me/tickets`: index
+          `orders_refunded_email_idx` on `orders (lower(buyer_email))` where
+          `status in ('refunded', 'oversold_refund_required')`, for a
+          member's refunded and oversold orders, listed under Past). Needs
+          file 62 before it for the route (`member_held_tickets`); the index
+          itself needs nothing new. Additive: no table, column, function or
+          grant changes. **Apply it before deploying the app**: without it
+          `GET /me/tickets` still answers, but its refunded and oversold
+          branch reads every order on each call. The previous app never
+          uses it, so applying it early is safe. A plain `create index` holds a SHARE lock on `orders`
+          (order writes wait) while it builds: immediate pre-launch, outside
+          peak sales after. Reversible, not destructive: drop the index.
 
       **Files 33 to 37 can be applied ahead of this deploy, with the
       previous app still live.** "The previous app" here is the build of
@@ -1095,11 +1108,23 @@ live. Details are in [`supabase-setup.md`](supabase-setup.md) and
 1. [ ] Create the project in **Sydney (ap-southeast-2)**.
 2. [ ] Run every file in `supabase/migrations/` **in filename order**, from
        `20260925000000_init.sql` up to the newest (see "Go-live checklist").
-3. [ ] Auth settings: "Confirm email" **on** (Who's Going and messaging trust
-       `email_confirmed_at`, so this is a security setting, not a nicety);
-       OTP-style email templates; password policy; Site URL set to the real
-       domain; custom SMTP (built-in email is test-only). If you enable
-       "Secure email change", keep it on.
+3. [ ] Auth settings: "Confirm email" **on**. This is a security setting,
+       not a nicety: Who's Going, messaging, account invites, My tickets
+       and sending a ticket trust `email_confirmed_at`, and a buyer's
+       tickets belong to whoever's account has the buying address. **With
+       "Confirm email" off, anyone can sign up with a buyer's address and
+       see and send that buyer's tickets** (Supabase then confirms every
+       address itself). Also: OTP-style email templates; password policy;
+       Site URL set to the real domain; custom SMTP (built-in email is
+       test-only). If you enable "Secure email change", keep it on.
+       **Smoke test before go-live:** sign up a fresh address and don't
+       enter the code. Supabase must not give it a session (signing in says
+       the email isn't confirmed). If it does, call `GET /api/me` with that
+       session's access token: it must answer **403**. A 200 means the
+       address was confirmed without its code, i.e. "Confirm email" is off:
+       stop and turn it on. The other way to check: `GET
+       {SUPABASE_URL}/auth/v1/settings` with the publishable key as the
+       `apikey` header must say `"mailer_autoconfirm": false`.
 4. [ ] Schedule the daily cleanup in **Supabase Cron**:
        `select private.purge_social_data();` (deletes attendance 30 days after
        an event, old messages and reports per the retention rules). Steps are

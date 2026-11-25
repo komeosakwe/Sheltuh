@@ -23,6 +23,7 @@ import { getMyExternalGoing } from "@/lib/server/handlers/external-going";
 import { getGoingSummary, getMyGoing, listGoingAttendees } from "@/lib/server/handlers/going";
 import { adminListInvites } from "@/lib/server/handlers/invites";
 import { getMe } from "@/lib/server/handlers/me";
+import { listMyTickets } from "@/lib/server/handlers/my-tickets";
 import { adminGetMemberProfile } from "@/lib/server/handlers/member-profiles";
 import { getUnreadCount, listConversations } from "@/lib/server/handlers/messages";
 import { adminListOrganiserLinks } from "@/lib/server/handlers/organiser-links";
@@ -116,6 +117,7 @@ const PRIVATE_GETS: Case[] = [
   { name: "listFollowingEvents", handler: h(listFollowingEvents), as: asMember },
   { name: "getFollow", handler: h(getFollow), as: asMember, params: () => ({ organiserId: organiser.organiserId }) },
   { name: "getMe", handler: h(getMe), as: asMember },
+  { name: "listMyTickets", handler: h(listMyTickets), as: asMember },
   { name: "getMyProfile", handler: h(getMyProfile), as: asMember },
   { name: "getMyGoing", handler: h(getMyGoing), as: asMember, params: event },
   { name: "getMyExternalGoing", handler: h(getMyExternalGoing), as: asMember, params: event },
