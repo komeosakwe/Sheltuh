@@ -1,7 +1,9 @@
-import { formatEventDateKey, formatEventDateShort, formatEventDateTimeRange, formatEventTime } from "@/lib/format";
+import { formatEventDateKey, formatEventDateShort, formatEventDateTimeRange } from "@/lib/format";
 import { formatSeatLine } from "@/lib/seating/format";
 import { TICKET_CODE_PATTERN, ticketQrPayload } from "@/lib/ticket-code";
 import { cachedDateTimeFormat, PLATFORM_TIME_ZONE, wallClockParts } from "@/lib/time-zones";
+import type { ImageFocus } from "@/lib/types";
+import { formatStubTime } from "../ticket-email";
 import type { TicketSeat } from "../types";
 
 /**
@@ -27,6 +29,13 @@ export interface WalletTicket {
   /** The street address, when the event has one. */
   venueAddress?: string;
   suburb?: string;
+  /**
+   * The event's photo, as EventRecord.imageUrl has it ("/api/events/{id}/image?v=…"), when it has one:
+   * the passes' image band (event-image.ts). Without it, the Sheltüh band.
+   */
+  imageUrl?: string;
+  /** Its focus point (percent from the left and top), as EventRecord.imageFocus: what Apple's strip is cropped around. */
+  imageFocus?: ImageFocus;
   ticketTypeName: string;
   /** 1-based, in the API's and the email's order (ticket type, then code). */
   ticketNumber: number;
@@ -87,25 +96,48 @@ export function localIsoWithOffset(iso: string, timeZone: string): string {
   return `${date}T${time}:00${sign}${String(Math.floor(abs / 60)).padStart(2, "0")}:${String(abs % 60).padStart(2, "0")}`;
 }
 
-/** "Sat 6 Mar 2027": the start's day, with its year (a pass is often saved months ahead). */
+/** "Sat 6 Mar": the start's day as the passes' fronts show it (the designer's frames: no year; passWhen has it). */
 export function passDate(ticket: Pick<WalletTicket, "startsAt" | "timeZone">): string {
-  return `${formatEventDateShort(ticket.startsAt, ticket.timeZone)} ${formatEventDateKey(ticket.startsAt, ticket.timeZone).slice(0, 4)}`;
+  return formatEventDateShort(ticket.startsAt, ticket.timeZone);
 }
 
-/** "8:00 pm AEDT": the start time and its zone. */
-export function passStartTime(ticket: Pick<WalletTicket, "startsAt" | "timeZone">): string {
-  return `${formatEventTime(ticket.startsAt, ticket.timeZone)} ${zoneAbbreviation(ticket.startsAt, ticket.timeZone)}`.trim();
+/**
+ * "8–11:30 pm": the fronts' time, written as the ticket email's stub writes
+ * it (formatStubTime: "5–9 pm", "11 am–2 pm", "5 pm" with no end, "9 pm–2 am"
+ * overnight), in the event's zone. No zone name here; passWhen has it.
+ */
+export function passTime(ticket: Pick<WalletTicket, "startsAt" | "endsAt" | "timeZone">): string {
+  return formatStubTime(ticket.startsAt, ticket.endsAt, { timeZone: ticket.timeZone });
 }
 
-/** "Sat 6 Mar, 8:00 pm – 11:30 pm AEDT", or across days "Fri 5 Mar, 9:00 pm – Sat 6 Mar, 2:00 am AEDT". */
+/**
+ * "Sat 6 Mar 2027, 8:00 pm – 11:30 pm AEDT", or across days "Fri 5 Mar 2027,
+ * 9:00 pm – Sat 6 Mar, 2:00 am AEDT": the whole of it, for the back of
+ * Apple's pass and Google's details. The start carries its year (a pass is
+ * often saved months ahead, and the front's date has none).
+ */
 export function passWhen(ticket: Pick<WalletTicket, "startsAt" | "endsAt" | "timeZone">): string {
+  const day = formatEventDateShort(ticket.startsAt, ticket.timeZone);
+  const year = formatEventDateKey(ticket.startsAt, ticket.timeZone).slice(0, 4);
+  // The range starts with the start's day ("Sat 6 Mar, …"): the year goes straight after it.
   const range = formatEventDateTimeRange(ticket.startsAt, ticket.endsAt, ticket.timeZone);
-  return `${range} ${zoneAbbreviation(ticket.endsAt ?? ticket.startsAt, ticket.timeZone)}`.trim();
+  return `${day} ${year}${range.slice(day.length)} ${zoneAbbreviation(ticket.endsAt ?? ticket.startsAt, ticket.timeZone)}`.trim();
 }
 
-/** "Ticket 1 of 3", or "Ticket 1 of 1". */
+/** "2 of 3": which of the order's tickets this one is (the email's "Ticket 2 of 3"). */
 export function passTicketNumber(ticket: Pick<WalletTicket, "ticketNumber" | "ticketCount">): string {
-  return `Ticket ${ticket.ticketNumber} of ${ticket.ticketCount}`;
+  return `${ticket.ticketNumber} of ${ticket.ticketCount}`;
+}
+
+/**
+ * The fronts' TICKET value: the ticket type's name as entered ("Second
+ * release", as the frames show it; a group ticket's "Group of 4 (3 of 4)"),
+ * or "Ticket" for a type with no name. Nothing is added to it: an order of
+ * several shows each ticket's number in a field of its own, so this one is
+ * never cut short to fit it.
+ */
+export function passTicketType(ticket: Pick<WalletTicket, "ticketTypeName">): string {
+  return ticket.ticketTypeName.trim() || "Ticket";
 }
 
 /** "Stalls · Row F · Seat 12", or undefined for general admission. */

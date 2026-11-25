@@ -1,15 +1,20 @@
 /**
- * The wallet passes' brand (docs/design/brand-direction-one.md): Black text
- * on the warm ivory the ticket email's column uses (19.8:1), with Signal
- * Orange as a fill only (Apple's strip behind the event name, Google's hero
- * and logo), always with Black on it (6.18:1). Shared by both passes and by
- * scripts/render-wallet-images.ts.
+ * The wallet passes' brand, as the designer's 20 Nov 2026 frames draw them
+ * (docs/wallet-setup.md, "What the passes look like"): a white pass with
+ * Black values and Black labels (the frames, which win over the handoff's
+ * "grey labels"), and Signal Orange only in the marks: Apple's wordmark on
+ * the white pass (a logo, not text: about 3.4:1) and the Ü on Black (6.18:1).
+ * Shared by both passes and by scripts/render-wallet-images.ts.
+ *
+ * A pass is static once saved (no web service, no Google API updates), so a
+ * pass made before a colour changed here keeps the colours it was made with.
  */
 export const WALLET_COLOURS = {
-  ivory: "#fdf9e6",
+  /** The pass's background. */
+  white: "#ffffff",
+  /** Values and labels (21:1 on white), and the fill behind the orange marks. */
   ink: "#000000",
-  /** Secondary text (the email's `muted`): 5.33:1 on ivory. */
-  muted: "#6b675e",
+  /** The marks only, never text. */
   signal: "#ff4800",
 } as const;
 

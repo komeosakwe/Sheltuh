@@ -6,6 +6,7 @@ import { ORDER_ID_PATTERN, orderReference } from "../order-reference";
 import type { Handler } from "../route";
 import type { CustomerOrder } from "../types";
 import { buildApplePass } from "../wallet/apple";
+import { appleEventStrip } from "../wallet/event-image";
 import { buildGoogleSaveJwt, googleSaveUrl } from "../wallet/google";
 import { passTimeZone, walletQrPayload, type WalletTicket } from "../wallet/pass-content";
 import { rateLimitSecret, takeClientLimit } from "../client-limits";
@@ -121,11 +122,22 @@ async function walletTicket(req: Request, sessionId: string, provider: Provider,
   if (!ticket || !order.eventStartsAt) throw new HttpError(404, TICKET_NOT_FOUND);
   // The ticket's own row (by the order and the code the lookup returned), for its serial; the event's current
   // title and street address, again only while it's published.
-  const [event] = await deps.db.query<{ event_id: string; title: string; venue_address: string | null; serial: string }>(
-    `select e.id as event_id, e.title, e.venue_address, replace(t.wallet_serial::text, '-', '') as serial
+  // The photo's version and focus point too (by primary key, not its bytes): the passes' image band.
+  const [event] = await deps.db.query<{
+    event_id: string;
+    title: string;
+    venue_address: string | null;
+    serial: string;
+    image_version: string | null;
+    focus_x: number | null;
+    focus_y: number | null;
+  }>(
+    `select e.id as event_id, e.title, e.venue_address, replace(t.wallet_serial::text, '-', '') as serial,
+            floor(extract(epoch from i.updated_at))::bigint::text as image_version, i.focus_x, i.focus_y
        from public.orders o
        join public.events e on e.id = o.event_id and e.status = 'published'
        join public.tickets t on t.order_id = o.id and t.code = $2
+       left join public.event_images i on i.event_id = e.id
       where o.id = $1
         -- Never a pass for a ticket sent to someone (belt and braces with the lookup).
         and not exists (select 1 from private.ticket_transfers x where x.ticket_code = t.code and x.status = 'accepted')`,
@@ -141,6 +153,11 @@ async function walletTicket(req: Request, sessionId: string, provider: Provider,
     ...(order.venueName ? { venueName: order.venueName } : {}),
     ...(event.venue_address?.trim() ? { venueAddress: event.venue_address.trim() } : {}),
     ...(order.suburb ? { suburb: order.suburb } : {}),
+    // The path EVENT_COLUMNS gives the photo (lib/server/records.ts), built here from its version.
+    ...(event.image_version !== null ? { imageUrl: `/api/events/${event.event_id}/image?v=${event.image_version}` } : {}),
+    ...(event.image_version !== null && event.focus_x !== null && event.focus_y !== null
+      ? { imageFocus: { x: Number(event.focus_x), y: Number(event.focus_y) } }
+      : {}),
     // A group ticket's person: "Group of 4 (2 of 4)", on the pass as in the email.
     ticketTypeName: ticketNameWithGroup(ticket.ticketTypeName, ticket.group),
     ticketNumber: n,
@@ -173,7 +190,8 @@ export const getAppleWalletPass: Handler<{ sessionId: string }> = async (req, { 
   const config = await deps.appleWallet();
   if (!config) throw new HttpError(404, PROVIDER_OFF.apple);
   const ticket = await walletTicket(req, sessionId, "apple", deps);
-  const pass = buildApplePass(config, ticket);
+  // The event photo's strip, or the stand-in: never a failed pass for the picture.
+  const pass = buildApplePass(config, ticket, new Date(), await appleEventStrip(deps.db, ticket));
   return new Response(new Uint8Array(pass), {
     status: 200,
     headers: {

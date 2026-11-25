@@ -211,7 +211,7 @@ describe("the .pkpass", () => {
     expect(() => verifyDetachedSignature(files.get("signature")!, Buffer.from("{}"), apple().signerPem, apple().wwdrPem)).toThrow();
   });
 
-  it("pass.json: the identifiers, a stable serial, the brand colours, the event ticket layout and the QR with exactly the existing payload", () => {
+  it("pass.json: the identifiers, a stable serial, the white pass's colours, the frame's event ticket layout and the QR with exactly the existing payload", () => {
     const { config } = apple();
     const ticket = sampleTicket({ seat: { section: "Stalls", row: "F", seat: "12", kind: "standard" } });
     const pass = JSON.parse(readZip(buildApplePass(config, ticket)).get("pass.json")!.toString("utf8"));
@@ -224,27 +224,41 @@ describe("the .pkpass", () => {
       description: "Ticket for Neon Static",
       groupingIdentifier: `sheltuh-event-${TEST_EVENT_ID}`,
       sharingProhibited: true,
-      backgroundColor: "rgb(253, 249, 230)",
+      // The designer's 20 Nov 2026 frame: a white pass, Black values and Black labels.
+      backgroundColor: "rgb(255, 255, 255)",
       foregroundColor: "rgb(0, 0, 0)",
+      labelColor: "rgb(0, 0, 0)",
       relevantDate: "2027-03-06T20:00:00+11:00",
       barcodes: [{ format: "PKBarcodeFormatQR", message: "SH1:7KQM-2HXD", messageEncoding: "iso-8859-1", altText: "7KQM-2HXD" }],
     });
     expect(pass.barcodes[0].message).toBe(ticketQrPayload(ticket.code));
     // No web service in v1.
     for (const key of ["webServiceURL", "authenticationToken", "barcode"]) expect(pass).not.toHaveProperty(key);
-    expect(pass.eventTicket.headerFields).toEqual([{ key: "date", label: "DATE", value: "Sat 6 Mar 2027" }]);
-    expect(pass.eventTicket.primaryFields).toEqual([{ key: "event", label: "EVENT", value: "Neon Static" }]);
+    // The frame's front, in its order: DATE in the header; nothing over the strip (no primary field); EVENT
+    // and TIME; VENUE and TICKET; each row's last field at the right edge. What the frame doesn't show
+    // (this ticket's number in an order of three, and its seat) on a second auxiliary row.
+    expect(Object.keys(pass.eventTicket)).toEqual(["headerFields", "secondaryFields", "auxiliaryFields", "backFields"]);
+    expect(pass.eventTicket.headerFields).toEqual([{ key: "date", label: "DATE", value: "Sat 6 Mar", textAlignment: "PKTextAlignmentRight" }]);
     expect(pass.eventTicket.secondaryFields).toEqual([
-      { key: "time", label: "TIME", value: "8:00 pm AEDT" },
-      { key: "venue", label: "VENUE", value: "The Tote" },
+      { key: "event", label: "EVENT", value: "Neon Static" },
+      { key: "time", label: "TIME", value: "8–11:30 pm", textAlignment: "PKTextAlignmentRight" },
     ]);
     expect(pass.eventTicket.auxiliaryFields).toEqual([
-      { key: "ticket", label: "TICKET", value: "General admission · Ticket 2 of 3" },
-      { key: "seat", label: "SEAT", value: "Stalls · Row F · Seat 12" },
+      { key: "venue", label: "VENUE", value: "The Tote" },
+      { key: "ticket", label: "TICKET", value: "General admission", textAlignment: "PKTextAlignmentRight" },
+      { key: "number", label: "TICKET NUMBER", value: "2 of 3", row: 1 },
+      { key: "seat", label: "SEAT", value: "Stalls · Row F · Seat 12", row: 1 },
     ]);
+    // Every key once: Wallet refuses a pass that repeats one.
+    const keys = (["headerFields", "secondaryFields", "auxiliaryFields", "backFields"] as const).flatMap((group) =>
+      (pass.eventTicket[group] as { key: string }[]).map((f) => f.key),
+    );
+    expect(new Set(keys).size).toBe(keys.length);
     const back = Object.fromEntries((pass.eventTicket.backFields as { key: string; value: string }[]).map((f) => [f.key, f.value]));
     expect(back).toMatchObject({
-      when: "Sat 6 Mar, 8:00 pm – 11:30 pm AEDT",
+      title: "Neon Static",
+      // The year is here: the front's date has none.
+      when: "Sat 6 Mar 2027, 8:00 pm – 11:30 pm AEDT",
       where: "The Tote, 71 Johnston St, Collingwood",
       "backup-code": "7KQM-2HXD",
       order: "#7C1F2E0A",
@@ -257,11 +271,61 @@ describe("the .pkpass", () => {
     expect(() => applePassJson(config, sampleTicket({ serial: "7KQM-2HXD" }))).toThrow();
   });
 
+  it("the front as the frame writes it: exactly its two rows for an order of one, the time as a short range, the ticket by itself without a venue", () => {
+    const { config } = apple();
+    // The frame's own ticket: "Sat 14 Nov", "5–9 pm", "Second release".
+    const framed = applePassJson(
+      config,
+      sampleTicket({
+        eventTitle: "Here & Now",
+        startsAt: "2026-11-14T06:00:00.000Z",
+        endsAt: "2026-11-14T10:00:00.000Z",
+        venueName: "Interconnect Studio",
+        ticketTypeName: "Second release",
+        ticketNumber: 1,
+        ticketCount: 1,
+      }),
+    );
+    expect(framed.eventTicket.headerFields.map((f) => [f.label, f.value])).toEqual([["DATE", "Sat 14 Nov"]]);
+    expect(framed.eventTicket.secondaryFields.map((f) => [f.label, f.value])).toEqual([
+      ["EVENT", "Here & Now"],
+      ["TIME", "5–9 pm"],
+    ]);
+    // Nothing more: an order of one, unseated, has no second row.
+    expect(framed.eventTicket.auxiliaryFields.map((f) => [f.label, f.value])).toEqual([
+      ["VENUE", "Interconnect Studio"],
+      ["TICKET", "Second release"],
+    ]);
+    expect(framed.eventTicket.auxiliaryFields.some((f) => f.row)).toBe(false);
+
+    // No end: the start alone. Overnight: both meridiems.
+    const time = (overrides: Parameters<typeof sampleTicket>[0]) =>
+      applePassJson(config, sampleTicket(overrides)).eventTicket.secondaryFields.find((f) => f.key === "time")?.value;
+    expect(time({ endsAt: undefined })).toBe("8 pm");
+    expect(time({ endsAt: "2027-03-06T15:00:00.000Z" })).toBe("8 pm–2 am");
+    // Another zone's own clock (Perth, 8 pm there).
+    expect(time({ startsAt: "2027-03-06T12:00:00.000Z", endsAt: "2027-03-06T15:30:00.000Z", timeZone: "Australia/Perth" })).toBe("8–11:30 pm");
+
+    // Without a venue name the ticket stands alone, at the left. The number keeps its own row: the
+    // ticket type's name is never cut short to make room for it.
+    for (const venueName of [undefined, "  "]) {
+      expect(applePassJson(config, sampleTicket({ venueName })).eventTicket.auxiliaryFields).toEqual([
+        { key: "ticket", label: "TICKET", value: "General admission" },
+        { key: "number", label: "TICKET NUMBER", value: "2 of 3", row: 1 },
+      ]);
+    }
+    // A ticket type with no name.
+    const ticketValue = (overrides: Parameters<typeof sampleTicket>[0]) =>
+      applePassJson(config, sampleTicket(overrides)).eventTicket.auxiliaryFields.find((f) => f.key === "ticket")?.value;
+    expect(ticketValue({ ticketTypeName: "" })).toBe("Ticket");
+    expect(ticketValue({ ticketTypeName: " ", ticketNumber: 1, ticketCount: 1 })).toBe("Ticket");
+  });
+
   it("a code that isn't a canonical one gets no barcode, its entry code on the front instead", () => {
     const { config } = apple();
     const pass = applePassJson(config, sampleTicket({ code: "legacy", qrPayload: walletQrPayload("legacy") }));
     expect(pass).not.toHaveProperty("barcodes");
-    expect(pass.eventTicket.auxiliaryFields).toContainEqual({ key: "code", label: "ENTRY CODE", value: "legacy" });
+    expect(pass.eventTicket.auxiliaryFields).toContainEqual({ key: "code", label: "ENTRY CODE", value: "legacy", row: 1 });
   });
 
   it("carries the images rendered into public/wallet/ byte for byte", () => {
@@ -271,6 +335,25 @@ describe("the .pkpass", () => {
       // A PNG.
       expect(file.subarray(1, 4).toString("latin1")).toBe("PNG");
     }
+  });
+
+  it("the images are the sizes the frame and Apple ask for: the logo 88 pt wide, an event ticket's 375 x 98 pt strip, each at 1x, 2x and 3x", () => {
+    const size = (name: string) => {
+      const png = Buffer.from(APPLE_PASS_IMAGES[name], "base64");
+      // IHDR: width and height, big-endian, after the 8-byte signature and the chunk's length and type.
+      return [png.readUInt32BE(16), png.readUInt32BE(20)];
+    };
+    const scaled = (base: string, scale: number) => size(scale === 1 ? `${base}.png` : `${base}@${scale}x.png`);
+    for (const scale of [1, 2, 3]) {
+      expect(scaled("icon", scale), `icon ${scale}x`).toEqual([29 * scale, 29 * scale]);
+      expect(scaled("logo", scale), `logo ${scale}x`).toEqual([88 * scale, 20 * scale]);
+      expect(scaled("strip", scale), `strip ${scale}x`).toEqual([375 * scale, 98 * scale]);
+    }
+    // The logo is the only one with transparency (colour type 6, RGBA): the pass's white shows through it.
+    const colourType = (name: string) => Buffer.from(APPLE_PASS_IMAGES[name], "base64")[25];
+    expect(colourType("logo.png")).toBe(6);
+    expect(colourType("strip.png")).toBe(2);
+    expect(colourType("icon.png")).toBe(2);
   });
 
   it("zipStore writes a standard stored zip", () => {

@@ -89,7 +89,7 @@ iframe served by Stripe), with the publishable key
 | `ticket_types` | `(event_id, id)` | `id` is stable across draft edits. A trigger refuses a price above 0 for a platform-managed organiser's event (`ticket_types_platform_free_only`). `quantity_sold` only ever goes up in `fulfil_order`, and down only in `record_payment_refund` (a paid order refunded in full). `seated`: the tier has seats on the event's seat map; its `quantity_available` is then always its unblocked seats (trigger `ticket_types_seated_capacity`, whatever is written; see "Reserved seating"). `opens_after_previous`: the tier waits for the one above it (by `position`) to sell out; `sold_out_at`: when `quantity_sold` first reached `quantity_available`, set by trigger `ticket_types_sold_out_at` and never cleared (see "Sequential ticket releases"). |
 | `event_seat_maps` | `event_id` | An event's optional seat map (see "Reserved seating"): `layout` (the validated template, `lib/seating/template.ts`), `seat_count` (1–10,000) and `version` (from the sequence `private.seat_map_versions`: never reused, not even after a delete). Every write bumps the event's `updated_at` (`event_seat_maps_touch_event`). Refused for an external event (`event_seat_maps_sheltuh_only`). Deleted with the event. |
 | `event_seats` | `(event_id, id)` | The map's seats, derived from the layout in the same step (`write_seat_map`): `position` (map order: the availability bit), section, row (may be empty) and seat labels, `ticket_type_id` (no-action foreign key `event_seats_ticket_type_fkey`: a tier with seats can't be removed), `kind` (standard, wheelchair, companion), `blocked`; `hold_order_id` / `hold_expires_at` (a pending order's hold) and `sold_order_id`. Checks: never held and sold at once (`event_seats_one_owner`), never held or sold while blocked (`event_seats_blocked_unsold`). Deleted with the map. |
-| `event_images` | `event_id` | Optional organiser photo (≤2 MB, JPEG/PNG/WebP) stored as `bytea` — no Storage bucket or extra secret. Never stored as uploaded: both writers (`PUT /events/{id}/image` and the admin's) go through `readEventImage`, which re-encodes it server-side with sharp (`lib/server/event-image.ts`): the EXIF orientation applied to the pixels, then written with **no metadata** (no EXIF, GPS, camera or serial number, ICC, XMP, IPTC or PNG text), at its own size and in its own format (as WebP if that would be over 2 MB; 413 if that is too). The same loader check against polyglots, 24-megapixel limit (first frame only; 400) and decode slots (`AVATAR_ENCODE_CONCURRENCY`, 503) as member photos; each encode is stopped after 10 seconds (`EVENT_IMAGE_ENCODE_TIMEOUT_SECONDS`; 400). The organiser's uploads are limited to 50 a day per account (429 with `Retry-After`, bucket `event_image_uploads`, before the body is read); an admin's aren't. Rows written before this re-encoding was added (November 2026) may still hold the upload's metadata until the photo is replaced or backfilled: the organiser can replace it only while the event is a draft or rejected, so on a published event only an admin can (`PUT /admin/events/{id}/image`); the owner's one-off `scripts/backfill-event-image-metadata.ts` (runbook in `docs/supabase-setup.md`, "Event photos stored before re-encoding") re-encodes those rows with `encodeEventImage`, one statement per row (event row locked first, written only if the bytes are still the ones read, focus and fit untouched, `updated_at` moved on by at least a second so the `?v=` version changes; not logged in `event_moderation_log`, which records people's edits). Public via `GET /api/events/[id]/image` once published (versioned URL, shared at the CDN for an hour at the current version, ETag and 304; see "CDN windows"); before that only the owner/admins with a token. Every write (insert, update, delete) bumps the event's `updated_at` in the same transaction (`event_images_touch_event`), so a photo change is a new version of the event (see "Admin authoring"); writers lock the event row (for no key update) before the image row. Move to Storage/CDN if volume grows. `focus_x` / `focus_y` (`20261115000000_event_image_focus.sql`; smallint 0..100, both null or both set, check constraint `event_images_focus_check`): where the photo's subject is, so cropped renderings centre on it (see "Photo focus"). `banner_fit` (`20261129000000_event_banner_fit.sql`; text, not null, default `crop`, check constraint `event_images_banner_fit_check`: `crop` or `whole`): how the home page's featured banner shows the photo (see "Photo focus"); kept when the photo is replaced, dropped with it. No index: nothing filters on them. |
+| `event_images` | `event_id` | Optional organiser photo (≤2 MB, JPEG/PNG/WebP) stored as `bytea` — no Storage bucket or extra secret. Never stored as uploaded: both writers (`PUT /events/{id}/image` and the admin's) go through `readEventImage`, which re-encodes it server-side with sharp (`lib/server/event-image.ts`): the EXIF orientation applied to the pixels, then written with **no metadata** (no EXIF, GPS, camera or serial number, ICC, XMP, IPTC or PNG text), at its own size and in its own format (as WebP if that would be over 2 MB; 413 if that is too). The same loader check against polyglots, 24-megapixel limit (first frame only; 400) and decode slots (`AVATAR_ENCODE_CONCURRENCY`, 503) as member photos; each encode is stopped after 10 seconds (`EVENT_IMAGE_ENCODE_TIMEOUT_SECONDS`; 400). The organiser's uploads are limited to 50 a day per account (429 with `Retry-After`, bucket `event_image_uploads`, before the body is read); an admin's aren't. Rows written before this re-encoding was added (November 2026) may still hold the upload's metadata until the photo is replaced or backfilled: the organiser can replace it only while the event is a draft or rejected, so on a published event only an admin can (`PUT /admin/events/{id}/image`); the owner's one-off `scripts/backfill-event-image-metadata.ts` (runbook in `docs/supabase-setup.md`, "Event photos stored before re-encoding") re-encodes those rows with `encodeEventImage`, one statement per row (event row locked first, written only if the bytes are still the ones read, focus and fit untouched, `updated_at` moved on by at least a second so the `?v=` version changes; not logged in `event_moderation_log`, which records people's edits). Public via `GET /api/events/[id]/image` once published (versioned URL, shared at the CDN for an hour at the current version, ETag and 304; see "CDN windows"); before that only the owner/admins with a token. Also read server-side, by event id and never over HTTP, for the link-preview cards and the wallet passes' image band (see "Wallet passes"). Every write (insert, update, delete) bumps the event's `updated_at` in the same transaction (`event_images_touch_event`), so a photo change is a new version of the event (see "Admin authoring"); writers lock the event row (for no key update) before the image row. Move to Storage/CDN if volume grows. `focus_x` / `focus_y` (`20261115000000_event_image_focus.sql`; smallint 0..100, both null or both set, check constraint `event_images_focus_check`): where the photo's subject is, so cropped renderings centre on it (see "Photo focus"). `banner_fit` (`20261129000000_event_banner_fit.sql`; text, not null, default `crop`, check constraint `event_images_banner_fit_check`: `crop` or `whole`): how the home page's featured banner shows the photo (see "Photo focus"); kept when the photo is replaced, dropped with it. No index: nothing filters on them. |
 | `event_moderation_log` | `id` | Append-only: submitted / approved / rejected / unpublished / ticketing_changed / created / edited / curated, by whom, and why. `approved` means "went live": an admin's approval or publish, or an approved organiser's own publish (`private.publish_event`, logged by the organiser's own account), so every reader of "approved before" treats the two alike (see "Publishing events"). Partial index `event_moderation_log_approved_idx (created_at, event_id) where action = 'approved'` serves the admins' "recently published" list and the admin home's count. `details` (jsonb object, null for the other actions): for `ticketing_changed`, the old and new value of each ticketing field the admin changed (full ticket links: see "External ticketing"); for `edited`, the old and new value of each other field an admin changed (see "Admin authoring"); for `curated`, the old and new `boost` and `excluded` (see "Trending"). Shown to the event's organiser and to admins (`moderationLog[].changes`), never publicly, except `curated` entries, which only admins see (`GET /admin/events/{id}/curation`). `by` is the actor's account id for admins; the organiser's view shows `"Sheltüh team"` (`SHELTUH_TEAM_ACTOR`) for anyone but the organiser's own account. No update trigger: personal information in `details` or `reason` is redacted in place (`docs/supabase-setup.md`, APP 11/13). |
 | `orders` | `id` (`ord_…`) | Priced snapshot of the line items and totals. `status`: pending → paid / failed / oversold_refund_required; oversold_refund_required → refunded (our automatic refund); paid → refunded (refunded in full in Stripe: Stripe's `refunded`, or at least `total_cents` refunded; see "Refunds made in Stripe"); pending → failed also when a paid session's amount or currency wasn't the order's (`private.fail_mismatched_order`, which also records the payment intent; the payment is then refunded). `amount_refunded_cents` (≥ 0, default 0) is Stripe's cumulative refunded amount, recorded only for paid orders (a partial refund leaves the order paid, whatever its amount; a refunded order with `amount_refunded_cents` below `total_cents` was voided by the tickets-only rule of `20261110000200_support_ticket_refund.sql`, before `20261111000300_refund_no_inference.sql` removed it). Indexed on `stripe_payment_intent_id` (partial, not null) for the refund webhook, and on `(event_id, created_at)` (partial, `paid`) for the trending refresh's 14-day read. `tickets_emailed_at` records the ticket email (cleared when the order's email is changed, until the email to the new address is sent). `buyer_email` changes after payment only through `change_order_email` (see "Buyer email checks"). `tracking_code` is the event tracking link the checkout came through (checked against the event's links when the order is created; null otherwise). `seat_ids` (1–10): a seated order's seats, set when it's made and never changed (what fulfilment and refunds act on). `support_cents` (0 to 50000, default 0; `20261110000100_order_support.sql`): Support Sheltüh, what the buyer added for the platform (see "Support Sheltüh"); only on an order with a paid ticket (`orders_support_paid_only`), and in `total_cents` (`orders_support_in_total`: total = subtotal + buyer fee + support when there is some), never in `subtotal_cents`, `buyer_fee_cents` or `application_fee_cents` (the booking fee). `payout_method` (`destination` default, or `transfer`; `orders_payout_method_check`; `20261119000000_delayed_payouts.sql`): how the organiser's share is paid. `destination`: a destination charge, paid out with the payment (every order made before delayed payouts, and while `DELAYED_PAYOUTS` is off). `transfer`: charged on the platform and transferred after the event (see "Delayed payouts"). Chosen once, while the order is `pending` (`orders_payout_method_frozen` refuses any later change), and every Stripe call about the order follows it. Partial index `orders_transfer_paid_idx` on `(event_id)` for paid `transfer` orders. `buyer_name` (1–80 characters, trimmed, no control, invisible or line-separator characters, written as escapes only so pasting the migration can't lose them; the zero-width joiners U+200C/U+200D are allowed there and by the API only between letters: `orders_buyer_name_check`) and `details_notice_at` are set together or not at all (`orders_details_notice_pair`): the name the buyer typed at checkout, and when it was made, which the database stamps itself (the `orders_details_notice` trigger: `now()` on insert when there is a name; a client can't set it), proof the checkout's notice "Your name and email are shared with the organiser of this event." had been shown (`20261122000000_order_buyer_details.sql`; see "Organiser orders"). Once set they can only be cleared, both together (the `orders_details_immutable` trigger: the withdrawal runbook). Null for every order made before it and for any made without a name. Never in `ORDER_SELECT` or `CustomerOrder`: only the Orders view reads them. |
 | `private.order_detail_exports` | `id` (identity) | The audit log of the Orders view's CSV exports (see "Organiser orders"): event, organiser, the exporting account (`actor_id`, set null if the account goes) and row count, with the time. No buyer data. Written by `record_order_export`. RLS on, no grants. Kept (it is the record of who took the data). |
@@ -7362,16 +7362,22 @@ request so the two can't disagree): the event's current title (as the
 email; Google's class is shared by every ticket for the event, so it can't
 be one order's snapshot, and the passes are only made while the event is
 published), date and time in the event's zone (`passTimeZone`: the
-ticket page's `eventTimeZone`, Melbourne when absent), venue name and address, ticket type, "Ticket n of N", the seat, the
+ticket page's `eventTimeZone`, Melbourne when absent), venue name and address, ticket type, the ticket's number ("n of N", when the order has more than one ticket), the seat, the
 QR carrying exactly the existing payload (`ticketQrPayload`: `SH1:` + code;
 none for a code that isn't canonical, as the email) with the code as its
 alternate text, and the order's short reference. Nothing about the buyer:
 no email, name or order id. Both wallets draw their own QR from the
 payload, so the symbol differs from the email's (level H with the centre
 ü; the wallets can't carry a logo) but scans to the same text, which
-check-in already accepts. Ivory background, black
-text, Signal Orange only as a fill (`lib/server/wallet/brand.ts`); images in
-`public/wallet/` (`scripts/render-wallet-images.ts`).
+check-in already accepts. The look is the designer's 20 Nov 2026 frames: a
+white pass, black values and labels, Signal Orange only in the marks
+(`lib/server/wallet/brand.ts`); images in `public/wallet/`
+(`scripts/render-wallet-images.ts`). What the code sets and what each
+wallet draws itself, and what isn't built (the refund policy line):
+`docs/wallet-setup.md`, "What the passes look like". The image band is the
+event's photo, with the Sheltüh band as the fallback (below, "The image
+band"). A pass is static, so one saved before a change of look
+keeps the old one.
 
 **Google** (`lib/server/wallet/google.ts`, no dependency): a "Save to Google
 Wallet" JWT, RS256 over node:crypto with the service account's key, `iss`
@@ -7379,7 +7385,11 @@ the service account, `aud` `google`, `typ` `savetowallet`, `origins`
 `[NEXT_PUBLIC_SITE_URL's origin]`, and the payload's `eventTicketClasses` and
 `eventTicketObjects` inline: class `{issuerId}.sheltuh-event-{eventId}`
 (`reviewStatus` `UNDER_REVIEW`, event name, venue, `dateTime` as the venue's
-local time with its offset, logo and hero image URLs on the site), object
+local time with its offset, logo and hero image URLs on the site, a
+"Contact support" link, and `classTemplateInfo.cardTemplateOverride`: the
+card's rows, Date, Time and Ticket, then the seat or the ticket's number,
+each naming one of the object's text modules by id; unverified against Google until the owner's
+test save, `docs/wallet-setup.md`), object
 `{issuerId}.sheltuh-ticket-{serial}` (`serial`: the ticket's
 `wallet_serial`, a random uuid stored with it, as 32 hex characters, so the
 same ticket is always the same object and the id says nothing about the
@@ -7387,8 +7397,9 @@ code: a serial hashed from the code could be reversed by trying all 2^40
 codes, and a pass's id can never change once saved; ids keep to
 `[A-Za-z0-9._-]`), barcode `QR_CODE`. The route answers 302 to
 `https://pay.google.com/gp/v/save/{jwt}`. **One ticket per JWT**, not the
-order: the JWT travels in a URL, a typical ticket's is about 2.5 KB (a test
-holds it under 5 KB at the longest field lengths), and a whole order's (10
+order: the JWT travels in a URL, a typical ticket's is about 3.6 KB (a test
+holds it under 5 KB at the longest field lengths; a card row's value is cut
+at 40 characters for that), and a whole order's (10
 seats, or more general admission tickets) could pass what browsers and
 Google's front end reliably accept (the exact limit is unverified); it also
 matches Apple's one pass per ticket.
@@ -7398,14 +7409,53 @@ here: `pass.json` (`formatVersion` 1, the Pass Type ID and team, the serial
 above as `serialNumber`, `organizationName` "Sheltüh", `description`,
 `groupingIdentifier` per event, `sharingProhibited`, the colours,
 `relevantDate` and `relevantDates`, an `eventTicket` with header (date),
-primary (event), secondary (time, venue), auxiliary (ticket, seat) and back
-fields, and `barcodes` with the QR payload and `altText`); the images;
+no primary field (nothing over the strip image), secondary (event, time),
+auxiliary (venue, ticket; the ticket's number and the seat on a second
+row) and back fields, and
+`barcodes` with the QR payload and `altText`); the images;
 `manifest.json` (SHA-1 of each file); and `signature`, a detached PKCS #7
 SignedData over the manifest (SHA-256, with contentType, messageDigest and
 signingTime attributes) by the Pass Type ID certificate, carrying it and the
 WWDR intermediate. The zip is written by `zipStore` (stored entries, a fixed
 1980 timestamp). 200 `application/vnd.apple.pkpass`, `Content-Disposition:
 attachment; filename="sheltuh-ticket-{n}.pkpass"`, `nosniff`.
+
+**The image band** (`lib/server/wallet/event-image.ts`): the event's photo
+(`event_images`) in Apple's strip and Google's hero, the Sheltüh band
+(`images.ts`, `GOOGLE_HERO_PATH`) otherwise. **A pass is never refused for
+its picture**: every failure below falls back to the stand-in. The route's
+ticket read takes the photo's version and focus point (by primary key, not
+its bytes) and builds its path, `/api/events/{eventId}/image?v={version}`, as
+`EVENT_COLUMNS` does; only that exact shape for the ticket's own event is
+used (`walletImageVersion`), so no other host, path or event is ever read or
+sent to Google.
+
+- Apple (`appleEventStrip`, after the rate limits and the order lookup): the
+  bytes are read from the database by event id and that version, while the
+  event is published, never fetched over HTTP (as the preview cards read
+  photos, `share-card-data.ts`), so there is no request to forge, host to
+  allow or redirect to follow. Over `WALLET_IMAGE_MAX_BYTES` (5 MB; the table
+  caps a photo at 2 MB) the query returns no bytes. The bytes must sniff as
+  the stored `content_type` and pass `loaderFormat`, then `cropAppleStrip`
+  cover-crops them around the focus point (the middle without one) to the
+  stand-in's own sizes (375 × 98, 750 × 196, 1125 × 294), flattened on white,
+  as 256-colour PNGs keeping only IHDR, PLTE, tRNS, IDAT and IEND, in a
+  shared decode slot (`inEncodeSlot`; a full queue falls back). The read and
+  crop have `WALLET_IMAGE_TIMEOUT_MS` (3 s) together, and sharp's own
+  timeout. The three files replace the stand-in's in `buildApplePass`, so
+  the manifest hashes and the signature cover them. Strips are kept in an
+  in-memory LRU (`APPLE_STRIP_CACHE_SIZE`, 16, per instance) keyed by the
+  path and focus point; failures aren't cached. A failure is logged as one
+  line naming its kind only (no URL, id or error text).
+- Google (`googleEventHeroUri`): the object's `heroImage` is the photo's
+  absolute URL by the ticket email's rule (`eventImageEmailUrl`: same
+  origin, https only), with the event title (cut at 40 characters) as its
+  `contentDescription`; Google fetches it from the public image route and
+  crops it to its banner. On the object, not the class: the class is per
+  event, but Google keeps the first class it was given, so the class keeps
+  the stand-in hero and the object's photo shows over it. If the photo would
+  take the save URL over `GOOGLE_SAVE_URL_MAX` (5120 characters; only
+  near-maximum field lengths), the JWT is signed again without it.
 
 **The dependency: `node-forge`** (runtime, pinned exactly to `1.4.0`) and
 `@types/node-forge` (dev).
@@ -7434,7 +7484,8 @@ node:crypto, never forge).
 - **No updates in v1.** No Apple web service (no `webServiceURL` or
   `authenticationToken`) and no Google REST API: a saved pass never changes.
   If the event's time or venue changes, or the order is refunded, the pass in
-  the wallet still shows what it showed. Google keeps a class as it was
+  the wallet still shows what it showed (its image band included: a photo
+  replaced later reaches only passes added after). Google keeps a class as it was
   first saved: an event's later edits (an organiser's or a moderation edit
   by an admin, its title included) reach neither saved passes nor new saves
   of the same event's tickets (the class id is per event). The
@@ -7448,7 +7499,9 @@ node:crypto, never forge).
   approves publishing access (`docs/wallet-setup.md`).
 - **Unverified against the real services** (no credentials here): that
   Google accepts the inline class and object as built (field names from
-  Google's REST reference, from memory) and renders the logo and hero; that
+  Google's REST reference, from memory) and renders the logo and hero (the
+  object's own `heroImage` shown over the class's, and how Google crops a
+  photo that isn't its banner's shape); that
   iOS Wallet accepts the pass (the signature is checked against a test chain
   with node:crypto and `openssl cms -verify`, not against Apple's WWDR); the
   look of both. `docs/wallet-setup.md` has the checks to run.

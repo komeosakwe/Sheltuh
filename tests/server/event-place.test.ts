@@ -483,7 +483,7 @@ describe("payloads carry the place", () => {
     // The wallet passes take the zone from the same lookup.
     expect(passTimeZone(order.body)).toBe("Australia/Perth");
     expect(passWhen({ startsAt: PERTH_8PM, endsAt: perth.endsAt, timeZone: passTimeZone(order.body) })).toBe(
-      "Sat 6 Mar, 8:00 pm – 11:30 pm AWST",
+      "Sat 6 Mar 2027, 8:00 pm – 11:30 pm AWST",
     );
 
     // Not while the event isn't published: no times, so no zone either.

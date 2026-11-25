@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ticketQrPayload } from "@/lib/ticket-code";
 import { googleWalletConfigFromEnv, loadWalletConfig, normalisePem, type GoogleWalletConfig } from "@/lib/server/wallet/config";
@@ -7,6 +9,8 @@ import {
   googleIdPart,
   googleObjectId,
   googleSaveUrl,
+  GOOGLE_HERO_PATH,
+  GOOGLE_LOGO_PATH,
   GOOGLE_SAVE_URL_BASE,
 } from "@/lib/server/wallet/google";
 import { localIsoWithOffset, passTimeZone, walletQrPayload } from "@/lib/server/wallet/pass-content";
@@ -147,20 +151,103 @@ describe("the Save to Google Wallet JWT", () => {
       },
       // The venue's local time with its offset (AEDT in March).
       dateTime: { start: "2027-03-06T20:00:00+11:00", end: "2027-03-06T23:30:00+11:00" },
-      logo: { sourceUri: { uri: "https://sheltuh.com.au/wallet/google-logo.png" } },
-      heroImage: { sourceUri: { uri: "https://sheltuh.com.au/wallet/google-hero.png" } },
-      hexBackgroundColor: "#fdf9e6",
+      // The designer's 20 Nov 2026 frame: a white card, the new logo and banner (new file names: see below).
+      logo: { sourceUri: { uri: "https://sheltuh.com.au/wallet/google-logo-v2.png" } },
+      heroImage: { sourceUri: { uri: "https://sheltuh.com.au/wallet/google-hero-v2.png" } },
+      hexBackgroundColor: "#ffffff",
+      // "Support", in the details under the card.
+      linksModuleData: { uris: [{ id: "support", uri: "mailto:support@sheltuh.com.au", description: "Contact support" }] },
     });
     expect(object).toMatchObject({
       state: "ACTIVE",
       ticketType: { defaultValue: { language: "en-AU", value: "General admission" } },
       ticketNumber: "2 of 3",
+      hexBackgroundColor: "#ffffff",
     });
     expect(object).not.toHaveProperty("seatInfo");
     expect(object.textModulesData).toEqual([
-      { id: "when", header: "When", body: "Sat 6 Mar, 8:00 pm – 11:30 pm AEDT" },
+      // The card's row, with the frame's sentence-case labels.
+      { id: "date", header: "Date", body: "Sat 6 Mar" },
+      { id: "time", header: "Time", body: "8–11:30 pm" },
+      { id: "ticket", header: "Ticket", body: "General admission" },
+      // The card's second row: which of the order's three tickets this is (it has no seat to tell it by).
+      { id: "which", header: "Ticket number", body: "2 of 3" },
+      // The details under the card. The year is here: the row's date has none.
+      { id: "when", header: "When", body: "Sat 6 Mar 2027, 8:00 pm – 11:30 pm AEDT" },
       { id: "order", header: "Order reference", body: "#7C1F2E0A" },
     ]);
+  });
+
+  it("the card's rows are the frame's Date, Time and Ticket, then the seat or the ticket's number, each naming a text module the object carries", () => {
+    const { config: google, publicKey } = config();
+    const item = (id: string) => ({ firstValue: { fields: [{ fieldPath: `object.textModulesData['${id}']` }] } });
+    const seated = sampleTicket({ seat: { section: "Stalls", row: "F", seat: "12", kind: "standard" } });
+    const { payload } = decodeJwt(buildGoogleSaveJwt(google, seated, "https://sheltuh.com.au"), publicKey).claims;
+    const [cls] = payload.eventTicketClasses;
+    const [object] = payload.eventTicketObjects;
+    expect(cls.classTemplateInfo).toEqual({
+      cardTemplateOverride: {
+        cardRowTemplateInfos: [
+          { threeItems: { startItem: item("date"), middleItem: item("time"), endItem: item("ticket") } },
+          { oneItem: { item: item("which") } },
+        ],
+      },
+    });
+    // Every module a row names is on the object, once. Row 2's is the seat for a seated ticket, the ticket's
+    // number for an unseated one of several, and absent for an order of one (the frame's card: one row).
+    const ids = (o: { textModulesData: { id: string }[] }) => o.textModulesData.map((m) => m.id);
+    const objectOf = (overrides: Parameters<typeof sampleTicket>[0]) =>
+      decodeJwt(buildGoogleSaveJwt(google, sampleTicket(overrides), "https://sheltuh.com.au"), publicKey).claims.payload.eventTicketObjects[0];
+    expect(ids(object)).toEqual(["date", "time", "ticket", "which", "when", "order"]);
+    expect(object.textModulesData).toContainEqual({ id: "which", header: "Seat", body: "Stalls · Row F · Seat 12" });
+    // Its number is still on the object, under Google's own label in the details.
+    expect(object.ticketNumber).toBe("2 of 3");
+    const several = objectOf({});
+    expect(ids(several)).toEqual(["date", "time", "ticket", "which", "when", "order"]);
+    expect(several.textModulesData).toContainEqual({ id: "which", header: "Ticket number", body: "2 of 3" });
+    expect(ids(objectOf({ ticketNumber: 1, ticketCount: 1 }))).toEqual(["date", "time", "ticket", "when", "order"]);
+    // The class is the event's, shared by every ticket: the same rows whatever the ticket.
+    expect(decodeJwt(buildGoogleSaveJwt(google, sampleTicket(), "https://sheltuh.com.au"), publicKey).claims.payload.eventTicketClasses[0].classTemplateInfo).toEqual(
+      cls.classTemplateInfo,
+    );
+  });
+
+  it("the row shows the frame's own ticket as the frame writes it, and cuts a long value (the whole name stays in ticketType)", () => {
+    const { config: google, publicKey } = config();
+    const modules = (overrides: Parameters<typeof sampleTicket>[0]) => {
+      const [object] = decodeJwt(buildGoogleSaveJwt(google, sampleTicket(overrides), "https://sheltuh.com.au"), publicKey).claims.payload.eventTicketObjects;
+      return { object, row: Object.fromEntries((object.textModulesData as { id: string; body: string }[]).map((m) => [m.id, m.body])) };
+    };
+    const framed = modules({
+      startsAt: "2026-11-14T06:00:00.000Z",
+      endsAt: "2026-11-14T10:00:00.000Z",
+      ticketTypeName: "Second release",
+      ticketNumber: 1,
+      ticketCount: 1,
+    });
+    expect(framed.row).toMatchObject({ date: "Sat 14 Nov", time: "5–9 pm", ticket: "Second release" });
+
+    const long = modules({ ticketTypeName: "N".repeat(150), ticketNumber: 1, ticketCount: 1 });
+    expect(long.row.ticket).toBe(`${"N".repeat(39)}…`);
+    expect(long.object.ticketType.defaultValue.value).toBe("N".repeat(150));
+    // Cut by character, never through one.
+    expect(modules({ ticketTypeName: "🎟".repeat(60), ticketNumber: 1, ticketCount: 1 }).row.ticket).toBe(`${"🎟".repeat(39)}…`);
+    expect(modules({ ticketTypeName: "N".repeat(40), ticketNumber: 1, ticketCount: 1 }).row.ticket).toBe("N".repeat(40));
+  });
+
+  it("new artwork has new file names; the files Google's older classes point at are still served", () => {
+    expect(GOOGLE_LOGO_PATH).toBe("/wallet/google-logo-v2.png");
+    expect(GOOGLE_HERO_PATH).toBe("/wallet/google-hero-v2.png");
+    const size = (file: string) => {
+      const png = readFileSync(path.join(process.cwd(), "public", file));
+      expect(png.subarray(1, 4).toString("latin1"), file).toBe("PNG");
+      return [png.readUInt32BE(16), png.readUInt32BE(20)];
+    };
+    // Google's sizes: a square logo (cropped to a circle), a 1032 x 336 banner.
+    expect(size(GOOGLE_LOGO_PATH)).toEqual([660, 660]);
+    expect(size(GOOGLE_HERO_PATH)).toEqual([1032, 336]);
+    expect(size("/wallet/google-logo.png")).toEqual([660, 660]);
+    expect(size("/wallet/google-hero.png")).toEqual([1032, 336]);
   });
 
   it("names a seat, and a code that isn't a canonical one gets no barcode, only its entry code", () => {

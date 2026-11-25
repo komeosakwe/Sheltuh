@@ -73,11 +73,26 @@ a personal one.
     as test passes. Add your own Google account there, then on an Android
     phone signed in with it: open a ticket's page (`/checkout/success?…`
     from the ticket email, a free test ticket is fine) → **Add to Google
-    Wallet** → Save. Check the event name, date and time (Melbourne time),
-    venue, ticket type and number, and that the QR scans at the door
-    (`/dashboard/{event}/check-in`, "Admitted"). The logo and banner are
-    fetched by Google from `https://<your site>/wallet/google-logo.png` and
-    `/wallet/google-hero.png`, so they only show on the real https site.
+    Wallet** → Save. Check the card against "What the passes look like"
+    below: white, the venue and event names, one row of Date, Time and
+    Ticket (the event's own time), and that the QR scans at the door
+    (`/dashboard/{event}/check-in`, "Admitted"). **Save three kinds of
+    ticket**: an order of one unseated ticket (one row), one ticket of an
+    order of several (a "Ticket number" row under the first), and a seated
+    ticket (a "Seat" row):
+    the card's rows are set with Google's template override, which couldn't
+    be tried from the build environment. If Save fails at Google's end for
+    every ticket, or a row is missing or shows an empty label, that override
+    is the first thing to look at (`CARD_TEMPLATE` in
+    `lib/server/wallet/google.ts`). Use an event nobody has saved a pass for
+    before: Google keeps the first class it was given for an event. The logo
+    and banner are fetched by Google from
+    `https://<your site>/wallet/google-logo-v2.png` and
+    `/wallet/google-hero-v2.png` (or, for an event with a photo, the photo's
+    own `/api/events/{id}/image?v=…`), so they only show on the real https
+    site. Save one ticket for an event with a photo and one for an event
+    without: the first should show the photo in the banner, the second the
+    Sheltüh banner.
 11. **Request publishing access.** Pay & Wallet Console → Google Wallet API →
     **Request publishing access**. Google reviews the business profile and
     the passes (the event ticket classes the site has created). Until it's
@@ -153,9 +168,12 @@ use OpenSSL, which macOS, Linux and Git Bash on Windows already have.
    manager, if at all: a new certificate can always be made).
 8. **Redeploy.**
 9. **Test on an iPhone**, in Safari: a ticket's page → **Add to Apple
-   Wallet** → Wallet's "Add" sheet → Add. Check the front (event, date,
-   time, venue, ticket, seat), the back (when, where, backup code, order
-   reference), and that the QR scans at the door. "Safari cannot download
+   Wallet** → Wallet's "Add" sheet → Add. Check the front against "What
+   the passes look like" below (date, event, time, venue, ticket, and on a
+   second row the ticket's number for an order of several and the seat for
+   a seated ticket), the back (event, when,
+   where, backup code, order reference), and that the QR scans at the
+   door. "Safari cannot download
    this file" means Wallet refused the pass: check the logs for "Apple
    Wallet passes are off", and that the certificate is for this Pass Type
    ID and team. The server also signs a test pass once before showing the
@@ -171,6 +189,73 @@ use OpenSSL, which macOS, Linux and Git Bash on Windows already have.
     redeployed; passes already in wallets keep working.
     If the key may have leaked, revoke the certificate in the developer
     portal and make a new one.
+
+## What the passes look like
+
+The designer's frames of 20 Nov 2026 ("Wallet passes": Apple Wallet pass
+preview, Google Wallet pass preview), built on 21 Nov 2026. Where the
+written handoff and the frames differ, the frames win: the handoff says grey
+labels, the frames draw them black, so they're black.
+
+**Passes already in a wallet keep the look they were saved with.** A pass is
+static (no updates are sent: `docs/architecture.md`, "Wallet passes"). An
+Apple pass carries its own colours, fields and images. A Google pass's
+logo, banner and rows belong to its event's class, which Google keeps from
+the first time anyone saved a ticket for that event: **a ticket saved later
+for that event still gets the old logo, banner and rows** (on the new white
+background, which each ticket also carries itself). Only events whose first
+pass is saved after this change get the whole new Google card. Changing an
+existing class needs Google's REST API (not built).
+
+What the code sets, and what each wallet draws itself:
+
+| Part | Apple (`pass.json`, `lib/server/wallet/apple.ts`) | Google (class and object, `lib/server/wallet/google.ts`) |
+| --- | --- | --- |
+| Background | `backgroundColor` white | `hexBackgroundColor` `#ffffff` |
+| Text colour | `foregroundColor` black, `labelColor` black | **Google's choice** from the background (dark text on white); its label colour can't be set |
+| Typeface, sizes, label case | **Apple's** (San Francisco). The frames are drawn in Inter | **Google's** (Google Sans). The labels are written in sentence case, as the frame has them |
+| Card shape | **Apple's**: the event ticket's notch at the top, its corners, its shadow | **Google's**: its corners and outline |
+| Logo | `logo.png`: the wordmark in Signal Orange, 88 pt wide | `logo`: the wordmark's Ü in Signal Orange on black, in Google's circle; "Sheltüh" beside it is `issuerName` |
+| Header | DATE at the top right ("Sat 14 Nov") | **Google's** header: the venue's name over the event's name |
+| Image band | `strip.png`, 375 × 98 pt, under the header: the event's photo, cropped here around its focus point; the Sheltüh band without one. **Apple fixes an event ticket's strip at 98 pt**; the frame draws it 123 tall | `heroImage`, 1032 × 336 recommended, which Google puts at the bottom of the card: the event's photo (on the ticket's object), which **Google crops** to its banner's shape; the Sheltüh band (on the class) without one |
+| Fields | No primary field (nothing over the strip). EVENT and TIME, then VENUE and TICKET, the last of each row at the right edge. A second row (`row: 1`) for what the frame doesn't show, so the frame's rows are never squeezed: TICKET NUMBER ("2 of 3") when the order has more than one ticket, SEAT, and ENTRY CODE for a code with no QR | One row: Date, Time, Ticket (`classTemplateInfo.cardTemplateOverride`, each item one of the object's text modules). A second row of one item: Seat for a seated ticket, otherwise Ticket number ("2 of 3") when the order has more than one. An order of one, unseated, has the frame's one row |
+| Values | "Sat 14 Nov" (no year), "5–9 pm" (the ticket email's short time, in the event's zone, no zone name), the ticket type's name as entered. The wallet cuts a value that doesn't fit | The same; a row value over 40 characters is cut in the code (the whole name is in the details) |
+| QR | **Apple's**: it draws the code, always on its own white tile, from the payload. Its size, tile and place can't be set. The backup code under it is `altText` | **Google's**, the same; the backup code is `alternateText` |
+| Back / details | Event, when (with the year and the zone), where (venue and street address), backup code, order reference, at the door, support's address | Google's details: the venue and address (its own map link), ticket type and number, when, order reference, a "Contact support" link, the site |
+
+**The event's photo in the image band** (since 22 Nov 2026,
+`lib/server/wallet/event-image.ts`). The frames show the event's image in
+Apple's strip and Google's banner, and that's what an event with a photo
+gets. An event without one, or whose photo can't be used, gets the Sheltüh
+band ("Images" below); the pass is made either way, never refused for its
+picture.
+
+- **Apple**: the strip is made when the pass is: the stored photo is read
+  from the database (never fetched over the web), cropped to 375 × 98 pt at
+  1x, 2x and 3x around the photo's focus point (the middle without one), and
+  put in the `.pkpass` as 256-colour PNGs with no metadata, in place of the
+  stand-in's three files (the manifest and signature cover them). Up to 3
+  seconds; longer, or a photo over 5 MB or that isn't the image it says it
+  is, and the stand-in goes in instead. The last 16 strips are kept in
+  memory, so adding several tickets crops the photo once.
+- **Google**: Google fetches the banner itself, from the photo's public
+  address on the site (`/api/events/{id}/image?v=…`, https only), and crops
+  it to its own banner's shape, from the middle as far as we know (it
+  doesn't know the focus point; unverified: check on a phone). The photo
+  goes on each ticket's object, not the event's class: Google keeps the
+  first class it was given for an event, so a ticket saved now still shows
+  the photo for an event whose class Google already holds with the Sheltüh
+  banner. Its description is the event's title (cut at 40 characters). At
+  near-maximum field lengths the save link would pass 5 KB with the photo:
+  then it's left out and the Sheltüh banner shows.
+- **Saved passes don't change.** A photo replaced later (only an admin can,
+  on a published event) reaches passes added after that; Google keeps its
+  own copy of what it fetched.
+
+**Not built: the refund policy line.** The frames' notes list the refund
+policy among the back-of-pass and details lines. The passes are built
+without the event's policy or the order's price, so it's left out rather
+than guessed.
 
 ## Official badges
 
@@ -266,10 +351,28 @@ SHA-256 (`tests/WalletButtons.test.tsx`).
 
 `public/wallet/` holds the pass images, rendered from the brand vectors in
 `public/brand/` by `node --import tsx scripts/render-wallet-images.ts`
-(`sharp`, no fonts, nothing fetched): Apple's icon (the ü on Signal Orange,
-29/58/87 px), logo (the wordmark in black, 30 pt tall) and strip (plain
-Signal Orange behind the event name), and Google's logo (660 px, the ü on
-orange, inside Google's circle crop) and hero banner (1032 × 336, the
-wordmark on orange). The Apple images are also embedded in
-`lib/server/wallet/images.ts`, generated by the same script; a test checks
-the two match. Rerun the script only if a mark changes.
+(`sharp`, no fonts, nothing fetched). Never edit them by hand: change the
+script and run it.
+
+| File | What it is |
+| --- | --- |
+| `apple-icon.png`, `@2x`, `@3x` | 29 / 58 / 87 px: the ü in black on Signal Orange (the app icon's look), for notifications and the lock screen. Not in the designer's frames; unchanged |
+| `apple-logo.png`, `@2x`, `@3x` | The wordmark in Signal Orange on transparent, 88 pt wide (20 pt tall), the frame's size. Apple allows up to 160 × 50 pt |
+| `apple-strip.png`, `@2x`, `@3x` | 375 × 98 pt: the wordmark's Ü in Signal Orange on black. The stand-in for an event without a usable photo (above) |
+| `google-logo-v2.png` | 660 × 660: the wordmark's Ü in Signal Orange on black, inside Google's circle crop (the frame's round logo) |
+| `google-hero-v2.png` | 1032 × 336: the wordmark in Signal Orange on black, the same stand-in (the class's banner, shown when the ticket's object has no photo) |
+| `google-logo.png`, `google-hero.png` | The look before 21 Nov 2026 (black on Signal Orange). **Keep them**: Google classes made before then still fetch these two URLs. No new pass uses them |
+
+The Ü is the wordmark's own (the script takes that letter's outlines from
+`sheltuh-wordmark.svg`), as the frame's logo has it, not the secondary ü of
+`sheltuh-u.svg`, which stays on the icon.
+
+**New Google artwork gets a new file name** (`GOOGLE_LOGO_PATH` /
+`GOOGLE_HERO_PATH` in `lib/server/wallet/google.ts`), never a new image
+under an old name: older classes still point at the old one, and Google
+keeps a copy of what it fetches (for how long couldn't be checked from the
+build environment), so a changed file under the same name might not show.
+
+The Apple images are also embedded in `lib/server/wallet/images.ts`,
+generated by the same script; a test checks the two match, and the sizes.
+Rerun the script only if a mark or a size changes.
