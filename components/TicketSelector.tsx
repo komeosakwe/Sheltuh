@@ -2,10 +2,11 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
+import { flushSync } from "react-dom";
 import { Button } from "@/components/ui/Button";
 import Flame from "@/components/ui/Flame";
 import { Notice } from "@/components/ui/Section";
-import { useSetBuyBar } from "@/components/checkout/BuyBar";
+import { revealTickets, useSetBuyBar } from "@/components/checkout/BuyBar";
 import { InfoIcon, LockIcon } from "@/components/checkout/icons";
 import BuyerEmailField from "@/components/checkout/BuyerEmailField";
 import BuyerNameField from "@/components/checkout/BuyerNameField";
@@ -70,8 +71,8 @@ export default function TicketSelector({ event }: { event: SheltuhEvent }) {
   // The panel's one live region: each change to the selection, and why a
   // stepper at its limit didn't change it (brand-direction-one.md §6.9).
   const [announcement, setAnnouncement] = useState("");
-  // The phone bar's Choose tickets was pressed with nothing chosen: a visible hint over the rows and a ring round the
-  // first one on sale (focus moved there from a tap shows no ring of its own), until a quantity changes.
+  // The phone bar's Choose tickets was pressed with nothing chosen: a visible hint over the rows, until a quantity
+  // changes. No outline round a row (owner, 25 Nov 2026): the scroll to the tickets and the hint show where to go.
   const [nudged, setNudged] = useState(false);
   // The Booking fees (i): its short explanation, shown under the row once asked for.
   const [feeOpen, setFeeOpen] = useState(false);
@@ -407,9 +408,9 @@ export default function TicketSelector({ event }: { event: SheltuhEvent }) {
     void handleCheckoutRef.current();
   }, []);
 
-  // The bar's link when nothing is chosen: focus goes to the first ticket type's "+", and if that is already on
-  // screen, where a jump would show nothing, it says what to do. For everyone, a hint shows over the rows and the
-  // first one on sale is ringed (a tap's focus shows no ring).
+  // The bar's link when nothing is chosen: the tickets are scrolled to and focus goes to the first ticket type's "+",
+  // and if that is already on screen, where a jump would show nothing, it says what to do. For everyone, a hint shows
+  // over the rows. The hint is rendered first (flushSync), so the scroll is measured with it in place.
   function chooseATicket() {
     const root = rootRef.current;
     if (!root) return;
@@ -417,8 +418,8 @@ export default function TicketSelector({ event }: { event: SheltuhEvent }) {
     if (!target) return;
     const box = target.getBoundingClientRect();
     if (box.top >= 0 && box.bottom <= window.innerHeight) announce("Choose a ticket first.");
-    setNudged(true);
-    target.focus();
+    flushSync(() => setNudged(true));
+    revealTickets(target);
   }
   const chooseRef = useRef(chooseATicket);
   useEffect(() => {
@@ -616,15 +617,8 @@ export default function TicketSelector({ event }: { event: SheltuhEvent }) {
             ]
               .filter(Boolean)
               .join(" ");
-          // Ringed after Choose tickets (the global focus ring's look: 2px foreground, offset).
-          const ringed = showChooseHint && ticket.id === firstOnSaleId;
           return (
-            <li
-              key={ticket.id}
-              data-ticket-card=""
-              data-choose-target={ringed ? "" : undefined}
-              className={`rounded-card border ${rowClass}${ringed ? " outline-2 outline-offset-3 outline-foreground" : ""}`}
-            >
+            <li key={ticket.id} data-ticket-card="" className={`rounded-card border ${rowClass}`}>
               <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 px-3 py-3 sm:px-4">
                 <div className="flex min-w-0 flex-1 basis-28 flex-col">
                   <p className={`body-m font-semibold break-words hyphens-auto ${dimmed ? "text-muted" : "text-foreground"}`}>{ticket.name}</p>

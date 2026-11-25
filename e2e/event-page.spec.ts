@@ -2,7 +2,7 @@ import { devices, expect, test, type Page } from "@playwright/test";
 import type { PublicEvent } from "@/lib/api/public-events";
 import { REFUND_ACL_STATEMENT } from "@/lib/refund-policy";
 import { sampleEvents } from "@/lib/sample-events";
-import { pressFocusLikeWebKit } from "./webkit-focus";
+import { focusWithoutScrollLikeIOS, pressFocusLikeWebKit } from "./webkit-focus";
 
 /**
  * The event page in a real browser (docs/design/brand-direction-one.md §6.10,
@@ -1123,27 +1123,79 @@ for (const width of [320, 390]) {
   }
 }
 
-test.describe("Choose tickets' visible feedback at 390px (a tap's focus shows no ring)", () => {
-  test.use({ viewport: { width: 390, height: 844 }, hasTouch: true });
+// Choose tickets in the phone bar (owner, 25 Nov 2026: on his iPhone it often didn't scroll, and he wants no outline once
+// it does). Safari on an iPhone never scrolls to a button that script focuses (focusWithoutScrollLikeIOS), so the
+// tickets are scrolled to on purpose, the heading under the header, before focus lands on the first "+".
+test.describe("Choose tickets at 390px on an iPhone-sized touch screen", () => {
+  const { viewport, userAgent, deviceScaleFactor, isMobile, hasTouch } = devices["iPhone 13"];
+  test.use({ viewport, userAgent, deviceScaleFactor, isMobile, hasTouch });
 
-  test("a tap with the rows on screen shows a hint and rings the first row on sale, until a quantity changes", async ({ page }) => {
+  for (const ios of [true, false]) {
+    test(`a tap from the top of the page scrolls the tickets into view, under the header and clear of the bar, with no outline${ios ? " (as iOS focuses)" : ""}`, async ({ page }) => {
+      if (ios) await focusWithoutScrollLikeIOS(page);
+      await mockApi(page);
+      await page.goto("/events/neon-static");
+      const tickets = page.locator("#tickets");
+      const heading = tickets.getByRole("heading", { name: "Choose your tickets" });
+      await expect(heading).toBeAttached({ timeout: 30_000 });
+      await expect(page.locator("[data-buy-bar]")).toContainText("From A$32.30");
+      expect(await page.evaluate(() => window.scrollY)).toBe(0);
+      // At the top of the page the tickets are under the bar or below the screen.
+      expect(
+        await page.evaluate(
+          () =>
+            document.querySelector("[data-quantity-increase]")!.getBoundingClientRect().top >=
+            document.querySelector("[data-buy-bar]")!.getBoundingClientRect().top,
+        ),
+      ).toBe(true);
+      // A tap where the link is, as a finger does: locator.tap() would scroll the page to the bar's link first.
+      const link = (await page.locator("[data-buy-bar]").getByRole("link", { name: "Choose tickets" }).boundingBox())!;
+      await page.touchscreen.tap(link.x + link.width / 2, link.y + link.height / 2);
+      const plus = tickets.getByRole("button", { name: "Increase quantity for General admission" });
+      await expect(plus).toBeFocused();
+      // The heading's top sits just under the sticky header (the page's scroll-padding), and the first "+" is above
+      // the bar, once the (smooth) scroll has settled.
+      await expect
+        .poll(
+          () =>
+            page.evaluate(() => {
+              const header = document.querySelector("header")!.getBoundingClientRect();
+              const bar = document.querySelector("[data-buy-bar]")!.getBoundingClientRect();
+              const title = document.getElementById("tickets-title")!.getBoundingClientRect();
+              const plus = document.querySelector("[data-quantity-increase]")!.getBoundingClientRect();
+              return title.top >= header.bottom && title.top <= header.bottom + 24 && plus.bottom <= bar.top;
+            }),
+          { timeout: 5_000 },
+        )
+        .toBe(true);
+      await expect(tickets.locator("[data-choose-hint]")).toHaveText("Use + to add a ticket.");
+      await expect(tickets.locator("[data-choose-hint]")).toBeInViewport();
+      // No outline anywhere in the tickets: not round the first row, the heading, the section or the focused "+".
+      const outlined = await page.evaluate(() =>
+        [document.getElementById("tickets")!, ...document.querySelectorAll("#tickets *")]
+          .filter((el) => getComputedStyle(el).outlineStyle !== "none")
+          .map((el) => el.outerHTML.slice(0, 80)),
+      );
+      expect(outlined).toEqual([]);
+      if (process.env.EVENT_SHOTS) await page.screenshot({ path: `${process.env.EVENT_SHOTS}/choose-tickets-390${ios ? "-ios" : ""}.png` });
+      // The hint goes once a quantity changes.
+      await plus.tap();
+      await expect(tickets.locator("[data-choose-hint]")).toHaveCount(0);
+    });
+  }
+
+  test("Tab still rings the + (keyboard focus keeps the global focus-visible ring)", async ({ page }) => {
     await mockApi(page);
     await page.goto("/events/neon-static");
     const tickets = page.locator("#tickets");
-    await expect(tickets.getByRole("heading", { name: "Choose your tickets" })).toBeVisible({ timeout: 30_000 });
-    await expect(tickets.getByText("Choose how many tickets you want.")).toBeVisible();
-    await tickets.locator("[data-ticket-card]").first().scrollIntoViewIfNeeded();
-    await page.locator("[data-buy-bar]").getByRole("link", { name: "Choose tickets" }).tap();
-    await expect(tickets.locator("[data-choose-hint]")).toHaveText("Use + to add a ticket.");
-    await expect(tickets.locator("[data-choose-hint]")).toBeVisible();
-    const ringed = tickets.locator("[data-choose-target]");
-    await expect(ringed).toContainText("General admission");
-    expect(await ringed.evaluate((el) => getComputedStyle(el).outlineStyle)).toBe("solid");
-    await expect(tickets.getByRole("button", { name: "Increase quantity for General admission" })).toBeFocused();
-    await tickets.getByRole("button", { name: "Increase quantity for General admission" }).tap();
-    await expect(tickets.locator("[data-choose-hint]")).toHaveCount(0);
-    await expect(tickets.locator("[data-choose-target]")).toHaveCount(0);
-    if (process.env.EVENT_SHOTS) await page.screenshot({ path: `${process.env.EVENT_SHOTS}/event-after2-choose-390.png` });
+    const minus = tickets.getByRole("button", { name: "Decrease quantity for General admission" });
+    const plus = tickets.getByRole("button", { name: "Increase quantity for General admission" });
+    await expect(minus).toBeAttached({ timeout: 30_000 });
+    await minus.focus();
+    await page.keyboard.press("Tab");
+    await expect(plus).toBeFocused();
+    expect(await plus.evaluate((el) => el.matches(":focus-visible"))).toBe(true);
+    expect(await plus.evaluate((el) => getComputedStyle(el).outlineStyle)).toBe("solid");
   });
 });
 
