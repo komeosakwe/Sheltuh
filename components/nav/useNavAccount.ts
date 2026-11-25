@@ -20,11 +20,20 @@ export const MY_TICKETS_HREF = "/help#where-are-my-tickets";
 
 export const ORGANISERS_HREF = "/organisers/apply";
 
-/** Where an own profile is edited (AccountContent's #member-profile section). */
-const EDIT_PROFILE_HREF = "/account#member-profile";
+/** Where an own profile is edited: the account area's Profile page (Settings has the same card). */
+export const PROFILE_HREF = "/profile";
 
 /** The pages behind the avatar menu's rows that have no header item of their own. */
-const AVATAR_MENU_PAGES = ["/account", "/saved", "/dashboard"];
+const AVATAR_MENU_PAGES = ["/account", PROFILE_HREF, "/saved", "/dashboard"];
+
+/**
+ * The member's own page, when other members can open it: the profile is visible and they aren't
+ * suspended (a suspended member's page is a 404, their own included). Null otherwise.
+ */
+export function ownMemberPageHref(profile: ProfileRecord | null | undefined): string | null {
+  if (!profile?.profileVisible || profile.suspended || !profile.profileId) return null;
+  return `/members/${encodeURIComponent(profile.profileId)}`;
+}
 
 export interface NavAccount {
   auth: AuthContextValue;
@@ -37,8 +46,13 @@ export interface NavAccount {
   savedCount: number | null;
   /** The Who's Going profile: undefined while it loads, null when there's none or it failed. */
   profile: ProfileRecord | null | undefined;
-  /** The member page when it's visible to other members, else where the profile is edited. */
+  /** The member page when other members can open it (ownMemberPageHref), else /profile, where it's edited. */
   profileHref: string;
+  /**
+   * aria-current for a Profile link: "page" on its own page; "location" on /profile when the link goes to
+   * the member page instead (as the account tabs mark it, useAccountNav).
+   */
+  profileCurrent: "page" | "location" | undefined;
   /** The display name, else the email: what the identity rows show first. */
   name: string;
   /** Organisers and applicants (or when that couldn't be told, as /account decides) get Your events. */
@@ -90,8 +104,7 @@ function useLoadNavAccount(): NavAccount {
 
   const profile =
     profileState.status === "ready" ? profileState.profile : profileState.status === "error" ? null : undefined;
-  const profileHref =
-    profile?.profileVisible && profile.profileId ? `/members/${encodeURIComponent(profile.profileId)}` : EDIT_PROFILE_HREF;
+  const profileHref = ownMemberPageHref(profile) ?? PROFILE_HREF;
   const savedCount =
     favourites && favourites.status === "ready" && favourites.count > 0 ? favourites.count : null;
 
@@ -103,10 +116,9 @@ function useLoadNavAccount(): NavAccount {
     savedCount,
     profile,
     profileHref,
+    profileCurrent: current(profileHref) ?? (current(PROFILE_HREF) ? "location" : undefined),
     name: profile?.displayName || auth.email || "Your account",
     showEvents: !organiser.loading && (organiser.organiser !== null || organiser.error !== null),
-    avatarCurrent:
-      AVATAR_MENU_PAGES.some((href) => current(href) === "page") ||
-      (profileHref.startsWith("/members/") && current(profileHref) === "page"),
+    avatarCurrent: AVATAR_MENU_PAGES.some((href) => current(href) === "page") || current(profileHref) === "page",
   };
 }

@@ -7,8 +7,8 @@ the one addition is `heading-page` (Heading/H1 40/48 at every width).
 
 ## Shell (`app/(account)/layout.tsx`, `components/account/AccountShell.tsx`)
 
-A route group, so `/account`, `/saved`, `/messages`, `/messages/[id]` and `/messages/blocked` keep
-their URLs.
+A route group, so `/profile`, `/account`, `/saved`, `/messages`, `/messages/[id]` and `/messages/blocked`
+keep their URLs.
 
 | | Phones (< 768) | Tablet (768–1023) | Desktop (≥ 1024) |
 | --- | --- | --- | --- |
@@ -18,8 +18,10 @@ their URLs.
 
 The five places, in order: Profile · My tickets · Saved · Messages · Settings (`useAccountNav`). Counts:
 saved (FavouritesProvider), unread (UnreadProvider, the orange pill), upcoming tickets (`GET /api/me`
-`upcomingCount`). Profile and My tickets go to their interim pages until they're built: the member page
-or `/account#member-profile`, and `MY_TICKETS_HREF` (Help's "Where are my tickets?").
+`upcomingCount`). Profile goes to the member page when other members can open it (visible, not
+suspended), else `/profile`; it's the current place on `/profile` either way (`aria-current="page"` when
+the link goes there, `"location"` when it goes to the member page). My tickets goes to its interim page
+until the list is built: `MY_TICKETS_HREF` (Help's "Where are my tickets?").
 
 - **Account tabs** (`AccountTabs`): a nav of links with `aria-current="page"` (not ARIA tabs). Body/S
   Strong; current text/primary with a 2px foreground underline, others text/secondary; count pill
@@ -49,6 +51,15 @@ line and a link to Discover.
   composer and 50/50 name/time split are treated as slips (figma NOTES 30). The list stays mounted
   between conversations and reloads (InboxSync) after a read, reply, accept, decline, block or unblock,
   and when you open another conversation or go back to /messages.
+- **Profile** (`app/(account)/profile/page.tsx`, `ProfilePageContent`): "Profile", "How you show on Who's
+  Going lists.", then Settings' Your profile card (`ProfileCard`: loading, couldn't load + Try again, create,
+  edit, suspended), head and card in one column (max 672). "See your public profile" (outline) at the
+  head's right, over the card's edge, once other members can open it; the card's own "See your profile as
+  members see it" is left out here (`showMemberPageLink={false}`), so there's one. A sign-in back to
+  `#member-profile` focuses the card once it loads. Signed out: sign in, back to `/profile`. Demo: the
+  disabled sample card. No frame for it yet: Latte to design; Delete your profile stays on Settings.
+  The avatar menu's Profile row and the drawer's identity are `aria-current="location"` on `/profile`
+  when they link to the member page, as the tabs are.
 - **Settings** (`AccountContent`): two columns of outlined cards from 768 (stacked on phones). Left: Your
   profile, Privacy (Blocked members, privacy link, Delete your profile). Right: Sign-in ("Signed in as … ·
   Google", Sign out: the only log-out below 1024), Events (Your events / Organise events, Organisers you

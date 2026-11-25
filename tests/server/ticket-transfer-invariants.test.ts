@@ -6,6 +6,7 @@ import { maskEmail } from "@/lib/server/email-address";
 import { getCheckInSummary, undoCheckIn } from "@/lib/server/handlers/check-ins";
 import { adminResendEmailJob } from "@/lib/server/handlers/email-outbox";
 import { changeOrderEmail } from "@/lib/server/handlers/order-email";
+import { listMyTickets } from "@/lib/server/handlers/my-tickets";
 import { getOrderBySession } from "@/lib/server/handlers/orders";
 import { getReceivedTicket, viewTicketOffer } from "@/lib/server/handlers/ticket-transfers";
 import { getAppleWalletPass, getGoogleWalletPass } from "@/lib/server/handlers/wallet";
@@ -194,6 +195,36 @@ describe("the recipient's side", () => {
     expect(JSON.stringify(answers[2].body)).not.toContain(codes[0]);
     // The open offer: no code of any kind.
     expect(JSON.stringify(answers[3].body)).not.toMatch(/[A-HJ-NP-Z2-9]{4}-[A-HJ-NP-Z2-9]{4}/);
+  });
+});
+
+describe("My tickets (GET /me/tickets)", () => {
+  it("the sender's list and the recipient's carry no code at all; the recipient's nothing of the order", async () => {
+    const [amounts] = await api.db.query<{ total: number; subtotal: number }>(
+      `select total_cents as total, subtotal_cents as subtotal from public.orders where id = $1`,
+      [order.orderId],
+    );
+    const sender = await api.call(listMyTickets, { token: buyer.token });
+    const holder = await api.call(listMyTickets, { token: recipient.token });
+    for (const res of [sender, holder]) {
+      expect(res.status).toBe(200);
+      const text = JSON.stringify(res.body);
+      expectNoCodeOfTicket1(text);
+      expect(text).not.toContain(codes[1]);
+      expect(text).not.toContain("Alexandra Buyer");
+      expect(text).not.toContain(BUYER);
+    }
+    expect(sender.body.items).toEqual([expect.objectContaining({ kind: "order", orderId: order.orderId, heldCount: 1, ticketCount: 2 })]);
+    expect(holder.body.items).toEqual([expect.objectContaining({ kind: "received", transferId, status: "valid" })]);
+    const text = JSON.stringify(holder.body);
+    expect(text).not.toMatch(/ord_/);
+    expect(text).not.toContain(orderReference(order.orderId).slice(1));
+    expect(text).not.toContain(maskEmail(BUYER));
+    for (const key of ["orderId", "totalCents", "subtotalCents", "buyerFeeCents", "maskedEmail", "tickets", "ticketCode", "buyerName"]) {
+      expect(Object.keys(holder.body.items[0])).not.toContain(key);
+    }
+    expect(text).not.toMatch(new RegExp(`:${amounts.total}[,}]`));
+    expect(text).not.toMatch(new RegExp(`:${amounts.subtotal}[,}]`));
   });
 });
 

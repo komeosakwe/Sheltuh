@@ -50,10 +50,22 @@ Stripe (payments) and Vercel (hosting).
 The sign-up and password-reset screens ask people to type a code from their
 email, rather than click a link. Supabase sends links by default, so:
 
-- **Sign In / Providers → Email:** keep "Confirm email" **on**. Account
-  invites depend on it: accepting one needs only a verified email, so with
-  confirmation off anyone could sign up with an invited address and accept
-  the invite.
+- **Sign In / Providers → Email:** keep "Confirm email" **on**. With it
+  off, Supabase confirms every address itself, so a confirmed email proves
+  nothing:
+  - **anyone can sign up with a buyer's address and see and send that
+    buyer's tickets** (My tickets and sending a ticket go by the
+    account's confirmed email);
+  - account invites: accepting one needs only a verified email, so anyone
+    could sign up with an invited address and accept the invite;
+  - Who's Going and messaging trust it the same way.
+
+  **Smoke test before go-live:** sign up a fresh address and don't enter
+  the code. Supabase must not give it a session (signing in says the email
+  isn't confirmed); if it does, `GET /api/me` with that session's access
+  token must answer **403** (a 200 means "Confirm email" is off). Or check
+  `GET {SUPABASE_URL}/auth/v1/settings` (the publishable key as the
+  `apikey` header): `"mailer_autoconfirm"` must be `false`.
 - **Emails → Templates:** the app uses two of Supabase's emails, both a code
   (`{{ .Token }}`), never a link, and one of its Security notifications,
   "Password changed". Their branded versions, on the same email kit as every
