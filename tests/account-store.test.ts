@@ -138,3 +138,64 @@ describe("createAccountStore", () => {
     expect(other.snapshot()).toBeNull();
   });
 });
+
+describe("createAccountStore with isFailure (a failed check)", () => {
+  type Answer = { record: string | null } | { error: string };
+  const failed = (value: Answer) => "error" in value;
+  const known = async (store: ReturnType<typeof createAccountStore<Answer>>, value: Answer) => {
+    await store.load("a", () => Promise.resolve(value));
+    vi.advanceTimersByTime(FRESH_MS);
+  };
+
+  it("a quiet check, or a sign-in's recheck, that fails keeps the good answer it was checking", async () => {
+    const store = createAccountStore<Answer>({ isFailure: failed });
+    await known(store, { record: "mine" });
+    const listener = vi.fn();
+    store.subscribe(listener);
+    await store.load("a", () => Promise.resolve({ error: "Network error" }));
+    expect(store.snapshot()?.value).toEqual({ record: "mine" });
+    await store.load("a", () => Promise.resolve({ error: "Server error" }), { recheck: true });
+    expect(store.snapshot()?.value).toEqual({ record: "mine" });
+    expect(listener).not.toHaveBeenCalled();
+    // And the next check that works lands.
+    await store.load("a", () => Promise.resolve({ record: "changed" }));
+    expect(store.snapshot()?.value).toEqual({ record: "changed" });
+  });
+
+  it("any answer that isn't a failure lands: a record that's gone, a changed status", async () => {
+    const store = createAccountStore<Answer>({ isFailure: failed });
+    await known(store, { record: "approved" });
+    await store.load("a", () => Promise.resolve({ record: "suspended" }));
+    expect(store.snapshot()?.value).toEqual({ record: "suspended" });
+    vi.advanceTimersByTime(FRESH_MS);
+    await store.load("a", () => Promise.resolve({ record: null }));
+    expect(store.snapshot()?.value).toEqual({ record: null });
+  });
+
+  it("a failure lands with nothing good to keep (the first load, or a failure already shown), and when the person asked (force)", async () => {
+    const store = createAccountStore<Answer>({ isFailure: failed });
+    await store.load("a", () => Promise.resolve({ error: "First" }));
+    expect(store.snapshot()?.value).toEqual({ error: "First" });
+    vi.advanceTimersByTime(FRESH_MS);
+    await store.load("a", () => Promise.resolve({ error: "Second" }));
+    expect(store.snapshot()?.value).toEqual({ error: "Second" });
+
+    await store.load("a", () => Promise.resolve({ record: "mine" }), { force: true });
+    await store.load("a", () => Promise.resolve({ error: "Try again failed" }), { force: true });
+    expect(store.snapshot()?.value).toEqual({ error: "Try again failed" });
+  });
+
+  it("another account's failure replaces the last account's good answer (it's never kept for them)", async () => {
+    const store = createAccountStore<Answer>({ isFailure: failed });
+    await known(store, { record: "a's" });
+    await store.load("b", () => Promise.resolve({ error: "Network error" }));
+    expect(store.snapshot()).toMatchObject({ account: "b", value: { error: "Network error" } });
+  });
+
+  it("a Sign out still forgets a good answer", async () => {
+    const store = createAccountStore<Answer>({ isFailure: failed });
+    await known(store, { record: "mine" });
+    store.clear();
+    expect(store.snapshot()).toBeNull();
+  });
+});

@@ -12,6 +12,10 @@
  * - A change saved elsewhere on the page (update) replaces it, and an answer that was already on its
  *   way when the change landed is dropped (it may predate the change). So is any answer overtaken by
  *   a newer request (a forced reload after a join or a submit).
+ * - A quiet check that fails (a network error, a 5xx: `isFailure`) keeps the good answer it was
+ *   checking, so a page never swaps what it shows (a form being filled in, above all) for an error.
+ *   Any other answer lands (a profile that's gone, a changed status), and so does a failure when
+ *   there's nothing good to keep, or when the person asked (force).
  * - It's only ever one account's: another account's request clears it, and so does clear() (the
  *   person's own Sign out). Readers check `account` before showing it.
  *
@@ -50,7 +54,12 @@ export interface AccountStore<T> {
 
 const stores = new Set<{ clear: () => void }>();
 
-export function createAccountStore<T>(): AccountStore<T> {
+export interface AccountStoreOptions<T> {
+  /** An answer that's a failed check (a network error, a 5xx), not news about the record. */
+  isFailure?: (value: T) => boolean;
+}
+
+export function createAccountStore<T>({ isFailure = () => false }: AccountStoreOptions<T> = {}): AccountStore<T> {
   let settled: Settled<T> | null = null;
   let inFlight: { account: string; id: number; done: Promise<void> } | null = null;
   /** Bumped by every request, update and clear: an answer only lands if nothing came after its request. */
@@ -84,6 +93,8 @@ export function createAccountStore<T>(): AccountStore<T> {
       const done = fetcher().then((value) => {
         finished();
         if (generation !== id) return;
+        // A quiet check that failed keeps the good answer it was checking.
+        if (!force && isFailure(value) && settled?.account === account && !isFailure(settled.value)) return;
         settled = { account, value, at: Date.now() };
         emit();
       }, finished);

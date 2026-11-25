@@ -26,7 +26,7 @@ export type ProfileState =
 type SettledProfile = Exclude<ProfileState, { status: "loading" }>;
 
 /** The signed-in account's profile, shared by every useProfile on the page (lib/auth/account-store.ts). */
-const profileStore = createAccountStore<SettledProfile>();
+const profileStore = createAccountStore<SettledProfile>({ isFailure: (profile) => profile.status === "error" });
 
 async function loadProfile(getToken: GetToken): Promise<SettledProfile> {
   try {
@@ -44,7 +44,9 @@ const noSnapshot = () => null;
  * request, and a page that mounts later (another account tab) shows it at once while it's checked
  * again quietly. Only fetches in live mode while signed in; otherwise it stays "loading" and callers
  * render their own signed-out / demo state instead. A change saved through one (setProfile, on
- * /account) reaches every other at once; the person's own Sign out forgets it.
+ * /account) reaches every other at once; the person's own Sign out forgets it. A quiet check that
+ * fails (offline, a 5xx) keeps the profile it was checking, so a form open on it stays; a first load
+ * that fails shows the error.
  */
 export function useProfile() {
   const auth = useAuth();

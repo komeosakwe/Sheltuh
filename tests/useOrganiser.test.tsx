@@ -179,5 +179,35 @@ describe("useOrganiser", () => {
     await act(async () => resolve(record("user-a", "approved")));
     expect(result.current).toMatchObject({ loading: false, organiser: { status: "approved" } });
   });
-});
 
+  it("a quiet check that fails (offline, a 5xx) keeps the record a page is showing; one that answers still lands", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      getMyOrganiser.mockResolvedValueOnce(record("user-a", "approved"));
+      const first = hook(A);
+      await waitFor(() => expect(first.result.current.organiser?.status).toBe("approved"));
+      vi.setSystemTime(Date.now() + 60_000);
+
+      getMyOrganiser.mockRejectedValueOnce(new ApiError(503, "Service unavailable."));
+      const later = hook(A);
+      await waitFor(() => expect(getMyOrganiser).toHaveBeenCalledTimes(2));
+      await act(async () => {});
+      expect(first.result.current).toMatchObject({ loading: false, organiser: { status: "approved" }, error: null });
+      expect(later.result.current).toMatchObject({ loading: false, organiser: { status: "approved" }, error: null });
+
+      // An authoritative answer still lands: the application is gone (404).
+      vi.setSystemTime(Date.now() + 60_000);
+      getMyOrganiser.mockRejectedValueOnce(new ApiError(404, "Not found."));
+      hook(A);
+      await waitFor(() => expect(first.result.current).toMatchObject({ loading: false, organiser: null, error: null }));
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("a first load that fails shows the error", async () => {
+    getMyOrganiser.mockRejectedValueOnce(new ApiError(503, "Service unavailable."));
+    const { result } = hook(A);
+    await waitFor(() => expect(result.current).toMatchObject({ loading: false, organiser: null, error: "Service unavailable." }));
+  });
+});

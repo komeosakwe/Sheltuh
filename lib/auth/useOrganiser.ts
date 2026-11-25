@@ -27,7 +27,7 @@ async function fetchOrganiser(getToken: GetToken): Promise<OrganiserResult> {
 }
 
 /** The signed-in account's organiser record, shared by every useOrganiser on the page (lib/auth/account-store.ts). */
-const organiserStore = createAccountStore<OrganiserResult>();
+const organiserStore = createAccountStore<OrganiserResult>({ isFailure: (result) => result.error !== null });
 
 /**
  * Tells every useOrganiser on the page that the signed-in organiser's own record changed (a saved
@@ -57,6 +57,8 @@ const noSnapshot = () => null;
  * it. A token refresh fetches nothing. `refetch` (after a user action: a submit, a join, Try again)
  * always asks the API, and every reader gets the answer; it keeps the current result while it runs
  * (`refreshing`), so a page never swaps what it shows (a form being filled in, above all) for a loader.
+ * A quiet check that fails (offline, a 5xx) keeps the record it was checking rather than show the
+ * error; a first load that fails shows it.
  */
 export function useOrganiser() {
   const auth = useAuth();
