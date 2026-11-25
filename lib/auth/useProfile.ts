@@ -6,7 +6,8 @@ import { getMyProfile } from "@/lib/api/profiles";
 import type { ProfileRecord } from "@/lib/api/types";
 import { accountKey } from "./account";
 import { createAccountStore } from "./account-store";
-import { useAuth } from "./AuthContext";
+import { AccountMismatchError, useAuth } from "./AuthContext";
+import { useAccountToken } from "./useAccountToken";
 
 /** The caller's Who's Going profile, or null if they haven't created one (the API's 404). */
 export async function fetchMyProfile(getToken: GetToken): Promise<ProfileRecord | null> {
@@ -32,6 +33,8 @@ async function loadProfile(getToken: GetToken): Promise<SettledProfile> {
   try {
     return { status: "ready", profile: await fetchMyProfile(getToken) };
   } catch (err) {
+    // The session is someone else's by now: no answer for this account (lib/auth/account-store.ts).
+    if (err instanceof AccountMismatchError) throw err;
     return { status: "error", message: err instanceof Error ? err.message : "Couldn't load your profile." };
   }
 }
@@ -46,12 +49,13 @@ const noSnapshot = () => null;
  * render their own signed-out / demo state instead. A change saved through one (setProfile, on
  * /account) reaches every other at once; the person's own Sign out forgets it. A quiet check that
  * fails (offline, a 5xx) keeps the profile it was checking, so a form open on it stays; a first load
- * that fails shows the error.
+ * that fails shows the error. Every request is made as the account its answer is kept for
+ * (useAccountToken): one made as someone else's session is refused and keeps nothing.
  */
 export function useProfile() {
   const auth = useAuth();
-  const getToken = auth.getAccessToken;
   const account = isApiConfigured ? accountKey(auth) : null;
+  const getToken = useAccountToken(auth);
   const settled = useSyncExternalStore(profileStore.subscribe, profileStore.snapshot, noSnapshot);
   /** The account whose Try again is under way: "loading" until it answers. */
   const [retrying, setRetrying] = useState<string | null>(null);

@@ -16,8 +16,9 @@
  *   checking, so a page never swaps what it shows (a form being filled in, above all) for an error.
  *   Any other answer lands (a profile that's gone, a changed status), and so does a failure when
  *   there's nothing good to keep, or when the person asked (force).
- * - It's only ever one account's: another account's request clears it, and so does clear() (the
- *   person's own Sign out). Readers check `account` before showing it.
+ * - It's only ever one account's: another account's answer replaces it, and clear() (the person's
+ *   own Sign out) forgets it. Readers check `account` before showing it. A fetcher that rejects
+ *   (the session turned out to be someone else's) is no answer at all: nothing is kept or cleared.
  *
  * Plain module state, read with useSyncExternalStore; no React here, so test setup can reset every
  * store between tests (resetAccountStores) without loading anything else.
@@ -42,8 +43,9 @@ export interface AccountStore<T> {
    * Loads `account`'s record: joins a request already in flight for it, or does nothing when its answer
    * settled within FRESH_MS. `recheck` (a sign-in): asks again however fresh the answer is, still joining
    * one in flight. `force` (after a user action): always a new request, which overtakes any in flight.
-   * Errors are part of `T`; a `fetcher` that rejects anyway is no answer: nothing settles, and the next
-   * load asks again. Resolves once the answer it started or joined has settled, or been dropped.
+   * Errors are part of `T`: `fetcher` rejects only when there's no answer for `account` (its session
+   * is someone else's by now), which leaves everything as it was. Resolves once the answer it started
+   * or joined has settled, or been dropped.
    */
   load: (account: string, fetcher: () => Promise<T>, options?: { force?: boolean; recheck?: boolean }) => Promise<void>;
   /** Replaces the settled answer with `next(current)` (null: unchanged); any answer still in flight is dropped. */
@@ -81,23 +83,22 @@ export function createAccountStore<T>({ isFailure = () => false }: AccountStoreO
     load(account, fetcher, { force = false, recheck = false } = {}) {
       if (!force && inFlight?.account === account) return inFlight.done;
       if (!force && !recheck && settled?.account === account && Date.now() - settled.at < FRESH_MS) return Promise.resolve();
-      if (settled && settled.account !== account) {
-        // Another account's: never kept alongside this one.
-        settled = null;
-        emit();
-      }
       const id = ++generation;
       const finished = () => {
         if (inFlight?.id === id) inFlight = null;
       };
-      const done = fetcher().then((value) => {
-        finished();
-        if (generation !== id) return;
-        // A quiet check that failed keeps the good answer it was checking.
-        if (!force && isFailure(value) && settled?.account === account && !isFailure(settled.value)) return;
-        settled = { account, value, at: Date.now() };
-        emit();
-      }, finished);
+      const done = fetcher().then(
+        (value) => {
+          finished();
+          if (generation !== id) return;
+          // A quiet check that failed keeps the good answer it was checking.
+          if (!force && isFailure(value) && settled?.account === account && !isFailure(settled.value)) return;
+          settled = { account, value, at: Date.now() };
+          emit();
+        },
+        // No answer for this account (its session is someone else's): nothing kept or cleared.
+        finished,
+      );
       inFlight = { account, id, done };
       return done;
     },

@@ -96,7 +96,7 @@ describe("createAccountStore", () => {
     expect(store.snapshot()?.value).toBe("new logo");
   });
 
-  it("is one account's only: another account's load clears it at once, and the first account's late answer never lands", async () => {
+  it("is one account's only: another account's answer replaces it, and the first account's late answer never lands", async () => {
     const store = createAccountStore<string>();
     await store.load("a", () => Promise.resolve("a's"));
     vi.advanceTimersByTime(FRESH_MS);
@@ -104,10 +104,11 @@ describe("createAccountStore", () => {
     void store.load("a", () => late.promise);
     const bAnswer = deferred<string>();
     const forB = store.load("b", () => bAnswer.promise);
-    expect(store.snapshot()).toBeNull();
+    // Still labelled a's until b's arrives (readers show only their own account's: useOrganiser, useProfile).
+    expect(store.snapshot()?.account).toBe("a");
     late.resolve("a's again");
     await late.promise;
-    expect(store.snapshot()).toBeNull();
+    expect(store.snapshot()).toMatchObject({ account: "a", value: "a's" });
     bAnswer.resolve("b's");
     await forB;
     expect(store.snapshot()).toMatchObject({ account: "b", value: "b's" });
@@ -136,6 +137,22 @@ describe("createAccountStore", () => {
     expect(store.snapshot()).toBeNull();
     resetAccountStores();
     expect(other.snapshot()).toBeNull();
+  });
+
+  it("a fetcher that rejects (the session is someone else's) keeps and clears nothing, and doesn't block the next load", async () => {
+    const store = createAccountStore<string>();
+    await store.load("a", () => Promise.resolve("a's"));
+    const listener = vi.fn();
+    store.subscribe(listener);
+    // The page still says b, but the session is a's by now: no answer for b.
+    await expect(store.load("b", () => Promise.reject(new Error("someone else's session")))).resolves.toBeUndefined();
+    expect(store.snapshot()).toMatchObject({ account: "a", value: "a's" });
+    expect(listener).not.toHaveBeenCalled();
+    // Not left in flight: the next load for b asks again rather than joining the rejected one.
+    const again = vi.fn(() => Promise.resolve("b's"));
+    await store.load("b", again);
+    expect(again).toHaveBeenCalledTimes(1);
+    expect(store.snapshot()).toMatchObject({ account: "b", value: "b's" });
   });
 });
 

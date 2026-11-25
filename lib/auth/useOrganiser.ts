@@ -6,7 +6,8 @@ import { getMyOrganiser } from "@/lib/api/organisers";
 import type { OrganiserRecord } from "@/lib/api/types";
 import { accountKey } from "./account";
 import { createAccountStore } from "./account-store";
-import { useAuth } from "./AuthContext";
+import { useAccountToken } from "./useAccountToken";
+import { AccountMismatchError, useAuth } from "./AuthContext";
 
 interface OrganiserResult {
   /** null = signed in but no application on file yet. */
@@ -19,6 +20,8 @@ async function fetchOrganiser(getToken: GetToken): Promise<OrganiserResult> {
     const organiser = await getMyOrganiser(getToken);
     return { organiser, error: null };
   } catch (err) {
+    // The session is someone else's by now: no answer for this account (lib/auth/account-store.ts).
+    if (err instanceof AccountMismatchError) throw err;
     if (err instanceof ApiError && err.status === 404) {
       return { organiser: null, error: null };
     }
@@ -58,12 +61,13 @@ const noSnapshot = () => null;
  * always asks the API, and every reader gets the answer; it keeps the current result while it runs
  * (`refreshing`), so a page never swaps what it shows (a form being filled in, above all) for a loader.
  * A quiet check that fails (offline, a 5xx) keeps the record it was checking rather than show the
- * error; a first load that fails shows it.
+ * error; a first load that fails shows it. Every request is made as the account its answer is kept
+ * for (useAccountToken): one made as someone else's session is refused and keeps nothing.
  */
 export function useOrganiser() {
   const auth = useAuth();
-  const getToken = auth.getAccessToken;
   const account = accountKey(auth);
+  const getToken = useAccountToken(auth);
   const settled = useSyncExternalStore(organiserStore.subscribe, organiserStore.snapshot, noSnapshot);
   const [refreshing, setRefreshing] = useState(false);
   const signedOutByUser = auth.status === "signed-out" && auth.signedOutBy === "user";

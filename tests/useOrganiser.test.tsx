@@ -5,7 +5,7 @@ import { ApiError } from "@/lib/api/client";
 import type { OrganiserRecord } from "@/lib/api/types";
 import type { AuthContextValue } from "@/lib/auth/AuthContext";
 import { announceOrganiserChange, useOrganiser } from "@/lib/auth/useOrganiser";
-import { fakeAuthValue, FakeAuthProvider } from "./test-utils/fakeAuth";
+import { fakeAuthValue, FakeAuthProvider, switchableSession } from "./test-utils/fakeAuth";
 
 vi.mock("@/lib/api/client", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/api/client")>()),
@@ -209,5 +209,35 @@ describe("useOrganiser", () => {
     getMyOrganiser.mockRejectedValueOnce(new ApiError(503, "Service unavailable."));
     const { result } = hook(A);
     await waitFor(() => expect(result.current).toMatchObject({ loading: false, organiser: null, error: "Service unavailable." }));
+  });
+
+  it("asks as the account it files the answer under: when the session is someone else's by then, nothing is kept or cleared", async () => {
+    const session = switchableSession({ userId: "user-a" });
+    getMyOrganiser.mockImplementation(async (getToken: () => Promise<string>) => {
+      const token = await getToken();
+      return record(token === "user-a-token" ? "user-a" : "user-b", "approved");
+    });
+    let auth: Partial<AuthContextValue> = A;
+    const view = renderHook(() => useOrganiser(), {
+      wrapper: ({ children }) => <FakeAuthProvider value={fakeAuthValue({ ...auth, ...session.auth })}>{children}</FakeAuthProvider>,
+    });
+    await waitFor(() => expect(view.result.current.organiser?.ownerUserId).toBe("user-a"));
+    expect(session.auth.getAccessTokenFor).toHaveBeenLastCalledWith({ userId: "user-a", email: "a@example.com" });
+
+    // B signs in in another tab; this page still says A when its refetch asks for a token.
+    session.become({ userId: "user-b" });
+    await act(async () => {
+      await view.result.current.refetch();
+    });
+    // B's token was never used for A's record, and A's own record wasn't cleared.
+    expect(getMyOrganiser).toHaveBeenCalledTimes(2);
+    expect(view.result.current).toMatchObject({ loading: false, organiser: { ownerUserId: "user-a" }, error: null });
+
+    // The page catches up: B's own is asked for (as B), and A's is never shown for B.
+    auth = B;
+    view.rerender();
+    expect(view.result.current).toMatchObject({ loading: true, organiser: null });
+    await waitFor(() => expect(view.result.current.organiser?.ownerUserId).toBe("user-b"));
+    expect(session.auth.getAccessTokenFor).toHaveBeenLastCalledWith({ userId: "user-b", email: "b@example.com" });
   });
 });

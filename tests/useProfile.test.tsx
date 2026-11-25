@@ -5,7 +5,7 @@ import { ApiError } from "@/lib/api/client";
 import type { ProfileRecord } from "@/lib/api/types";
 import type { AuthContextValue } from "@/lib/auth/AuthContext";
 import { useProfile } from "@/lib/auth/useProfile";
-import { fakeAuthValue, FakeAuthProvider } from "./test-utils/fakeAuth";
+import { fakeAuthValue, FakeAuthProvider, switchableSession } from "./test-utils/fakeAuth";
 
 /** The signed-in account's Who's Going profile, one copy for the page (lib/auth/useProfile.ts, lib/auth/account-store.ts). */
 
@@ -27,10 +27,11 @@ const profile = (displayName: string): ProfileRecord => ({
 });
 
 const A: Partial<AuthContextValue> = { status: "signed-in", userId: "user-a", email: "a@example.com" };
+const B: Partial<AuthContextValue> = { status: "signed-in", userId: "user-b", email: "b@example.com" };
 
-function hook(auth: () => Partial<AuthContextValue>) {
+function hook(auth: () => Partial<AuthContextValue>, overrides: Partial<AuthContextValue> = {}) {
   return renderHook(() => useProfile(), {
-    wrapper: ({ children }) => <FakeAuthProvider value={fakeAuthValue(auth())}>{children}</FakeAuthProvider>,
+    wrapper: ({ children }) => <FakeAuthProvider value={fakeAuthValue({ ...auth(), ...overrides })}>{children}</FakeAuthProvider>,
   });
 }
 
@@ -79,5 +80,26 @@ describe("useProfile", () => {
     getMyProfile.mockRejectedValueOnce(new ApiError(503, "Still unavailable."));
     act(() => result.current.reload());
     await waitFor(() => expect(result.current.state).toEqual({ status: "error", message: "Still unavailable." }));
+  });
+
+  it("asks as the account it files the answer under: when the session is someone else's by then, nothing is kept or cleared", async () => {
+    const session = switchableSession({ userId: "user-a" });
+    getMyProfile.mockImplementation(async (getToken: () => Promise<string>) => profile(await getToken()));
+    let auth = A;
+    const view = hook(() => auth, session.auth);
+    await waitFor(() => expect(view.result.current.state).toEqual({ status: "ready", profile: profile("user-a-token") }));
+
+    // B signs in in another tab; this page still says A when its Try again asks for a token.
+    session.become({ userId: "user-b" });
+    act(() => view.result.current.reload());
+    await waitFor(() => expect(getMyProfile).toHaveBeenCalledTimes(2));
+    await act(async () => {});
+    // B's token never fetched a profile kept as A's, and A's wasn't cleared.
+    expect(view.result.current.state).toEqual({ status: "ready", profile: profile("user-a-token") });
+
+    auth = B;
+    view.rerender();
+    expect(view.result.current.state).toEqual({ status: "loading" });
+    await waitFor(() => expect(view.result.current.state).toEqual({ status: "ready", profile: profile("user-b-token") }));
   });
 });
