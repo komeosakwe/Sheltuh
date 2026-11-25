@@ -1713,5 +1713,33 @@ describe("CheckoutConfirmation: ticket transfers, signed in and the edges", () =
       expect(screen.queryByText("Waiting for Sam to accept")).toBeNull();
       expect(screen.queryByRole("button", { name: "Cancel sending this ticket" })).toBeNull();
     });
+
+    it("signed out while a cancel is on its way: the cancel's answer is stale, so the order is read again and the offer goes", async () => {
+      let finishCancel: (answer: { order: CustomerOrder }) => void = () => {};
+      getOrderBySession
+        .mockResolvedValueOnce(OFFERED)
+        // The read for the sign-out comes back before the cancel went through: the paying browser's token
+        // still has control, so it's the offer, unchanged.
+        .mockResolvedValueOnce(OFFERED)
+        // The read after the cancel's stale answer: cancelled.
+        .mockResolvedValueOnce(BASE);
+      cancelTicketTransfer.mockImplementationOnce(() => new Promise((resolve) => (finishCancel = resolve)));
+      const switchTo = renderWith(signedIn("u-mia"));
+      fireEvent.click(await screen.findByRole("button", { name: "Cancel sending this ticket" }));
+      await waitFor(() => expect(cancelTicketTransfer).toHaveBeenCalledTimes(1));
+
+      switchTo(signedOut);
+      await waitFor(() => expect(getOrderBySession).toHaveBeenCalledTimes(2));
+      expect(screen.getByText("Waiting for Sam to accept")).toBeInTheDocument();
+
+      // The cancel goes through: its answer isn't shown (stale), but the order is read again with what's here now.
+      await act(async () => finishCancel({ order: BASE }));
+      await waitFor(() => expect(getOrderBySession).toHaveBeenCalledTimes(3));
+      expect(getOrderBySession).toHaveBeenLastCalledWith(ORD, undefined);
+      await waitFor(() => expect(screen.queryByText("Waiting for Sam to accept")).toBeNull());
+      expect(screen.queryByRole("button", { name: "Cancel sending this ticket" })).toBeNull();
+      // It did happen: the toast says so.
+      expect(screen.getByText("Cancelled. Your QR code still works.")).toBeInTheDocument();
+    });
   });
 });

@@ -299,11 +299,12 @@ export default function CheckoutConfirmation() {
   /**
    * Shows a later answer for the order on the page (a send's, a cancel's, a quiet reload's), if the page is
    * still on that order and visit and showing its tickets: paid stays here; refunded gets its own page.
+   * False when a newer request (or an account change) made this answer stale: it isn't shown.
    */
-  function applyOrder(next: CustomerOrder, forSession: string, forVisit: number, seq: number) {
+  function applyOrder(next: CustomerOrder, forSession: string, forVisit: number, seq: number): boolean {
     // The token is this order's: forgotten when final, whatever the page shows by now.
     forgetOrderAccessIfFinal(forSession, next.emailChange, needsAccessForTickets(next));
-    if (seq !== answerSeq.current) return;
+    if (seq !== answerSeq.current) return false;
     setLoaded((was) => {
       if (was.sessionId !== forSession || was.visit !== forVisit || was.state.status !== "ready") return was;
       const access = was.state.access;
@@ -311,6 +312,7 @@ export default function CheckoutConfirmation() {
       if (next.status === "oversold_refund_required" || next.status === "refunded") return { ...was, state: { status: "oversold", order: next } };
       return { ...was, state: { status: "error", message: "This order couldn't be completed." } };
     });
+    return true;
   }
 
   /** Reads the order again without a loading state (it changed under the page: an offer taken, control lost). */
@@ -514,7 +516,9 @@ export default function CheckoutConfirmation() {
     // The dialog closes first (its focus goes back to what opened it, and the page is no longer inert behind a
     // modal), so the toast after it is read out.
     flushSync(() => setSendFor(null));
-    applyOrder(result.order, sessionId, visit, seq);
+    // Its answer went stale on the way (the account changed, and a read for it may have come back before the
+    // send went through): it isn't shown, but the page reads the order again, so it shows the send.
+    if (!applyOrder(result.order, sessionId, visit, seq)) reloadQuietly(sessionId, visit);
     toast.show(`Sent to ${firstName(fields.name)}. We’ll email you when they accept.`);
   }
 
@@ -525,7 +529,8 @@ export default function CheckoutConfirmation() {
     const seq = (answerSeq.current += 1);
     try {
       const result = await cancelTicketTransfer(sessionId, transferId, access, getTokenRef.current);
-      applyOrder(result.order, sessionId, visit, seq);
+      // A stale answer (as for a send): read the order again, so the offer cancelled doesn't stay on the page.
+      if (!applyOrder(result.order, sessionId, visit, seq)) reloadQuietly(sessionId, visit);
       toast.show("Cancelled. Your QR code still works.");
     } catch (err) {
       const known = err instanceof ApiError && err.status < 500;
