@@ -20,8 +20,9 @@
 -- immediate; past launch, run it outside peak sales.
 --
 -- Additive: no table, column, function or grant changes; the previous app
--- never relies on it, and the new app answers without it (reading the
--- orders without the index). Can be applied before or after the app.
+-- never relies on it. Apply it before the app: the new app answers without
+-- it, but then the refunded and oversold branch reads every order on each
+-- call.
 -- Reversible, not destructive: drop index public.orders_refunded_email_idx.
 
 create index orders_refunded_email_idx on public.orders (lower(buyer_email))

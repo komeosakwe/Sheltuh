@@ -7,11 +7,13 @@ import { orderReference } from "@/lib/server/order-reference";
 import { encodeCursor } from "@/lib/server/pagination";
 import { transferReference } from "@/lib/server/transfer-reference";
 import { stripeWebhookRequest, TestApi } from "./helpers/api";
+import { generateTicketCode } from "@/lib/server/ticket-issuance";
 import { insertOrder, publishedEvent } from "./helpers/fixtures";
 import { member, type Member } from "./helpers/members";
 import { createTestDb } from "./helpers/test-db";
 import {
   accept,
+  backdate,
   BUYER,
   checkIn,
   codesOf,
@@ -275,8 +277,84 @@ describe("upcoming and past", () => {
   });
 });
 
+describe("what a card counts", () => {
+  it("an expired offer, and an offer by someone other than the buyer, aren't on offer", async () => {
+    const kim = await member(api, { email: "kim@example.com" });
+    const order = await paidOrder(api, world.eventId, BUYER, 3);
+    // Ticket 1: sent to Kim, who accepted; then an offer of it by Kim (a holder's re-send, written directly).
+    const kims = await sendAndAccept(order, kim, 1);
+    const [ticket1] = await codesOf(api, order.orderId);
+    await api.db.query(
+      `insert into private.ticket_transfers (ticket_code, order_id, event_id, sender_kind, from_transfer_id, sender_user_id,
+         sender_name, recipient_name, recipient_email, expires_at)
+       values ($1, $2, $3, 'holder', $4, $5, 'Kim Park', 'Lee Park', 'lee@example.com', now() + interval '1 day')`,
+      [ticket1, order.orderId, world.eventId, kims, kim.userId],
+    );
+    // Ticket 2: an offer by the buyer that has expired but wasn't swept yet (still `pending`).
+    const expired = await offer(api, order, { ticket: 2, email: "lee@example.com", name: "Lee Park" });
+    await backdate(api, expired, "73 hours");
+    expect((await transferRow(api, expired)).status).toBe("pending");
+    let card = orderCard((await page(buyer.token)).items, order.orderId);
+    expect(card).toMatchObject({ ticketCount: 3, heldCount: 2, pendingCount: 0 });
+    // Ticket 3: an offer in progress counts.
+    await offer(api, order, { ticket: 3, email: "max@example.com", name: "Max Park" });
+    card = orderCard((await page(buyer.token)).items, order.orderId);
+    expect(card).toMatchObject({ heldCount: 2, pendingCount: 1 });
+  });
+
+  it("an order of more than one ticket type has no ticketTypeName", async () => {
+    const orderId = await insertOrder(api, event(), BUYER, "paid", { tickets: 0 });
+    for (const [id, name] of [["ga", "GA"], ["rsvp", "RSVP"]]) {
+      await api.db.query(
+        `insert into public.tickets (code, order_id, event_id, ticket_type_id, ticket_type_name) values ($1, $2, $3, $4, $5)`,
+        [generateTicketCode(), orderId, world.eventId, id, name],
+      );
+    }
+    const card = orderCard((await page(buyer.token)).items, orderId);
+    expect(card).toMatchObject({ ticketCount: 2, heldCount: 2 });
+    expect(card).not.toHaveProperty("ticketTypeName");
+  });
+});
+
+describe("received tickets", () => {
+  it("one superseded by a later holder is void and past", async () => {
+    const sam = await member(api, { email: "sam@example.com" });
+    const transferId = await sendAndAccept(await paidOrder(api, world.eventId, BUYER, 1), sam);
+    await api.db.query(`update private.ticket_transfers set superseded_at = now() where id = $1`, [transferId]);
+    const body = await page(sam.token);
+    expect(body.counts).toEqual({ upcoming: 0, past: 1 });
+    expect(body.items[0]).toMatchObject({ kind: "received", transferId, status: "void", section: "past" });
+  });
+
+  it("one whose event has ended is past, and still valid", async () => {
+    const sam = await member(api, { email: "sam@example.com" });
+    const transferId = await sendAndAccept(await paidOrder(api, world.eventId, BUYER, 1), sam);
+    await startEventIn(api, world.eventId, "-5 hours");
+    const body = await page(sam.token);
+    expect(body.counts).toEqual({ upcoming: 0, past: 1 });
+    expect(body.items[0]).toMatchObject({ kind: "received", transferId, status: "valid", section: "past" });
+  });
+});
+
 describe("order and pages", () => {
-  it("upcoming soonest first, then past most recently ended first; ties by kind and id", async () => {
+  it("an order and a received ticket for the same event: the order first (by kind, whatever the ids)", async () => {
+    const kim = await member(api, { email: "kim@example.com" });
+    const mine = (await paidOrder(api, world.eventId, BUYER, 1)).orderId;
+    const received = await sendAndAccept(await paidOrder(api, world.eventId, kim.email, 1), buyer);
+    // By id alone the transfer's uuid would come first ("ord_…" sorts after any hex digit).
+    expect(received < mine).toBe(true);
+    const body = await page(buyer.token);
+    expect(body.items.map((i) => [i.kind, i.section])).toEqual([
+      ["order", "upcoming"],
+      ["received", "upcoming"],
+    ]);
+    expect(orderIds(body.items)).toEqual([mine, received]);
+    // Past too.
+    await startEventIn(api, world.eventId, "-5 hours");
+    expect(orderIds((await page(buyer.token)).items)).toEqual([mine, received]);
+  });
+
+  it("upcoming soonest first, then past by the event's end, newest first; ties by kind and id", async () => {
     const later = await anotherEvent();
     const soon = await anotherEvent();
     const a = await insertOrder(api, later, BUYER);

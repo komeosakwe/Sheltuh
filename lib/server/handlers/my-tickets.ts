@@ -27,9 +27,14 @@ import type { MyTicketItem, MyTicketSection, MyTicketsPage } from "../types";
  * Which list: `upcoming` while the caller holds a ticket of the card
  * (member_held_tickets, the one definition) and its event hasn't ended
  * (in progress and unlisted events included); `past` otherwise. Upcoming by
- * start, soonest first; past by end (else when placed or accepted), newest
- * first; ties by kind, then id. Every card is numbered in that order, the
- * page cut, and only the page's cards joined to their details.
+ * start, soonest first; past by the event's end, newest first (a refunded or
+ * sent-away card of an event still to come included, so it sorts first);
+ * ties by kind, then id. Every card is numbered in that order, the page cut,
+ * and only the page's cards joined to their details.
+ *
+ * Event details: a published event's public details are on every card,
+ * valid or not (the detail pages show them only while the tickets are
+ * valid): a past card still says which night it was.
  *
  * Never in the answer: a ticket code or issued code (the held tickets'
  * codes are a join key inside the statement only), the buyer's name or
@@ -93,22 +98,22 @@ const MY_TICKETS_SQL = `
                           then exists (select 1 from held h where h.order_id = c.order_id and h.transfer_id is null)
                           else exists (select 1 from held h where h.transfer_id = c.transfer_id) end
                 then 0 else 1 end as section,
-           e.starts_at, coalesce(e.ends_at, c.placed_at) as past_at
+           e.starts_at, e.ends_at
       from (
-        select 'order'::text as kind, o.id as order_id, null::uuid as transfer_id, o.id as sort_id,
-               o.event_id, o.created_at as placed_at
+        select 'order'::text as kind, o.id as order_id, null::uuid as transfer_id, o.id as sort_id, o.event_id
           from public.orders o
          where lower(o.buyer_email) = lower($1::text) and o.status = 'paid'
         union all
-        select 'order', o.id, null, o.id, o.event_id, o.created_at
+        select 'order', o.id, null, o.id, o.event_id
           from public.orders o
          where lower(o.buyer_email) = lower($1::text) and o.status in ('refunded', 'oversold_refund_required')
         union all
-        select 'received', null, x.id, x.id::text, x.event_id, x.decided_at
+        select 'received', null, x.id, x.id::text, x.event_id
           from private.ticket_transfers x
          where x.accepted_user_id = $2::uuid and x.status = 'accepted'
       ) c
-      left join public.events e on e.id = c.event_id
+      -- orders.event_id and ticket_transfers.event_id are not null (orders' restricts the event's delete).
+      join public.events e on e.id = c.event_id
   ),
   counts as (
     select (count(*) filter (where section = 0))::int as upcoming,
@@ -119,7 +124,7 @@ const MY_TICKETS_SQL = `
     select c.kind, c.order_id, c.transfer_id, c.section,
            row_number() over (
              order by c.section, case when c.section = 0 then c.starts_at end,
-                      case when c.section = 1 then c.past_at end desc, c.kind, c.sort_id) as rn
+                      case when c.section = 1 then c.ends_at end desc, c.kind, c.sort_id) as rn
       from cards c
      order by rn
      limit $3::bigint offset $4::bigint
@@ -136,7 +141,7 @@ const MY_TICKETS_SQL = `
          x.sender_name, x.holder_name, x.decided_at as accepted_at, xt.ticket_type_name as received_type_name,
          exists (select 1 from held h where h.transfer_id = x.id) as received_valid,
          xt.checked_in_at as received_checked_in_at,
-         coalesce(o.event_title, e.title) as event_title,
+         case when p.kind = 'order' then o.event_title else e.title end as event_title,
          e.status::text as event_status, e.slug as event_slug,
          e.starts_at as event_starts_at, e.ends_at as event_ends_at,
          e.venue_name as event_venue_name, e.suburb as event_suburb,
@@ -150,6 +155,7 @@ const MY_TICKETS_SQL = `
     left join public.orders o on p.kind = 'order' and o.id = p.order_id
     left join private.ticket_transfers x on p.kind = 'received' and x.id = p.transfer_id
     left join public.tickets xt on xt.code = x.ticket_code
+    -- Left joins only for the counts' row when the page is empty.
     left join public.events e on e.id = coalesce(o.event_id, x.event_id)
    order by p.rn`;
 
@@ -160,7 +166,7 @@ function eventFields(row: Row) {
   const listed = row.event_status === "published";
   return {
     section: (row.section === 0 ? "upcoming" : "past") as MyTicketSection,
-    eventTitle: row.event_title ?? "",
+    eventTitle: row.event_title as string,
     eventListed: listed,
     ...(listed && row.event_slug ? { eventSlug: row.event_slug } : {}),
     ...(listed && row.event_starts_at ? { eventStartsAt: iso(row.event_starts_at), ...eventPlaceOf(row) } : {}),

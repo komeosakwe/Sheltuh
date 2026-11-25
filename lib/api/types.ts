@@ -3157,7 +3157,9 @@ export type MyTicketSection = "upcoming" | "past";
 
 /**
  * What every My tickets card has. The event's details are public ones, sent
- * only while it's published (`eventListed`); unset otherwise.
+ * only while it's published (`eventListed`), on every card, valid or not (a
+ * past or void card too, unlike the ticket and received pages); unset
+ * otherwise.
  */
 interface MyTicketEventFields {
   section: MyTicketSection;
@@ -3228,9 +3230,10 @@ export type MyTicketItem = MyTicketOrderItem | MyTicketReceivedItem;
 /**
  * GET /api/me/tickets?cursor&limit: one page of the caller's My tickets
  * (verified email required; never cached), one card per order or received
- * ticket. Upcoming cards first, soonest first; then past ones, most recently
- * ended first. `counts` are the caller's whole lists, on every page (an
- * empty one too). Not AccountSummary.upcomingCount (distinct published
+ * ticket. Upcoming cards first, by the event's start, soonest first; then
+ * past ones, by the event's end, newest first: a refunded or sent-away card
+ * of an event that's still to come is past too, and sorts first. `counts`
+ * are the caller's whole lists, on every page (an empty one too). Not AccountSummary.upcomingCount (distinct published
  * events not started yet): `counts.upcoming` is cards whose event hasn't ended.
  */
 export interface MyTicketsPage {
