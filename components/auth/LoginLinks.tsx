@@ -4,7 +4,11 @@ import Link from "next/link";
 import { useAuth } from "@/lib/auth/AuthContext";
 import { withNext } from "@/lib/safe-next-path";
 
-/** Where "Find my tickets" goes: Help's "Where are my tickets?" (app/help/page.tsx). */
+/**
+ * Where "Find my tickets" goes: Help's "Where are my tickets?" (app/help/page.tsx). Not My tickets
+ * (/tickets): whoever is on /login isn't signed in, and tickets bought without an account are only in
+ * the email. Help points signed-in members on to My tickets.
+ */
 export const FIND_TICKETS_HREF = "/help#where-are-my-tickets";
 
 /**

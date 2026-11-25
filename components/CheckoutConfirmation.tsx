@@ -7,6 +7,7 @@ import { flushSync } from "react-dom";
 import OrderEmail from "@/components/checkout/OrderEmail";
 import { useOptionalNavAccount } from "@/components/nav/useNavAccount";
 import MyTicketView from "@/components/tickets/MyTicketView";
+import MyTicketsBackLink from "@/components/tickets/MyTicketsBackLink";
 import SendTicketDialog, { type SendTicketFields } from "@/components/tickets/SendTicketDialog";
 import { useTicketEvent } from "@/components/tickets/useTicketEvent";
 import { ButtonLink, buttonClass } from "@/components/ui/Button";
@@ -400,13 +401,16 @@ export default function CheckoutConfirmation() {
   if (state.status === "oversold") {
     const refundedAfterPayment = state.order.refundReason === "refunded";
     return (
-      <StateMessage headingRef={headingRef} title={refundedAfterPayment ? "This order has been refunded" : "We couldn\u2019t reserve your tickets"}>
-        <p className="max-w-md text-sm text-muted">
-          {refundedAfterPayment
-            ? `Your payment for ${state.order.eventTitle} was refunded, so the tickets for this order are no longer valid.`
-            : `${state.order.eventTitle} sold out or stopped taking bookings before your payment was confirmed. You\u2019re being refunded in full. No tickets were issued.`}
-        </p>
-      </StateMessage>
+      <>
+        {signedIn && <MyTicketsBackLink />}
+        <StateMessage headingRef={headingRef} title={refundedAfterPayment ? "This order has been refunded" : "We couldn\u2019t reserve your tickets"}>
+          <p className="max-w-md text-sm text-muted">
+            {refundedAfterPayment
+              ? `Your payment for ${state.order.eventTitle} was refunded, so the tickets for this order are no longer valid.`
+              : `${state.order.eventTitle} sold out or stopped taking bookings before your payment was confirmed. You\u2019re being refunded in full. No tickets were issued.`}
+          </p>
+        </StateMessage>
+      </>
     );
   }
 
@@ -554,6 +558,8 @@ export default function CheckoutConfirmation() {
   }
 
   const offered = order.tickets.some((ticket) => ticket.transfer);
+  // Signed in, but the order wants its buyer's account (Manage order's "Switch account").
+  const signedInAsOther = signedIn && transfers?.reason === "sign_in";
   const entriesCount = order.tickets.length + (order.transferredTickets?.length ?? 0);
   const sendTicketLabel = (() => {
     if (sendFor === null || entriesCount < 2) return undefined;
@@ -563,6 +569,10 @@ export default function CheckoutConfirmation() {
 
   return (
     <>
+      {/* Signed in, the way to the member's own My tickets, which lists this order when it's theirs. Not for a
+          visitor with only the link, nor when the order says the account isn't the buyer's (transfers.reason
+          `sign_in` while signed in: another account, so the list wouldn't have it). */}
+      {signedIn && !signedInAsOther && <MyTicketsBackLink className="mb-6 lg:mb-8" />}
       <MyTicketView
         order={order}
         sessionId={sessionId}

@@ -23,6 +23,9 @@ export default function HelpPage() {
           They’re emailed to the address you used at checkout. Check spam, then email{" "}
           <a href="mailto:support@sheltuh.com.au">support@sheltuh.com.au</a> with the event name.
         </p>
+        <p>
+          Signed in with that email (verified)? They’re also in <Link href="/tickets">My tickets</Link>.
+        </p>
       </ContentSection>
       <ContentSection title="What is the booking fee?">
         <p>

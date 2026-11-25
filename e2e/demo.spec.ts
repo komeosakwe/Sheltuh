@@ -244,6 +244,25 @@ for (const vp of [
       checkNoApiCalls();
     });
 
+    test("My tickets lists the sample tickets, upcoming and past; Show ticket opens the sample ticket, with ← My tickets back", async ({ page }) => {
+      const checkNoApiCalls = noApiCalls(page);
+      await page.goto("/tickets");
+      await expect(page.getByRole("heading", { level: 2, name: /^Upcoming\s*,\s*3$/ })).toBeVisible({ timeout: 60_000 });
+      await expect(page.getByRole("heading", { level: 2, name: /^Past\s*,\s*2$/ })).toBeVisible();
+      await expect(page.locator("[data-demo-notice]").first()).toBeVisible();
+      await expect(page.getByRole("region", { name: /^Upcoming/ }).getByRole("article")).toHaveCount(3);
+      await expect(page.getByRole("region", { name: /^Past/ }).getByRole("article")).toHaveCount(2);
+      await noSidewaysScroll(page);
+      await page.getByRole("region", { name: /^Upcoming/ }).getByRole("link", { name: /^Show ticket/ }).first().click();
+      await expect(page).toHaveURL(/\/checkout\/success\?session_id=demo-order-1$/);
+      const back = page.locator("[data-my-tickets-back]");
+      await expect(back).toBeVisible({ timeout: 60_000 });
+      await back.click();
+      await expect(page).toHaveURL(/\/tickets$/);
+      await expect(page.getByRole("heading", { level: 1, name: "My tickets" })).toBeVisible();
+      checkNoApiCalls();
+    });
+
     test("the inbox lists the sample conversations, each opening its thread", async ({ page }) => {
       const checkNoApiCalls = noApiCalls(page);
       await page.goto("/messages");

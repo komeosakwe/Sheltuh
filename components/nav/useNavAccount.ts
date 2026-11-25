@@ -9,6 +9,7 @@ import { needsYouTotal } from "@/lib/admin-summary";
 import type { ProfileRecord } from "@/lib/api/types";
 import { useAuth, type AuthContextValue } from "@/lib/auth/AuthContext";
 import { useOrganiser } from "@/lib/auth/useOrganiser";
+import { MY_TICKETS_HREF } from "@/lib/my-tickets-href";
 import { useProfile } from "@/lib/auth/useProfile";
 import { rememberFramed, useFramedHint } from "@/lib/organiser-frame-hint";
 import {
@@ -20,17 +21,17 @@ import {
 } from "@/lib/organiser-nav";
 
 /**
- * Where "My tickets" goes until members have a tickets list (owner, 18 Nov 2026: Q2; the list
- * comes with the My ticket work, B1): Help's "Where are my tickets?", as /login's "Find my
- * tickets" (components/auth/LoginLinks.tsx). Tickets are emailed today.
+ * My tickets: the signed-in member's list (app/(account)/tickets/page.tsx; GET /api/me/tickets).
+ * Its pages under it (a received ticket, an Accept page) are its place too. /login's "Find my
+ * tickets" stays on Help (components/auth/LoginLinks.tsx): that's for people not signed in.
  */
-export const MY_TICKETS_HREF = "/help#where-are-my-tickets";
+export { MY_TICKETS_HREF };
 
 /** Where an own profile is edited: the account area's Profile page (Settings has the same card). */
 export const PROFILE_HREF = "/profile";
 
 /** The pages behind the avatar menu's rows that have no header item of their own. */
-const AVATAR_MENU_PAGES = ["/account", PROFILE_HREF, "/saved", "/dashboard"];
+const AVATAR_MENU_PAGES = ["/account", PROFILE_HREF, MY_TICKETS_HREF, "/saved", "/dashboard"];
 
 /**
  * The member's own page, when other members can open it: the profile is visible and they aren't
@@ -59,6 +60,11 @@ export interface NavAccount {
    * the member page instead (as the account tabs mark it, useAccountNav).
    */
   profileCurrent: "page" | "location" | undefined;
+  /**
+   * aria-current for a My tickets link: "page" on /tickets; "location" on a page under it (a received ticket,
+   * an Accept page), which the link doesn't go to.
+   */
+  ticketsCurrent: "page" | "location" | undefined;
   /** The display name, else the email: what the identity rows show first. */
   name: string;
   /** Organisers and applicants (or when that couldn't be told, as /account decides) get Your events. */
@@ -157,6 +163,7 @@ function useLoadNavAccount(): NavAccount {
     profile,
     profileHref,
     profileCurrent: current(profileHref) ?? (current(PROFILE_HREF) ? "location" : undefined),
+    ticketsCurrent: pathname === MY_TICKETS_HREF ? "page" : current(MY_TICKETS_HREF) ? "location" : undefined,
     name: profile?.displayName || auth.email || "Your account",
     showEvents: !organiser.loading && (organiser.organiser !== null || organiser.error !== null),
     organiser: record,

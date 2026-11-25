@@ -5,6 +5,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import DemoNotice from "@/components/DemoNotice";
 import EventArt from "@/components/EventArt";
 import FullTicket from "@/components/tickets/FullTicket";
+import MyTicketsBackLink from "@/components/tickets/MyTicketsBackLink";
 import TicketCalendarCard, { useTicketCalendar } from "@/components/tickets/TicketCalendarCard";
 import TicketFullScreen from "@/components/tickets/TicketFullScreen";
 import { useTicketEvent } from "@/components/tickets/useTicketEvent";
@@ -44,7 +45,8 @@ const showTicketClass =
  * Only for the account that accepted it: signed out, sign in first (the
  * id in the address isn't a credential); any other account gets "Ticket
  * not found". A ticket that's no longer valid (the order it came from was
- * refunded) says so, with no code.
+ * refunded) says so, with no code. "← My tickets" (the list it's on) is
+ * above it.
  */
 export default function ReceivedTicket({ transferId }: { transferId: string }) {
   const auth = useAuth();
@@ -77,9 +79,12 @@ export default function ReceivedTicket({ transferId }: { transferId: string }) {
 
   if (!configured) {
     return (
-      <Message title="Received tickets are on the live site">
-        <DemoNotice>Tickets sent to you can’t be shown in this demo.</DemoNotice>
-      </Message>
+      <>
+        <MyTicketsBackLink />
+        <Message title="Received tickets are on the live site">
+          <DemoNotice>Tickets sent to you can’t be shown in this demo.</DemoNotice>
+        </Message>
+      </>
     );
   }
   if (auth.status === "loading") return <LoadingState text="Loading your ticket…" />;
@@ -95,12 +100,15 @@ export default function ReceivedTicket({ transferId }: { transferId: string }) {
   }
   if (!wellFormed || (load.status === "error" && load.error instanceof ApiError && load.error.status === 404)) {
     return (
-      <Message title="Ticket not found">
-        <p className="body-m text-muted">Check you’re signed in with the account that accepted it.</p>
-        <Link href="/events" className={quietLinkClass}>
-          Find events
-        </Link>
-      </Message>
+      <>
+        <MyTicketsBackLink />
+        <Message title="Ticket not found">
+          <p className="body-m text-muted">Check you’re signed in with the account that accepted it.</p>
+          <Link href="/events" className={quietLinkClass}>
+            Find events
+          </Link>
+        </Message>
+      </>
     );
   }
   if (load.status === "error") {
@@ -172,64 +180,67 @@ function ReceivedTicketView({ ticket }: { ticket: ReceivedTicketRecord }) {
     : null;
 
   return (
-    <div data-received-ticket="" className="flex flex-col gap-6 md:flex-row md:items-start lg:gap-12">
-      <section aria-label="Your ticket" className="flex min-w-0 flex-col gap-4 md:w-74 md:shrink-0 lg:w-90">
-        {ticketProps ? (
-          <>
-            <FullTicket {...ticketProps} headingLevel={null} />
-            <button type="button" onClick={() => setFullScreen(true)} className={showTicketClass}>
-              Show ticket <span aria-hidden="true">→</span>
-            </button>
-            <p className="text-xs leading-4 text-muted">Screenshot your code in case signal drops at the venue.</p>
-          </>
-        ) : (
-          <div data-ticket-status="" className="rounded-control bg-surface px-3 py-2">
-            <p className="body-s font-semibold text-foreground">This ticket is no longer valid. The order it came from was refunded.</p>
-          </div>
-        )}
-      </section>
-
-      <div className="flex min-w-0 flex-1 flex-col gap-6">
-        <div className="flex flex-col gap-2">
-          <p className="body-s font-semibold break-words text-signal-text">From {ticket.fromName}</p>
-          <h1 className="label-menu break-words text-foreground">{ticket.eventTitle}</h1>
-          {startsAt && (
-            <p className="font-mono text-sm leading-5 font-medium text-muted">
-              {ticketWhenLine(startsAt, ticket.eventEndsAt, ticket.eventTimeZone, ticket.eventState)}
-            </p>
+    <>
+      <MyTicketsBackLink className="lg:mb-2" />
+      <div data-received-ticket="" className="flex flex-col gap-6 md:flex-row md:items-start lg:gap-12">
+        <section aria-label="Your ticket" className="flex min-w-0 flex-col gap-4 md:w-74 md:shrink-0 lg:w-90">
+          {ticketProps ? (
+            <>
+              <FullTicket {...ticketProps} headingLevel={null} />
+              <button type="button" onClick={() => setFullScreen(true)} className={showTicketClass}>
+                Show ticket <span aria-hidden="true">→</span>
+              </button>
+              <p className="text-xs leading-4 text-muted">Screenshot your code in case signal drops at the venue.</p>
+            </>
+          ) : (
+            <div data-ticket-status="" className="rounded-control bg-surface px-3 py-2">
+              <p className="body-s font-semibold text-foreground">This ticket is no longer valid. The order it came from was refunded.</p>
+            </div>
           )}
-          {venueLine && <p className="font-mono text-sm leading-5 font-medium break-words text-muted">{venueLine}</p>}
+        </section>
+
+        <div className="flex min-w-0 flex-1 flex-col gap-6">
+          <div className="flex flex-col gap-2">
+            <p className="body-s font-semibold break-words text-signal-text">From {ticket.fromName}</p>
+            <h1 className="label-menu break-words text-foreground">{ticket.eventTitle}</h1>
+            {startsAt && (
+              <p className="font-mono text-sm leading-5 font-medium text-muted">
+                {ticketWhenLine(startsAt, ticket.eventEndsAt, ticket.eventTimeZone, ticket.eventState)}
+              </p>
+            )}
+            {venueLine && <p className="font-mono text-sm leading-5 font-medium break-words text-muted">{venueLine}</p>}
+          </div>
+
+          {calendar && held && (
+            <TicketCalendarCard
+              links={calendar}
+              subtitle={startsAt ? `${ticket.eventTitle} · ${ticketStubDate(startsAt, ticket.eventTimeZone)}, ${ticketStubTime(startsAt, ticket.eventEndsAt, ticket.eventTimeZone)}` : ticket.eventTitle}
+            />
+          )}
+
+          {eventPath && (
+            <Link href={eventPath} className={`${quietLinkClass} self-start`}>
+              View event page <span aria-hidden="true">&nbsp;→</span>
+            </Link>
+          )}
+
+          <p className="body-s text-muted">
+            Need a hand?{" "}
+            <a href={`mailto:${SUPPORT_EMAIL}`} className="underline underline-offset-2">
+              {SUPPORT_EMAIL}
+            </a>{" "}
+            · Ticket <span className="font-mono">{ticket.reference}</span>
+          </p>
         </div>
 
-        {calendar && held && (
-          <TicketCalendarCard
-            links={calendar}
-            subtitle={startsAt ? `${ticket.eventTitle} · ${ticketStubDate(startsAt, ticket.eventTimeZone)}, ${ticketStubTime(startsAt, ticket.eventEndsAt, ticket.eventTimeZone)}` : ticket.eventTitle}
+        {ticketProps && (
+          <TicketFullScreen
+            open={fullScreen}
+            onClose={() => setFullScreen(false)}
+            tickets={[<FullTicket key={ticketProps.code} {...ticketProps} size="screen" />]}
           />
         )}
-
-        {eventPath && (
-          <Link href={eventPath} className={`${quietLinkClass} self-start`}>
-            View event page <span aria-hidden="true">&nbsp;→</span>
-          </Link>
-        )}
-
-        <p className="body-s text-muted">
-          Need a hand?{" "}
-          <a href={`mailto:${SUPPORT_EMAIL}`} className="underline underline-offset-2">
-            {SUPPORT_EMAIL}
-          </a>{" "}
-          · Ticket <span className="font-mono">{ticket.reference}</span>
-        </p>
       </div>
-
-      {ticketProps && (
-        <TicketFullScreen
-          open={fullScreen}
-          onClose={() => setFullScreen(false)}
-          tickets={[<FullTicket key={ticketProps.code} {...ticketProps} size="screen" />]}
-        />
-      )}
-    </div>
+    </>
   );
 }
