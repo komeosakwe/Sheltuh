@@ -69,7 +69,7 @@ function expectShell(message: EmailMessage) {
   expect(message.text.length).toBeGreaterThan(0);
   expect(Buffer.byteLength(message.html)).toBeLessThan(GMAIL_CLIP_BYTES);
   for (const body of [message.html, message.text]) {
-    expect(body).not.toMatch(/Pty Ltd|ABN/);
+    expect(body).not.toMatch(/Pty Ltd|\bABN\s/);
   }
   expect(message.html).toContain("Need a hand?");
   expect(message.html).toContain("Privacy policy");

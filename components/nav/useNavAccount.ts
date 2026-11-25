@@ -1,7 +1,7 @@
 "use client";
 
-import { usePathname } from "next/navigation";
-import { createContext, createElement, useContext, type ReactNode } from "react";
+import { usePathname, useRouter } from "next/navigation";
+import { createContext, createElement, useContext, useEffect, type ReactNode } from "react";
 import { useAdminSummary } from "@/components/admin/AdminSummaryProvider";
 import { useFavourites } from "@/components/favourites/FavouritesProvider";
 import { useUnread } from "@/components/messages/UnreadProvider";
@@ -10,6 +10,14 @@ import type { ProfileRecord } from "@/lib/api/types";
 import { useAuth, type AuthContextValue } from "@/lib/auth/AuthContext";
 import { useOrganiser } from "@/lib/auth/useOrganiser";
 import { useProfile } from "@/lib/auth/useProfile";
+import { rememberFramed, useFramedHint } from "@/lib/organiser-frame-hint";
+import {
+  isKnownOrganiser,
+  ORGANISERS_HREF,
+  OVERVIEW_HREF,
+  organisersHref,
+  type OrganiserLoad,
+} from "@/lib/organiser-nav";
 
 /**
  * Where "My tickets" goes until members have a tickets list (owner, 18 Nov 2026: Q2; the list
@@ -17,8 +25,6 @@ import { useProfile } from "@/lib/auth/useProfile";
  * tickets" (components/auth/LoginLinks.tsx). Tickets are emailed today.
  */
 export const MY_TICKETS_HREF = "/help#where-are-my-tickets";
-
-export const ORGANISERS_HREF = "/organisers/apply";
 
 /** Where an own profile is edited: the account area's Profile page (Settings has the same card). */
 export const PROFILE_HREF = "/profile";
@@ -57,6 +63,21 @@ export interface NavAccount {
   name: string;
   /** Organisers and applicants (or when that couldn't be told, as /account decides) get Your events. */
   showEvents: boolean;
+  /** The signed-in account's organiser record, loaded once for the page (useOrganiser). */
+  organiser: OrganiserLoad;
+  /**
+   * The account is an approved organiser: by its record, or while that loads by this browser's
+   * frame hint (lib/organiser-nav.ts, isKnownOrganiser). /dashboard is prefetched for them.
+   */
+  knownOrganiser: boolean;
+  /** Where the header's and the drawer's For organisers goes: /dashboard for a known organiser, else the For organisers page. */
+  organisersHref: string;
+  /**
+   * aria-current for For organisers: only when it goes to the For organisers page and that's the page.
+   * Never when it goes to /dashboard: there the avatar (and the drawer's Your events) already marks
+   * the place, and two current links for one place would read and look doubled.
+   */
+  organisersCurrent: "page" | undefined;
   /** The page is one of the avatar menu's: the header's avatar keeps its dots. */
   avatarCurrent: boolean;
 }
@@ -99,6 +120,25 @@ function useLoadNavAccount(): NavAccount {
   const adminSummary = useAdminSummary()?.summary;
   const { state: profileState } = useProfile();
   const organiser = useOrganiser();
+  const router = useRouter();
+  const signedIn = auth.configured && auth.status === "signed-in";
+  const userId = signedIn ? auth.userId : undefined;
+  const hinted = useFramedHint(userId);
+  const record: OrganiserLoad = { loading: organiser.loading, organiser: organiser.organiser, error: organiser.error };
+  const knownOrganiser = isKnownOrganiser({ signedIn, record, hinted });
+
+  // The record, once it's loaded, keeps this browser's hint true for next time (lib/organiser-frame-hint.ts):
+  // set for an approved organiser, cleared for anyone else. A failed load changes nothing.
+  const recordApproved = record.organiser?.status === "approved";
+  const recordSettled = signedIn && !record.loading && record.error === null;
+  useEffect(() => {
+    if (recordSettled) rememberFramed(userId, recordApproved);
+  }, [recordSettled, userId, recordApproved]);
+
+  // Their For organisers goes to the dashboard: have it ready before they click.
+  useEffect(() => {
+    if (knownOrganiser) router.prefetch(OVERVIEW_HREF);
+  }, [knownOrganiser, router]);
 
   const current = (href: string) => (pathname === href || pathname.startsWith(`${href}/`) ? "page" : undefined);
 
@@ -119,6 +159,10 @@ function useLoadNavAccount(): NavAccount {
     profileCurrent: current(profileHref) ?? (current(PROFILE_HREF) ? "location" : undefined),
     name: profile?.displayName || auth.email || "Your account",
     showEvents: !organiser.loading && (organiser.organiser !== null || organiser.error !== null),
+    organiser: record,
+    knownOrganiser,
+    organisersHref: organisersHref(knownOrganiser),
+    organisersCurrent: knownOrganiser ? undefined : current(ORGANISERS_HREF),
     avatarCurrent: AVATAR_MENU_PAGES.some((href) => current(href) === "page") || current(profileHref) === "page",
   };
 }

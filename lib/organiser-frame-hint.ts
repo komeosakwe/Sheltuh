@@ -1,3 +1,5 @@
+import { useSyncExternalStore } from "react";
+
 /**
  * Whether this browser last showed the signed-in account the organiser dashboard's frame (they
  * were an approved organiser), so on the next page load the frame can be kept in place while
@@ -26,4 +28,15 @@ export function rememberFramed(userId: string | undefined, framed: boolean) {
   } catch {
     // As above: without storage there's just no hint next time.
   }
+}
+
+const noSubscription = () => () => {};
+
+/**
+ * wasFramed as a client component reads it: false on the server and while hydrating (the server
+ * never knows), then this browser's hint. Nothing subscribes: the hint only matters for the
+ * moment before the organiser's record arrives, and the record then decides.
+ */
+export function useFramedHint(userId: string | undefined): boolean {
+  return useSyncExternalStore(noSubscription, () => wasFramed(userId), () => false);
 }

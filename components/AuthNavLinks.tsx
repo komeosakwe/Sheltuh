@@ -4,7 +4,7 @@ import Link from "next/link";
 import type { ReactNode } from "react";
 import AccountAvatar from "@/components/nav/AccountAvatar";
 import AccountMenu from "@/components/nav/AccountMenu";
-import { MY_TICKETS_HREF, ORGANISERS_HREF, type NavAccount } from "@/components/nav/useNavAccount";
+import { MY_TICKETS_HREF, type NavAccount } from "@/components/nav/useNavAccount";
 import CountBadge from "@/components/ui/CountBadge";
 
 /**
@@ -44,12 +44,14 @@ const NOT_CONFIGURED = "Accounts aren't configured in this environment yet";
  * Signed out (and in the demo, where accounts aren't configured): Sign in, then the For
  * organisers nav button. Signed in: the For organisers nav button, Admin with what's waiting
  * (admins only), the Messages chip with its unread count, and the avatar, which opens the
- * avatar menu (components/nav/AccountMenu.tsx; never in the demo).
+ * avatar menu (components/nav/AccountMenu.tsx; never in the demo). For organisers, here and in the
+ * drawer, goes straight to /dashboard for an approved organiser (NavAccount's organisersHref), and is then
+ * never marked current (organisersCurrent: the avatar marks the dashboard).
  */
 export function HeaderAccount({ account }: { account: NavAccount }) {
-  const { auth, current, unreadCount, adminWaiting } = account;
+  const { auth, current, unreadCount, adminWaiting, organisersHref, organisersCurrent } = account;
   const organisers = (
-    <Link href={ORGANISERS_HREF} aria-current={current(ORGANISERS_HREF)} className={headerButtonClass}>
+    <Link href={organisersHref} aria-current={organisersCurrent} className={headerButtonClass}>
       For organisers
     </Link>
   );
@@ -102,10 +104,11 @@ export function HeaderAccount({ account }: { account: NavAccount }) {
  * what's waiting), then For organisers. Settings and signing out are on /account.
  */
 export function MenuAccount({ account }: { account: NavAccount }) {
-  const { auth, current, adminWaiting, profile, profileHref, profileCurrent, name, showEvents } = account;
+  const { auth, current, adminWaiting, profile, profileHref, profileCurrent, name, showEvents, organisersHref, organisersCurrent } =
+    account;
 
   const organisersButton = (
-    <Link href={ORGANISERS_HREF} aria-current={current(ORGANISERS_HREF)} className="btn btn-outline btn-lg w-full">
+    <Link href={organisersHref} aria-current={organisersCurrent} className="btn btn-outline btn-lg w-full">
       For organisers
     </Link>
   );

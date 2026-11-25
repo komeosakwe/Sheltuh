@@ -1,3 +1,5 @@
+import type { OrganiserStatus } from "@/lib/api/types";
+
 /**
  * The organiser area's places (Latte's dashboard frames: "Org / Sidebar" and its collapsed rail),
  * in the frames' order, listing only the pages that are built. The frames draw Overview, Events,
@@ -80,4 +82,46 @@ export function organiserCurrent(link: OrganiserNavLink, pathname: string): "pag
   if (organiserSectionFor(pathname) !== link.key) return false;
   const own = pathname === link.href || pathname === `${link.href}/`;
   return own ? "page" : "true";
+}
+
+/** The For organisers page: what organising on Sheltüh is, and the application. */
+export const ORGANISERS_HREF = "/organisers/apply";
+
+/** What's known of the signed-in account's organiser record (useOrganiser's result). */
+export interface OrganiserLoad {
+  loading: boolean;
+  organiser: { status: OrganiserStatus } | null;
+  error: string | null;
+}
+
+/**
+ * Whether the signed-in account is an approved organiser, as far as the page can tell yet: by its
+ * organiser record once that has loaded; while it loads, by the hint that this browser last showed
+ * them the organiser frame (lib/organiser-frame-hint.ts, `hinted`). The hint only stands in until
+ * the record arrives, and a record that failed to load counts as not known. Never for anyone signed
+ * out, or in the demo (accounts not configured).
+ */
+export function isKnownOrganiser({
+  signedIn,
+  record,
+  hinted,
+}: {
+  /** Accounts are configured here and someone is signed in. */
+  signedIn: boolean;
+  record: OrganiserLoad;
+  hinted: boolean;
+}): boolean {
+  if (!signedIn) return false;
+  if (record.loading) return hinted;
+  return record.error === null && record.organiser?.status === "approved";
+}
+
+/**
+ * Where a "For organisers" link in the site's own navigation goes (the header, the phone drawer,
+ * the footer): an approved organiser straight to their dashboard (the owner, 26 Oct 2026: "if
+ * someone is already an organiser clicking for organiser should take them to the dashboard"),
+ * everyone else to the For organisers page.
+ */
+export function organisersHref(knownOrganiser: boolean): string {
+  return knownOrganiser ? OVERVIEW_HREF : ORGANISERS_HREF;
 }

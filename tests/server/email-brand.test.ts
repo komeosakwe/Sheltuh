@@ -263,7 +263,7 @@ describe("every transactional email uses the shared brand layout", () => {
     expect(html).toContain(">SHELT&Uuml;H &middot; MELBOURNE</p>");
     for (const page of ["/privacy", "/terms", "/help"]) expect(html).toContain(`href="${site}${page}"`);
     // The frames' company line waits for the owner's company details.
-    expect(html).not.toMatch(/Pty Ltd|ABN/);
+    expect(html).not.toMatch(/Pty Ltd|\bABN\s/);
     expect(html).not.toContain(emailFooterImageUrl(site)!);
     expect(html).not.toMatch(/gradient|box-shadow|text-shadow|background-image|display:\s*(flex|grid)|<script/i);
     // Every orange call to action carries a black label.

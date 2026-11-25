@@ -5,6 +5,8 @@ import InstallPrompt from "@/components/pwa/InstallPrompt";
 import ThemeSwitch from "@/components/theme/ThemeSwitch";
 import FooterContactIcon from "@/components/footer/FooterContactIcon";
 import { FOOTER_LABEL_CLASS } from "@/components/footer/footer-styles";
+import OrganisersLink from "@/components/nav/OrganisersLink";
+import { ORGANISERS_HREF } from "@/lib/organiser-nav";
 import { SHELTUH_SOCIALS, SUPPORT_EMAIL } from "@/lib/contact";
 
 interface FooterLink {
@@ -27,7 +29,8 @@ const GROUPS: { heading: string; links: FooterLink[] }[] = [
     links: [
       { href: "/events", label: "All events" },
       { href: "/map", label: "Nearby" },
-      { href: "/organisers/apply", label: "For organisers" },
+      // An approved organiser's goes to their dashboard, as the header's (OrganisersLink).
+      { href: ORGANISERS_HREF, label: "For organisers" },
     ],
   },
   {
@@ -51,6 +54,7 @@ const LEGAL_LINKS: FooterLink[] = [
 const linkClass = "-my-0.5 block py-0.5 body-s underline-offset-4 hover:underline";
 
 function GroupLink({ link }: { link: FooterLink }) {
+  if (link.href === ORGANISERS_HREF) return <OrganisersLink className={linkClass}>{link.label}</OrganisersLink>;
   return link.href.startsWith("mailto:") ? (
     <a href={link.href} className={linkClass}>
       {link.label}
