@@ -4,7 +4,7 @@ Standing context for anyone (human or agent) working in this repo. Loaded into
 every Claude Code session via `CLAUDE.md`. Keep it current when facts change.
 
 Business context, legal status, plans and roadmaps live in the owner's
-private repo `komeosakwe/Sheltuh-private`; ask the owner for access.
+private repo `komeosakwe/Sheltuh-Priv`; ask the owner for access.
 
 ## What Sheltüh is
 
