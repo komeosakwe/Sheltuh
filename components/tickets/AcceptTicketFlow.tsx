@@ -21,6 +21,7 @@ import { withNext } from "@/lib/safe-next-path";
 import { ticketStubDate, ticketStubTime } from "@/lib/ticket-times";
 import { MAX_HELD_TICKETS_PER_EVENT } from "@/lib/ticket-transfer-rules";
 import { forgetOfferToken, keepOfferToken, keptOfferToken } from "@/lib/ticket-transfer-return";
+import { TICKET_PHOTO_SIZES } from "@/lib/responsive-image";
 import AcceptColumn from "./AcceptColumn";
 
 export const ACCEPT_PATH = "/tickets/accept";
@@ -315,7 +316,7 @@ function OfferView({
   const suburb = offer.suburb ? bareSuburb(offer.suburb, offer.eventState) : "";
   const venueLine = listed ? [offer.venueName?.trim() ?? "", suburb].filter(Boolean).join(" · ") : "";
   const art = event ? (
-    <EventArt poster={event.poster} title={event.title} imageUrl={event.imageUrl} imageFocus={event.imageFocus} className="size-full" />
+    <EventArt poster={event.poster} title={event.title} imageUrl={event.imageUrl} imageFocus={event.imageFocus} sizes={TICKET_PHOTO_SIZES} className="size-full" />
   ) : undefined;
 
   async function accept(submitEvent: FormEvent<HTMLFormElement>) {
