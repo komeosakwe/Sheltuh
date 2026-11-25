@@ -5,9 +5,10 @@ import { getImageProps } from "next/image";
  * the sample photos in public/events (the demo's, and the site's own stock photos). A published event's
  * photo (`/api/events/{id}/image?v=…`) never goes through it: an optimized copy outlives the photo's
  * takedown (next.config.ts says why), so it's used as it is, as is anything else (an object URL for a
- * photo being uploaded, another site's URL).
+ * photo being uploaded, another site's URL). Lower-case extensions only, as the optimizer's own patterns
+ * match them (case-sensitively): a photo it would refuse is never sent to it.
  */
-const OPTIMIZABLE_PHOTO = /^\/events\/[\w-]+\.(?:jpe?g|png|webp)$/i;
+const OPTIMIZABLE_PHOTO = /^\/events\/[\w-]+\.(?:jpe?g|png|webp)$/;
 
 /** Whether `src` is a photo the optimizer may resize (OPTIMIZABLE_PHOTO). */
 export function isOptimizablePhoto(src: string): boolean {

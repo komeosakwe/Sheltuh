@@ -35,6 +35,8 @@ describe("responsivePhoto", () => {
       "/events/../secret.jpg",
       "/events/photo.svg",
       "/events/here-and-now/story-card",
+      "/events/Photo.JPG",
+      "/events/photo.Webp",
     ]) {
       expect(isOptimizablePhoto(src)).toBe(false);
       expect(responsivePhoto(src, BANNER_PHOTO_SIZES)).toEqual({ src });
@@ -74,6 +76,24 @@ describe("the image optimizer's paths (next.config.ts images.localPatterns)", ()
     ]) {
       expect(hasLocalMatch(patterns, src), src).toBe(false);
     }
+  });
+
+  it("every photo responsivePhoto sends to the optimizer is one it takes (an upper-case extension is neither)", () => {
+    for (const src of [
+      "/events/street-market.jpg",
+      "/events/Street-Market.jpg",
+      "/events/photo.jpeg",
+      "/events/photo.png",
+      "/events/jazz-drummer.webp",
+      "/events/Photo.JPG",
+      "/events/photo.JPEG",
+      "/events/photo.PNG",
+      "/events/photo.Webp",
+    ]) {
+      expect(isOptimizablePhoto(src), src).toBe(hasLocalMatch(patterns, src));
+    }
+    expect(hasLocalMatch(patterns, "/events/Photo.JPG")).toBe(false);
+    expect(responsivePhoto("/events/Photo.JPG", CARD_PHOTO_SIZES)).toEqual({ src: "/events/Photo.JPG" });
   });
 
   it("serves AVIF or WebP, and keeps each copy at least an hour", () => {
