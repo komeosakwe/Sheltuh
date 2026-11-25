@@ -23,10 +23,12 @@ import { getMyExternalGoing } from "@/lib/server/handlers/external-going";
 import { getGoingSummary, getMyGoing, listGoingAttendees } from "@/lib/server/handlers/going";
 import { adminListInvites } from "@/lib/server/handlers/invites";
 import { getMe } from "@/lib/server/handlers/me";
+import { listMyTickets } from "@/lib/server/handlers/my-tickets";
 import { adminGetMemberProfile } from "@/lib/server/handlers/member-profiles";
 import { getUnreadCount, listConversations } from "@/lib/server/handlers/messages";
 import { adminListOrganiserLinks } from "@/lib/server/handlers/organiser-links";
 import { getMyOrganiser } from "@/lib/server/handlers/organisers";
+import { getMyEventsSummary, getMyOverview } from "@/lib/server/handlers/organiser-summary";
 import { adminListPaymentExceptions } from "@/lib/server/handlers/payment-exceptions";
 import { runCheckoutExpiryCron } from "@/lib/server/handlers/checkout-expiry";
 import { adminListTransfers, getMyPayouts, runPayoutsCron } from "@/lib/server/handlers/payouts";
@@ -115,6 +117,7 @@ const PRIVATE_GETS: Case[] = [
   { name: "listFollowingEvents", handler: h(listFollowingEvents), as: asMember },
   { name: "getFollow", handler: h(getFollow), as: asMember, params: () => ({ organiserId: organiser.organiserId }) },
   { name: "getMe", handler: h(getMe), as: asMember },
+  { name: "listMyTickets", handler: h(listMyTickets), as: asMember },
   { name: "getMyProfile", handler: h(getMyProfile), as: asMember },
   { name: "getMyGoing", handler: h(getMyGoing), as: asMember, params: event },
   { name: "getMyExternalGoing", handler: h(getMyExternalGoing), as: asMember, params: event },
@@ -127,6 +130,8 @@ const PRIVATE_GETS: Case[] = [
   { name: "getMyEvent", handler: h(getMyEvent), as: asOrganiser, params: event },
   { name: "getAnalyticsOverview", handler: h(getAnalyticsOverview), as: asOrganiser },
   { name: "getAnalyticsOverviewCsv", handler: h(getAnalyticsOverviewCsv), as: asOrganiser },
+  { name: "getMyOverview", handler: h(getMyOverview), as: asOrganiser },
+  { name: "getMyEventsSummary", handler: h(getMyEventsSummary), as: asOrganiser },
   { name: "adminGetEventAnalytics", handler: h(adminGetEventAnalytics), as: asAdmin, params: event },
   { name: "adminGetEventAnalyticsCsv", handler: h(adminGetEventAnalyticsCsv), as: asAdmin, params: event },
   { name: "getEventAnalytics", handler: h(getEventAnalytics), as: asOrganiser, params: event },
@@ -158,6 +163,7 @@ const PUBLIC_GETS = new Set([
   "getSeatAvailability",
   "getEventClip",
   "eventCalendarRoute",
+  "storyCardRoute", // story-card.test.ts pins its headers and that a token changes nothing
   "getExternalGoingSummary", // external-going.test.ts pins its cache header
 ]);
 

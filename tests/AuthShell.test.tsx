@@ -177,5 +177,7 @@ describe("Find my tickets' destination", () => {
     const section = container.querySelector("#where-are-my-tickets");
     expect(section).not.toBeNull();
     expect(within(section as HTMLElement).getByRole("heading", { level: 2 })).toHaveTextContent("Where are my tickets?");
+    // Signed in with the buying email, they're in My tickets too.
+    expect(within(section as HTMLElement).getByRole("link", { name: "My tickets" })).toHaveAttribute("href", "/tickets");
   });
 });

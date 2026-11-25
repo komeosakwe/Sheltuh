@@ -995,7 +995,7 @@ export const CUSTOMER_ORDER_SELECT = `
  * other status. `refunded`: refunded in Stripe, whether its tickets had been
  * issued or (refunded before the payment was recorded) never were.
  */
-function refundReason(
+export function refundReason(
   status: CustomerOrder["status"],
   ticketsIssued: boolean,
   amountRefundedCents: number,

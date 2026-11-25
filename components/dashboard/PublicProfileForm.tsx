@@ -15,6 +15,7 @@ import { updateOrganiserProfile, type OrganiserProfileInput } from "@/lib/api/or
 import type { OrganiserRecord } from "@/lib/api/types";
 import { SessionExpiredError } from "@/lib/auth/AuthContext";
 import { useAccountOwner } from "@/lib/auth/useAccountOwner";
+import { announceOrganiserChange } from "@/lib/auth/useOrganiser";
 import {
   MAX_BIO_LENGTH,
   SOCIAL_HANDLE_FIELDS,
@@ -183,6 +184,7 @@ export default function PublicProfileForm({ organiser, onSaved }: Props) {
       setVideo(featuredVideoInitial(record.featuredVideo));
       showStatus("Profile saved. It's live on your public profile now.");
       onSaved?.(record);
+      announceOrganiserChange(record);
     } catch (err) {
       // Nothing typed is cleared on a failure.
       if (err instanceof SessionExpiredError) {

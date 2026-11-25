@@ -35,7 +35,8 @@ const PLATE_STYLE: CSSProperties = {
  */
 export type TicketQrSize = "screen" | "page";
 
-const PLATE_SIZES: Record<TicketQrSize, string> = {
+/** Each size's plate box (whole pixels per module; see above): also the locked ticket's placeholder (FullTicket). */
+export const PLATE_SIZES: Record<TicketQrSize, string> = {
   screen: "size-[231px] min-[375px]:size-[264px]",
   page: "size-[165px] md:size-[198px]",
 };

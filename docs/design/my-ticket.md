@@ -24,8 +24,9 @@ The header and footer are specified in `navigation-search.md`. The QR rules are 
 - **The full ticket is the email's orange-outline ticket** (`components/tickets/FullTicket.tsx`, the site's version
   of `ticketCard` in `lib/server/ticket-email.ts`): owner rule, 21 Nov 2026. It replaces §5.1's orange card with a
   black stub and the old `TicketStub` (retired). Latte's frames set its sizes and everything around it.
-- **The compact card** in all eight states: `components/tickets/TicketCard.tsx` (props only; nothing lists tickets
-  yet).
+- **The compact card** in all eight states: `components/tickets/TicketCard.tsx` (props only). My tickets
+  (`/tickets`, `components/tickets/MyTicketsList.tsx`; `docs/design/account-dashboard.md`, "My tickets") lists
+  them, with generic words for orders (the list has counts, not names or dates: §5.14).
 - **Sheets and dialogs** on one component, `components/ui/Sheet.tsx` (a bottom sheet below 768, a 480 dialog from
   768): Add to calendar, Directions, Order receipt and Manage order (`components/tickets/TicketSheets.tsx`).
 - **The full-screen ticket** on phones, with the Wake Lock and pager of §5.12: `components/tickets/TicketFullScreen.tsx`.
@@ -470,6 +471,12 @@ disabled: principle 4.
 - **Empty:** "No tickets yet." with "Find an event" (outline button).
 - **Loading:** three `EventCardPlaceholder`-style skeletons in the card shape.
 - **Error:** a notice with "Try again".
+- **As built (25 Nov 2026, B1):** the sub is "Tickets you've bought or been sent." (transfer exists). A card's
+  "Show ticket →" opens `/checkout/success?session_id={orderId}` (an order) or `/tickets/received/{transferId}`;
+  a past card has no button, so its bar links "View order" / "View ticket" instead. Order cards say states
+  2, 3, 4 and 7 with counts ("1 sent, waiting for them to accept", "2 sent", "✓ Checked in", "Refunded A$25.94": no
+  names, check-in times or refund dates, which the list doesn't carry); a received card has its check-in time.
+  An unlisted event shows "No longer listed" where the date goes.
 
 ## 6. Motion
 
@@ -541,8 +548,8 @@ visibility to the organiser needs the same notice decision.
 
 | Need | Today | New work (id) |
 | --- | --- | --- |
-| A signed-in member's orders (the list, "← My tickets") | none: orders aren't keyed to accounts. `buyer_email_key` exists. | **B1**: list orders by the member's **verified** email key (plus transfers received). An authenticated route with ownership from the token (`requireCaller`). |
-| A My ticket page for a signed-in member | `/checkout/success?session_id=` (capability) | **B1**: `/tickets/{orderId}` (or `/account/tickets/…`), owner-checked, with other users' orders returning 404. The capability page stays. |
+| A signed-in member's orders (the list, "← My tickets") | none: orders aren't keyed to accounts. `buyer_email_key` exists. | **B1**: list orders by the member's **verified** email, exactly (ignoring case, as Who's Going; not `buyer_email_key`, the free-order allowance's folded key), plus transfers received. An authenticated route with ownership from the token (`requireVerifiedCaller`): `GET /api/me/tickets`. |
+| A My ticket page for a signed-in member | `/checkout/success?session_id=` (capability) | **B1**: no new page. A card in the list opens the existing `/checkout/success?session_id={orderId}` (the order id is still the page's credential; the list gives it only to the account with the buying email); a received ticket opens `/tickets/received/{transferId}`. No `/tickets/{orderId}`. |
 | Event times, venue name, suburb, refund policy, totals, tickets, `checkedInAt`, wallet availability, masked email | in `CustomerOrder` | – |
 | Full venue address, venue pin / place id (map, directions), organiser name | not in `CustomerOrder` (they're on the event) | **B2**: add `venueAddress`, `location` and `organiserName` to `CustomerOrder` (published events only, as the other event fields) |
 | Purchase date and time, refund date, ex-fee line amounts | `createdAt` is on `OrderRecord`, not `CustomerOrder`. There's no refund timestamp. `OrderPaymentLine` is all-inclusive. | **B3**: `placedAt`, `refundedAt` (from the Stripe refund event / admin refund) and per-line ex-fee amounts |

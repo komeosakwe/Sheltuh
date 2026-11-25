@@ -5,6 +5,7 @@ import { useEffect, useRef, useState, type Ref } from "react";
 import DemoNotice from "@/components/DemoNotice";
 import { RESULTS_GRID } from "@/components/EventResults";
 import { ComposeRequestForm } from "@/components/messages/ComposeRequest";
+import { PROFILE_HREF } from "@/components/nav/useNavAccount";
 import ReportDialog, { type ReportOutcome } from "@/components/messages/ReportDialog";
 import { BLOCK_EFFECT, errorText, messagingError, tallInlineLinkClass, threadHref } from "@/components/messages/shared";
 import { Button, ButtonLink } from "@/components/ui/Button";
@@ -150,7 +151,7 @@ export default function MemberProfileView({
           {profile.isYou && (
             <Notice>
               This is how members see you.{" "}
-              <Link href="/account#member-profile" className="underline underline-offset-4 hover:decoration-2">
+              <Link href={PROFILE_HREF} className="underline underline-offset-4 hover:decoration-2">
                 Edit your profile
               </Link>
             </Notice>

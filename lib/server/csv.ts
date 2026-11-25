@@ -13,13 +13,22 @@ export type CsvCell = string | number | { cents: number } | null | undefined;
 
 const FORMULA_START = /^[\s]*[=+\-@\t\r]/;
 
+/**
+ * `text` with a leading single quote when a spreadsheet would read it as a
+ * formula. csvCell does this for every text cell; a cell that joins several
+ * typed values (the orders' "Transferred to") also does it for each value,
+ * so splitting the cell (text to columns) can't start one either.
+ */
+export function defuseFormula(text: string): string {
+  return FORMULA_START.test(text) ? `'${text}` : text;
+}
+
 /** One cell, quoted. */
 export function csvCell(value: CsvCell): string {
   if (value === null || value === undefined) return '""';
   if (typeof value === "number") return `"${Number.isFinite(value) ? String(value) : ""}"`;
   if (typeof value === "object") return `"${centsToDecimal(value.cents)}"`;
-  const text = FORMULA_START.test(value) ? `'${value}` : value;
-  return `"${text.replace(/"/g, '""')}"`;
+  return `"${defuseFormula(value).replace(/"/g, '""')}"`;
 }
 
 /**

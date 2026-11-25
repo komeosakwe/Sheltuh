@@ -10,6 +10,7 @@ import { oauthCallbackUrl, oauthQueryParams, type OAuthProvider } from "./oauth"
 import { accessTokenFor, createSessionResolver, SessionExpiredError } from "./session-token";
 import { announceUserSignOut, endsSession, lastUserSignOut, onUserSignOut } from "./sign-out-signal";
 import { HumanCheckError, isCaptchaFailure } from "./turnstile";
+import { forgetOfferToken } from "@/lib/ticket-transfer-return";
 
 // Re-exported so components can `import { SessionExpiredError } from
 // "@/lib/auth/AuthContext"` alongside `useAuth` without a second import.
@@ -343,6 +344,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const signOut = useCallback((scope: SignOutScope = "global") => {
     const byUser = scope === "global";
     if (byUser) {
+      // A sent ticket's accept link this tab kept for the sign-in round trip: not for whoever signs in next. (The
+      // accept page's Switch account signs out "local", which keeps it: that's the round trip.)
+      forgetOfferToken();
       // Before Supabase's sign-out reaches the other tabs, so they can tell it was deliberate.
       signingOut.current = true;
       if (seen.current) announceUserSignOut(seen.current.userId);

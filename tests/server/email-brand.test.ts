@@ -2,10 +2,10 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import sharp from "sharp";
 import { describe, expect, it } from "vitest";
-import { buildEventReviewEmail, buildOrganiserJoinedEmail, buildOrganiserReviewEmail } from "@/lib/server/admin-review-email";
+import { buildEventPublishedEmail, buildEventReviewEmail, buildOrganiserJoinedEmail, buildOrganiserReviewEmail } from "@/lib/server/admin-review-email";
 import type { EmailMessage } from "@/lib/server/email";
 import { buildEventReminderEmail } from "@/lib/server/event-reminder-email";
-import { button, EMAIL_COLOURS, emailFooterImageUrl, escapeHtml, INK, SIGNAL, supportFooter, WORDMARK_CID, wordmarkImage } from "@/lib/server/email-layout";
+import { EMAIL_COLOURS, emailFooterImageUrl, escapeHtml, INK, SIGNAL, WORDMARK_CID, wordmarkImage } from "@/lib/server/email-layout";
 import { MODERN_COLOURS, ICON_PATHS } from "@/lib/server/email-modern-layout";
 import { EMAIL_WORDMARK } from "@/lib/server/email-wordmark";
 import { KIT } from "@/lib/server/email-kit";
@@ -15,22 +15,18 @@ import { DETAILS_NOTICE } from "@/lib/buyer-details";
 import { buildFreeConfirmationEmail } from "@/lib/server/free-confirmation-email";
 import { buildHolderMessageEmail } from "@/lib/server/holder-message-email";
 import { buildInviteEmail } from "@/lib/server/invite-email";
+import { buildCheckoutSurgeAlertEmail, buildOpsAlertEmail } from "@/lib/server/ops-alert-email";
 import { buildTicketEmail } from "@/lib/server/ticket-email";
 import type { EventRecord, OrderLineItem, OrderRecord, TicketSeat } from "@/lib/server/types";
 import { buildWaitlistAvailableEmail, buildWaitlistConfirmationEmail } from "@/lib/server/waitlist-email";
 
-// Every transactional email is built on lib/server/email-layout.ts: the same
-// colours, ivory column, button and support line, so the ticket emails can't
-// drift from the waitlist and follower emails again. The ticket and
-// free-ticket confirmation emails (the two a buyer gets in a row) also share
-// the wordmark header and the branded footer. The day-before reminder and the
-// organiser's announcement have their own, newer look (lib/server/
-// email-modern-layout.ts: ivory, one orange accent, hosted logo and icons), so
-// they're held to that look's rules below, not to EMAIL_COLOURS and the
-// shared column. The tickets email has its own design too
-// (lib/server/email-ticket-layout.ts, docs/design/ticket-email.md: white,
-// Instrument Sans, the orange-framed ticket card), held to TICKET_EMAIL_COLOURS.
-// Every other email stays exactly as it was.
+// Every email is built on one layout, the 1120 email kit
+// (lib/server/email-kit.ts, Latte's 20 Nov frames): customer emails on the
+// cream page, organiser, admin and ops emails on the warm grey one, so they
+// can't drift apart. The tickets email keeps its orange-framed ticket card
+// inside it (owner rule 21 Nov), held to TICKET_EMAIL_COLOURS. No email is
+// left on the classic ivory layout (lib/server/email-layout.ts's page); its
+// helpers (escapeHtml, the wordmark) are still shared.
 
 const site = "https://sheltuh.test";
 
@@ -106,6 +102,48 @@ const emails: Record<string, () => EmailMessage> = {
     }),
   organiserReview: () => buildOrganiserReviewEmail({ to: "ops@sheltuh.test", organiserName: "Cellar Door Sound", siteUrl: site }),
   organiserJoined: () => buildOrganiserJoinedEmail({ to: "ops@sheltuh.test", organiserName: "Cellar Door <Sound>", siteUrl: site }),
+  eventPublished: () =>
+    buildEventPublishedEmail({
+      to: "ops@sheltuh.test",
+      title: event.title,
+      organiserName: "Cellar Door <Sound>",
+      startsAt: event.startsAt,
+      ticketHost: "tickets.example.com",
+      siteUrl: site,
+    }),
+  opsAlertUrgent: () =>
+    buildOpsAlertEmail(
+      "ops@sheltuh.test",
+      {
+        kind: "amount_mismatch",
+        reference: "#7C1F2E0A",
+        orderStatus: "failed",
+        urgent: true,
+        details: { amountChargedCents: 14460, totalCents: 14960, supportCents: 500, currency: "aud" },
+        stripeEventId: "evt_123",
+        openedAt: new Date("2027-03-01T00:00:00.000Z"),
+      },
+      site,
+    ),
+  opsAlertUnmatched: () =>
+    buildOpsAlertEmail(
+      "ops@sheltuh.test",
+      { kind: "partial_refund", urgent: false, details: { refundAmountCents: 1000 }, openedAt: new Date("2027-03-01T00:00:00.000Z") },
+      site,
+    ),
+  checkoutSurge: () =>
+    buildCheckoutSurgeAlertEmail(
+      "ops@sheltuh.test",
+      {
+        eventId: event.eventId,
+        eventTitle: event.title,
+        eventSlug: event.slug,
+        threshold: 200,
+        window: "10 minutes",
+        queuedAt: new Date("2027-03-01T00:00:00.000Z"),
+      },
+      site,
+    ),
   inviteOrganiser: () =>
     buildInviteEmail({
       to: "fan@example.com",
@@ -144,9 +182,6 @@ function coloursIn(html: string): string[] {
   return [...html.matchAll(/(?:bgcolor="|color:\s*|solid\s+)(#[0-9a-f]{3,8}\b|[a-z]+\b)/gi)].map((m) => m[1].toLowerCase());
 }
 
-/** The button's cell, exactly as the shared helper writes it. */
-const BUTTON_CELL = button("x", "https://x").match(/<td [^>]*>/)![0];
-
 const OLD_PALETTE = ["#2b3cff", "#f3f0e8", "#0b0b0b", "#5b574e", "#e3ded1"];
 
 /** The tickets email: the shared 1120 layout around its own orange-framed card (TICKET_EMAIL_COLOURS). */
@@ -166,10 +201,28 @@ const KIT_EMAILS: Record<string, "customer" | "organiser"> = {
   followerMany: "customer",
   inviteMember: "customer",
   inviteOrganiser: "organiser",
+  // The admin and ops emails: no Latte frame, so the organiser shell (A3 to A5).
+  eventReview: "organiser",
+  eventReviewResubmitted: "organiser",
+  organiserReview: "organiser",
+  organiserJoined: "organiser",
+  eventPublished: "organiser",
+  opsAlertUrgent: "organiser",
+  opsAlertUnmatched: "organiser",
+  checkoutSurge: "organiser",
 };
+/** The emails only Sheltüh's own admins and ops inbox get. */
+const ADMIN_EMAILS = [
+  "eventReview",
+  "eventReviewResubmitted",
+  "organiserReview",
+  "organiserJoined",
+  "eventPublished",
+  "opsAlertUrgent",
+  "opsAlertUnmatched",
+  "checkoutSurge",
+];
 const isKit = (name: string) => name in KIT_EMAILS;
-/** Emails with the inline wordmark header and the old branded footer banner: none now (every customer email is on the 1120 layout). */
-const BRANDED: string[] = [];
 /** The two emails in the modern look: hosted https logo (no cid), compact footer, MODERN_COLOURS. */
 const MODERN: string[] = [];
 const classic = Object.entries(emails).filter(([name]) => !MODERN.includes(name) && !isKit(name));
@@ -186,31 +239,15 @@ describe("every transactional email uses the shared brand layout", () => {
     for (const colour of used) expect(allowed).toContain(colour);
   });
 
-  it.each(classic)("%s: Signal Orange only as a fill with black text: its one button", (name, build) => {
-    const { html } = build();
-    // Exactly one call-to-action.
-    expect(html.split(BUTTON_CELL)).toHaveLength(2);
-    const rest = html.replace(BUTTON_CELL, "");
-    expect(rest).not.toContain(SIGNAL); // no orange anywhere else
-    const label = html.slice(html.indexOf(BUTTON_CELL)).match(/<a [^>]*style="([^"]*)"/)![1];
-    expect(label).toContain(`color:${INK}`);
-    expect(html).not.toMatch(/(?<![-\w])color:\s*(#fff\b|#ffffff|white)/i); // no white text, on orange or anywhere
-  });
-
-  it.each(classic)("%s: the shared page, column, heading and support line", (name, build) => {
-    const { html } = build();
-    expect(html).toContain('<meta name="color-scheme" content="light only">');
-    expect(html).toContain(`bgcolor="${EMAIL_COLOURS.page}" style="background-color:${EMAIL_COLOURS.page}"`);
-    expect(html).toContain(
-      `bgcolor="${EMAIL_COLOURS.card}" class="column" style="width:100%;max-width:600px;background-color:${EMAIL_COLOURS.card}"`,
-    );
-    // One h1: the shared 36/44 heading at weight 600 (30/36 on a phone).
-    expect(html.match(/<h1 /g)).toHaveLength(1);
-    expect(html).toMatch(/<h1 class="h1" style="margin:0 0 \d+px 0;font-family:[^"]*;font-size:36px;line-height:44px;font-weight:600;letter-spacing:normal;color:#000000">/);
-    // The support address as a mailto link, and the disclosure line, in every email.
-    expect(html).toContain('href="mailto:support@sheltuh.com.au"');
-    expect(html).toContain("Sheltüh &middot; Melbourne");
-    if (!BRANDED.includes(name)) expect(html).toContain(supportFooter);
+  it("no email is left on the classic ivory layout", () => {
+    expect(classic.map(([name]) => name)).toEqual([]);
+    for (const [name, build] of Object.entries(emails)) {
+      const { html } = build();
+      expect(html, name).not.toContain(EMAIL_COLOURS.card); // the ivory column
+      expect(html, name).not.toContain(EMAIL_COLOURS.page); // the warm frame around it
+      expect(html, name).not.toContain('class="column"');
+      expect(html, name).not.toContain("Nunito");
+    }
   });
 
   it.each(Object.keys(KIT_EMAILS))("%s: Latte's 1120 layout: a white 600px column on the tone's page, one h1, the inline wordmark top and bottom, the shared footer", (name) => {
@@ -226,7 +263,7 @@ describe("every transactional email uses the shared brand layout", () => {
     expect(html).toContain(">SHELT&Uuml;H &middot; MELBOURNE</p>");
     for (const page of ["/privacy", "/terms", "/help"]) expect(html).toContain(`href="${site}${page}"`);
     // The frames' company line waits for the owner's company details.
-    expect(html).not.toMatch(/Pty Ltd|ABN/);
+    expect(html).not.toMatch(/Pty Ltd|\bABN\s/);
     expect(html).not.toContain(emailFooterImageUrl(site)!);
     expect(html).not.toMatch(/gradient|box-shadow|text-shadow|background-image|display:\s*(flex|grid)|<script/i);
     // Every orange call to action carries a black label.
@@ -240,13 +277,11 @@ describe("every transactional email uses the shared brand layout", () => {
     expect(html).toMatch(new RegExp(`color:${TICKET_EMAIL_COLOURS.signalText};letter-spacing:0\\.12em`));
   });
 
-  it("the other emails carry no images", () => {
-    for (const [name, build] of Object.entries(emails)) {
-      if (BRANDED.includes(name) || MODERN.includes(name) || isKit(name)) continue;
-      const email = build();
-      expect(email.html, name).not.toContain("<img");
-      expect(email.inlineImages ?? [], name).toEqual([]);
-    }
+  it.each(ADMIN_EMAILS)("%s: no remote image and no tracking: the inline wordmark (header and footer) is its only image", (name) => {
+    const email = emails[name]();
+    expect([...email.html.matchAll(/<img [^>]*src="([^"]*)"/g)].map((m) => m[1])).toEqual([`cid:${WORDMARK_CID}`, `cid:${WORDMARK_CID}`]);
+    expect((email.inlineImages ?? []).map((i) => i.cid)).toEqual([WORDMARK_CID]);
+    expect(email.html).not.toContain(`${site}/email/`); // no hosted icons
   });
 
   it("the follower and waitlist emails name the town and state under each event card, even with no venue name or a generic one", () => {
@@ -534,5 +569,117 @@ describe("the organiser announcement (no Latte frame: the shared layout, its cop
     expect(email.headers).toMatchObject({ "Auto-Submitted": "auto-generated", "List-Unsubscribe-Post": "List-Unsubscribe=One-Click" });
     expect(email.subject).toBe("Neon Static: Doors now open at 7pm");
     expect(email.text).toContain("Doors open at 7pm.\nBring ID.");
+  });
+});
+
+describe("the admin and ops emails (no Latte frame: the organiser shell, A3 to A5)", () => {
+  /** Each piece appears after the one before it. */
+  const inOrder = (html: string, pieces: string[]) => {
+    let at = -1;
+    for (const piece of pieces) {
+      const next = html.indexOf(piece, at + 1);
+      expect(next, piece).toBeGreaterThan(at);
+      at = next;
+    }
+  };
+  const reason = "You’re getting this because you’re a Sheltüh admin.";
+
+  it("the review email: wordmark, black hero, the organiser's text in an outlined box, the button, Need help?, the footer's admin line", () => {
+    const { html } = emails.eventReviewResubmitted();
+    inOrder(html, [
+      `<img src="cid:${WORDMARK_CID}"`,
+      `bgcolor="${KIT.black}"`,
+      ">Event review</p>",
+      `>An event was resubmitted<br><span style="color:${KIT.orange}">for review</span></h1>`,
+      `border:1px solid ${KIT.black};border-radius:8px`,
+      ">As submitted by the organiser:</p>",
+      `Title: <span style="color:${KIT.black}">Neon &#38; &#60;Static&#62;</span>`,
+      `Organiser: <span style="color:${KIT.black}">Cellar Door Sound</span>`,
+      "Starts <span",
+      `<a href="${site}/admin/events?status=pending_review"`,
+      ">Open the review queue&nbsp;&nbsp;",
+      "Need help? ",
+      `>${reason}</p>`,
+    ]);
+    // The organiser frames' button: as wide as its label on desktop, the full width on a phone.
+    expect(html).toContain('<table role="presentation" cellpadding="0" cellspacing="0" border="0" class="kw">');
+  });
+
+  it("the published and joined emails lead with what happened, then the organiser's text", () => {
+    inOrder(emails.eventPublished().html, [
+      `>An organiser published<br><span style="color:${KIT.orange}">an event</span></h1>`,
+      ">It went live without review. Check it, and unpublish it if it shouldn&#39;t be on Sheltüh.</p>",
+      ">As submitted by the organiser:</p>",
+      `Organiser: <span style="color:${KIT.black}">Cellar Door &#60;Sound&#62;</span>`,
+      `Tickets: <span style="color:${KIT.black}">sold on tickets.example.com</span>`,
+      `<a href="${site}/admin/events?status=published&#38;view=recent"`,
+      ">Open recently published events&nbsp;&nbsp;",
+    ]);
+    inOrder(emails.organiserJoined().html, [
+      `>An organiser joined<br><span style="color:${KIT.orange}">with a link</span></h1>`,
+      ">They used an organiser link",
+      `Organiser name: <span style="color:${KIT.black}">Cellar Door &#60;Sound&#62;</span>`,
+      `<a href="${site}/admin/organisers?status=approved"`,
+    ]);
+  });
+
+  it("the plain text says the same as the HTML, in the same order", () => {
+    const { text } = emails.eventPublished();
+    expect(text).toBe(
+      [
+        "An organiser published an event",
+        "",
+        "It went live without review. Check it, and unpublish it if it shouldn't be on Sheltüh.",
+        "",
+        "As submitted by the organiser:",
+        "Title: Neon & <Static>",
+        "Organiser: Cellar Door <Sound>",
+        "Starts Saturday 6 March 2027, 8:00 pm AEDT",
+        "Tickets: sold on tickets.example.com",
+        "",
+        `Check it: ${site}/admin/events?status=published&view=recent`,
+        "",
+        "Need help? support@sheltuh.com.au",
+        "",
+        "Find your place, find your people.",
+        "Sheltüh · Melbourne",
+        `Privacy policy: ${site}/privacy · Terms: ${site}/terms · Help centre: ${site}/help`,
+        reason,
+      ].join("\n"),
+    );
+    expect(emails.organiserReview().text).toMatch(/^An organiser application is waiting for review\n\nAs submitted by the organiser:\nOrganiser name: Cellar Door Sound\n\nReview it: /);
+  });
+
+  it("the payment exception: the subject in the hero, the urgent line first, the details boxed, then what to do and where", () => {
+    const { html, text } = emails.opsAlertUrgent();
+    inOrder(html, [
+      ">URGENT: a payment didn&#39;t match its order. Check it, and its automatic refund, in Stripe.&nbsp;", // the preheader
+      ">Urgent payment exception</p>",
+      `>Payment amount mismatch<br><span style="color:${KIT.orange}">Order #7C1F2E0A</span></h1>`,
+      "font-weight:600;color:#000000;overflow-wrap:break-word;word-wrap:break-word\">URGENT: a payment didn&#39;t match its order.",
+      ">Details</p>",
+      `<span style="color:${KIT.black}">Order: #7C1F2E0A</span>`,
+      `<span style="color:${KIT.black}">Order total: A$149.60</span>`,
+      ">Stripe charged a different amount",
+      `Open exceptions: GET ${site}/api/admin/payment-exceptions (admin sign-in).`,
+      "Need help? ",
+      ">You’re getting this because this address gets Sheltüh’s ops alerts.</p>",
+    ]);
+    expect(text).toMatch(/^Payment amount mismatch\n\nURGENT: a payment didn't match its order\..*\nOrder: #7C1F2E0A\nOrder status: failed\n/);
+    expect(text).toContain(`\n\nOpen exceptions: GET ${site}/api/admin/payment-exceptions (admin sign-in).\n\nNeed help? support@sheltuh.com.au\n\n`);
+    expect(text.endsWith("You’re getting this because this address gets Sheltüh’s ops alerts.")).toBe(true);
+    // Not urgent, no order yet: no urgent line, and the hero says so.
+    const plain = emails.opsAlertUnmatched();
+    expect(plain.html).toContain(`>Partial refund<br><span style="color:${KIT.orange}">Not matched to an order yet</span></h1>`);
+    expect(plain.html).toContain(">Payment exception</p>");
+    expect(plain.html).not.toContain("URGENT");
+  });
+
+  it("the checkout surge: the event in the hero (escaped), its page linked", () => {
+    const { html, text } = emails.checkoutSurge();
+    expect(html).toContain(`>Checkout surge<br><span style="color:${KIT.orange}">for Neon &#38; &#60;Static&#62;</span></h1>`);
+    expect(html).not.toContain("<Static>");
+    expect(html).toContain(`Event page: <a href="${site}/events/neon-static"`);
+    expect(text).toContain(`\n\nEvent page: ${site}/events/neon-static\n\n`);
   });
 });

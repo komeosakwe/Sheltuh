@@ -18,6 +18,7 @@ import { isApiConfigured } from "@/lib/api/client";
 import { AuthProvider } from "@/lib/auth/AuthContext";
 import { APP_THEME_COLOR } from "@/lib/pwa/theme";
 import { THEME_INIT_SCRIPT } from "@/lib/theme";
+import SkipLink from "@/components/SkipLink";
 import { isVercelAnalyticsEnabled } from "@/lib/vercel-analytics";
 import { bootzy, instrument, plexMono } from "./fonts";
 import "./globals.css";
@@ -80,12 +81,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
         <script dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }} />
       </head>
       <body className="min-h-full flex flex-col bg-background text-foreground antialiased">
-        <a
-          href="#main"
-          className="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-50 focus:bg-foreground focus:px-4 focus:py-2 focus:text-sm focus:font-semibold focus:text-background"
-        >
-          Skip to main content
-        </a>
+        <SkipLink />
         <AuthProvider>
           <AnalyticsIdentity />
           <UnreadProvider>

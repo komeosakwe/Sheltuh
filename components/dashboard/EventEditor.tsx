@@ -45,7 +45,7 @@ import EditorCard from "@/components/dashboard/editor/EditorCard";
 import EditorShell from "@/components/dashboard/editor/EditorShell";
 import EditorSummary from "@/components/dashboard/editor/EditorSummary";
 import ErrorSummary, { type ErrorSummaryItem } from "@/components/dashboard/editor/ErrorSummary";
-import { PreviewButton, PreviewPanel } from "@/components/dashboard/editor/PreviewPanel";
+import { PreviewButton, PreviewPanel, usePreviewPlacement } from "@/components/dashboard/editor/PreviewPanel";
 import PublishChecklist, { type ChecklistRow } from "@/components/dashboard/editor/PublishChecklist";
 import {
   PUBLISH_REFUSAL_ID,
@@ -320,6 +320,8 @@ export default function EventEditor(props: Props) {
   const { getToken, initial, onReload } = props;
   const router = useRouter();
   const isAdmin = props.mode === "admin";
+  // The Preview button's wrappers hide where the preview is a panel instead (not inside the organiser frame).
+  const { besideFrom: previewBesideFrom } = usePreviewPlacement();
   // Captured while signed in: the account this draft belongs to, so that if
   // the session expires mid-edit, recovery only accepts signing back in as
   // this same account, and nothing is saved while someone else is signed in
@@ -1248,7 +1250,7 @@ export default function EventEditor(props: Props) {
         rail={
           <>
             {summary}
-            <div className="flex justify-end xl:hidden">{previewButton}</div>
+            <div className={`flex justify-end ${previewBesideFrom}`.trim()}>{previewButton}</div>
           </>
         }
         preview={previewPanel}
@@ -1256,11 +1258,11 @@ export default function EventEditor(props: Props) {
         {outcome ? (
           <PublishOutcomeView outcome={outcome} ref={outcomeRef} />
         ) : (
-          // The same words as the dashboard's status badge (lib/organiser-events.ts).
+          // The same words as the dashboard's status badge (lib/organiser-events.ts) and the Events tab's pill.
           <div className="rounded-card border border-foreground bg-card p-4 text-foreground sm:p-5">
-            <h2 className="font-heading text-xl">{published ? "Published" : "Waiting for review"}</h2>
+            <h2 className="font-heading text-xl">{published ? "Published" : "In review"}</h2>
             <p className="mt-2 text-sm text-muted">
-              This event can&rsquo;t be edited while it&rsquo;s {published ? "published" : "waiting for review"}.
+              This event can&rsquo;t be edited while it&rsquo;s {published ? "published" : "in review"}.
             </p>
           </div>
         )}
@@ -1496,8 +1498,8 @@ export default function EventEditor(props: Props) {
         rail={
           <>
             {summary}
-            <div className="flex items-center justify-between gap-3 xl:hidden">
-              <p aria-hidden="true" className="meta text-muted lg:hidden">
+            <div className={`flex items-center justify-between gap-3 ${previewBesideFrom}`.trim()}>
+              <p aria-hidden="true" className="meta text-muted col-lg:hidden">
                 Step {step} of {EDITOR_STEPS.length}
               </p>
               <div className="ml-auto">{previewButton}</div>

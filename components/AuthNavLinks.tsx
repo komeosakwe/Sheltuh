@@ -4,7 +4,7 @@ import Link from "next/link";
 import type { ReactNode } from "react";
 import AccountAvatar from "@/components/nav/AccountAvatar";
 import AccountMenu from "@/components/nav/AccountMenu";
-import { MY_TICKETS_HREF, ORGANISERS_HREF, type NavAccount } from "@/components/nav/useNavAccount";
+import { MY_TICKETS_HREF, type NavAccount } from "@/components/nav/useNavAccount";
 import CountBadge from "@/components/ui/CountBadge";
 
 /**
@@ -44,12 +44,14 @@ const NOT_CONFIGURED = "Accounts aren't configured in this environment yet";
  * Signed out (and in the demo, where accounts aren't configured): Sign in, then the For
  * organisers nav button. Signed in: the For organisers nav button, Admin with what's waiting
  * (admins only), the Messages chip with its unread count, and the avatar, which opens the
- * avatar menu (components/nav/AccountMenu.tsx; never in the demo).
+ * avatar menu (components/nav/AccountMenu.tsx; never in the demo). For organisers, here and in the
+ * drawer, goes straight to /dashboard for an approved organiser (NavAccount's organisersHref), and is then
+ * never marked current (organisersCurrent: the avatar marks the dashboard).
  */
 export function HeaderAccount({ account }: { account: NavAccount }) {
-  const { auth, current, unreadCount, adminWaiting } = account;
+  const { auth, current, unreadCount, adminWaiting, organisersHref, organisersCurrent } = account;
   const organisers = (
-    <Link href={ORGANISERS_HREF} aria-current={current(ORGANISERS_HREF)} className={headerButtonClass}>
+    <Link href={organisersHref} aria-current={organisersCurrent} className={headerButtonClass}>
       For organisers
     </Link>
   );
@@ -102,10 +104,22 @@ export function HeaderAccount({ account }: { account: NavAccount }) {
  * what's waiting), then For organisers. Settings and signing out are on /account.
  */
 export function MenuAccount({ account }: { account: NavAccount }) {
-  const { auth, current, adminWaiting, profile, profileHref, name, showEvents } = account;
+  const {
+    auth,
+    current,
+    adminWaiting,
+    profile,
+    profileHref,
+    profileCurrent,
+    ticketsCurrent,
+    name,
+    showEvents,
+    organisersHref,
+    organisersCurrent,
+  } = account;
 
   const organisersButton = (
-    <Link href={ORGANISERS_HREF} aria-current={current(ORGANISERS_HREF)} className="btn btn-outline btn-lg w-full">
+    <Link href={organisersHref} aria-current={organisersCurrent} className="btn btn-outline btn-lg w-full">
       For organisers
     </Link>
   );
@@ -138,10 +152,10 @@ export function MenuAccount({ account }: { account: NavAccount }) {
     );
   }
 
-  function row(href: string, label: string, extra?: ReactNode) {
+  function row(href: string, label: string, extra?: ReactNode, isCurrent: "page" | "location" | undefined = current(href)) {
     return (
       <li className="border-t border-surface-border">
-        <Link href={href} aria-current={current(href)} className={menuRowClass}>
+        <Link href={href} aria-current={isCurrent} className={menuRowClass}>
           <span className="flex min-h-6 items-center justify-between gap-3">
             <span>{label}</span>
             {extra}
@@ -157,7 +171,7 @@ export function MenuAccount({ account }: { account: NavAccount }) {
       <Link
         href={profileHref}
         aria-label={`${shownName}, view profile`}
-        aria-current={profileHref.startsWith("/members/") ? current(profileHref) : undefined}
+        aria-current={profileCurrent}
         className="flex min-h-16 items-center gap-4 pb-4"
       >
         <AccountAvatar account={account} size="card" />
@@ -167,7 +181,7 @@ export function MenuAccount({ account }: { account: NavAccount }) {
         </span>
       </Link>
       <ul className="flex flex-col">
-        {row(MY_TICKETS_HREF, "My tickets")}
+        {row(MY_TICKETS_HREF, "My tickets", undefined, ticketsCurrent)}
         {row("/saved", "Saved")}
         {row("/messages", "Messages")}
         {showEvents && row("/dashboard", "Your events")}

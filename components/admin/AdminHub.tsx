@@ -7,6 +7,7 @@ import { Notice } from "@/components/ui/Section";
 import { countText, hoursText } from "@/lib/admin-summary";
 import type { AdminSummary } from "@/lib/api/types";
 import { formatDayWithYear } from "@/lib/format";
+import { TICKET_TRANSFERS_HREF } from "./AdminSubNav";
 import { useAdminSummary } from "./AdminSummaryProvider";
 import { DOOR_EVENTS_HREF, RECENTLY_PUBLISHED_HREF } from "./event-queue-filters";
 
@@ -155,6 +156,13 @@ function manageCards(summary: AdminSummary | null): HubCard[] {
       waiting: Boolean(transfers?.count),
       todo: "Retry, release or cancel organiser transfers.",
       counted: true,
+    },
+    {
+      href: TICKET_TRANSFERS_HREF,
+      title: "Ticket transfers",
+      status: null,
+      waiting: false,
+      todo: "See who a ticket was sent to, or cancel an offer.",
     },
     {
       href: "/admin/trending",

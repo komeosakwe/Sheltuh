@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { MY_TICKETS_HREF, useNavAccount, type NavAccount } from "@/components/nav/useNavAccount";
+import { MY_TICKETS_HREF, PROFILE_HREF, useNavAccount, type NavAccount } from "@/components/nav/useNavAccount";
 import { isApiConfigured } from "@/lib/api/client";
 import { getMe } from "@/lib/api/me";
 import type { AccountSummary } from "@/lib/api/types";
@@ -20,6 +20,12 @@ export interface AccountNavItem {
   /** Read after the label by screen readers, with its separator: ", 3 unread". */
   countText?: string;
   current: boolean;
+  /**
+   * What `current` means to a screen reader (aria-current): "page", the link's own page; "location", a page under
+   * this place that the link doesn't go to (an Accept page or a received ticket, under My tickets; /profile when
+   * Profile goes to the member page).
+   */
+  currentKind?: "page" | "location";
 }
 
 export interface AccountNav {
@@ -62,9 +68,10 @@ const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one :
 /**
  * The account area's five places, in Latte's order (1120 frames: the desktop sidebar and the
  * tablet / mobile Account tabs): Profile · My tickets · Saved · Messages · Settings, with the
- * counts the app already keeps (saved, unread) and GET /api/me's upcoming tickets. Profile and
- * My tickets go to their interim pages until those are built: the member page (or where the
- * profile is edited) and Help's "Where are my tickets?" (MY_TICKETS_HREF).
+ * counts the app already keeps (saved, unread) and GET /api/me's upcoming tickets. Profile goes to
+ * the member page when other members can open it, else /profile (where it's edited); either way
+ * it's the current place on /profile. My tickets goes to the list (/tickets), and is the current
+ * place on the pages under it too.
  */
 export function useAccountNav(pathname: string): AccountNav {
   // The header's (NavAccountProvider): the profile and organiser record aren't fetched again here.
@@ -74,14 +81,25 @@ export function useAccountNav(pathname: string): AccountNav {
 
   const at = (href: string) => pathname === href || pathname.startsWith(`${href}/`);
   const items: AccountNavItem[] = [
-    { key: "profile", label: "Profile", href: account.profileHref, count: null, current: false },
+    {
+      key: "profile",
+      label: "Profile",
+      href: account.profileHref,
+      count: null,
+      // /profile is Profile's place; when the link goes to the member page instead, it's the location, not the page.
+      current: at(PROFILE_HREF),
+      currentKind: pathname === account.profileHref ? "page" : "location",
+    },
     {
       key: "tickets",
       label: "My tickets",
       href: MY_TICKETS_HREF,
       count: upcoming,
       countText: upcoming ? `, ${plural(upcoming, "upcoming event", "upcoming events")}` : undefined,
-      current: false,
+      // The list is its page. A sent ticket's Accept page and a received ticket are tickets too (Latte's Accept
+      // ticket frames); the link doesn't go there, so it's their location, not their page.
+      current: at(MY_TICKETS_HREF),
+      currentKind: pathname === MY_TICKETS_HREF ? "page" : "location",
     },
     {
       key: "saved",
@@ -105,7 +123,5 @@ export function useAccountNav(pathname: string): AccountNav {
   return { account, items, summary };
 }
 
-/** A pill's number: capped at 99+. */
-export function shownCount(count: number): string {
-  return count > 99 ? "99+" : String(count);
-}
+/** A pill's number: capped at 99+ (lib/counts.ts; the dashboard sidebar shares it). */
+export { shownCount } from "@/lib/counts";

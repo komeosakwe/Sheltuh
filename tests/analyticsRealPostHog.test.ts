@@ -134,8 +134,8 @@ describe("the real posthog-js through page views and a capture", () => {
     // navigation at a time, as the App Router does.
     analytics.trackPageview(`/members/${MEMBER}`);
     await settle();
-    setUrl("/admin/events/9f3c/edit?x=ord_0123456789abcdef0123456789abcdef");
-    analytics.trackPageview("/admin/events/9f3c/edit");
+    setUrl("/admin/events/9f3cz7/edit?x=ord_0123456789abcdef0123456789abcdef");
+    analytics.trackPageview("/admin/events/9f3cz7/edit");
     await settle();
     setUrl(`/messages/${CONVERSATION}?near=Fitzroy#hashsecret`);
     analytics.trackPageview(`/messages/${CONVERSATION}`);
@@ -154,7 +154,7 @@ describe("the real posthog-js through page views and a capture", () => {
     expect(sent.some((e) => e.event === "search_performed")).toBe(true);
 
     const payload = JSON.stringify(sent);
-    for (const secret of [MEMBER, CONVERSATION, "Fitzroy", "jazz", "IwAR0secret", "Cj0secret", "mailchimpsecret", "hashsecret", "refsecret", "Alice", "Nguyen", "admin", "ord_", "9f3c"]) {
+    for (const secret of [MEMBER, CONVERSATION, "Fitzroy", "jazz", "IwAR0secret", "Cj0secret", "mailchimpsecret", "hashsecret", "refsecret", "Alice", "Nguyen", "admin", "ord_", "9f3cz7"]) {
       expect(payload, `payload contains ${secret}`).not.toContain(secret);
     }
     for (const event of sent) {
@@ -180,7 +180,7 @@ describe("the real posthog-js through page views and a capture", () => {
 
   it("a visit that begins on /admin and moves to a public page sends no trace of /admin, even once identified", async () => {
     document.title = "Reports — Sheltüh admin";
-    setUrl("/admin/reports?x=1", `${ORIGIN}/admin/events/9f3c/edit`);
+    setUrl("/admin/reports?x=1", `${ORIGIN}/admin/events/9f3cz7/edit`);
     vi.resetModules();
     const analytics = await import("@/lib/analytics");
     analytics.initAnalytics();
@@ -207,7 +207,7 @@ describe("the real posthog-js through page views and a capture", () => {
     expect(sent.some((e) => e.event === "$identify")).toBe(true);
     const payload = JSON.stringify(sent);
     expect(payload).not.toMatch(/admin/i);
-    expect(payload).not.toContain("9f3c");
+    expect(payload).not.toContain("9f3cz7");
     // The campaign tag of the public page is still there.
     expect(pageviews[0].properties.utm_source).toBe("instagram");
   });

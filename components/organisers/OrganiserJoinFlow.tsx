@@ -20,7 +20,7 @@ import { LINK_TOKEN_PATTERN, useFragmentToken, type FragmentToken } from "@/lib/
 import { withNext } from "@/lib/safe-next-path";
 import { EVENT_CATEGORIES, type EventCategory } from "@/lib/types";
 
-/** Where joining lands: the dashboard says welcome (DashboardContent). */
+/** Where joining lands: the dashboard's Overview says welcome (components/dashboard/JoinedWelcome.tsx). */
 export const JOINED_PATH = "/dashboard?welcome=organiser";
 
 const SIGN_UP_HREF = withNext("/signup", ORGANISER_JOIN_PATH);
@@ -72,7 +72,7 @@ function useOrganiserLinkToken(): FragmentToken {
       } catch {
         kept = null;
       }
-      setState(kept && LINK_TOKEN_PATTERN.test(kept) ? { status: "ready", token: kept } : { status: "missing" });
+      setState(kept && LINK_TOKEN_PATTERN.test(kept) ? { status: "ready", token: kept, fragment: "" } : { status: "missing" });
     });
   }, [fragment]);
   return state;
@@ -403,16 +403,18 @@ function JoinForm({
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [formError, setFormError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const focusError = useRef(false);
-  const formErrorRef = useRef<HTMLParagraphElement>(null);
+  /**
+   * Where focus goes once the errors are on screen (the first field with one,
+   * else the form's error). It's state, set with the errors, so only the
+   * render that shows them acts on it: a flag in a ref could be used up by an
+   * earlier render's effect still waiting to run (Join pressed straight after
+   * the form appeared, on a slow device), and focus would stay put.
+   */
+  const [focusTarget, setFocusTarget] = useState<{ id: string } | null>(null);
 
   useEffect(() => {
-    if (!focusError.current) return;
-    focusError.current = false;
-    if (errors.displayName) document.getElementById(NAME_ID)?.focus();
-    else if (errors.categories) document.getElementById(categoryId(EVENT_CATEGORIES[0].value))?.focus();
-    else formErrorRef.current?.focus();
-  }, [errors, formError]);
+    if (focusTarget) document.getElementById(focusTarget.id)?.focus();
+  }, [focusTarget]);
 
   function validate(): Record<string, string> {
     if (pendingName) return {};
@@ -430,7 +432,7 @@ function JoinForm({
     setErrors(nextErrors);
     setFormError(null);
     if (Object.keys(nextErrors).length > 0) {
-      focusError.current = true;
+      setFocusTarget({ id: firstErrorId(nextErrors) });
       return;
     }
     setBusy(true);
@@ -454,8 +456,10 @@ function JoinForm({
         onStatusChanged();
         return;
       }
+      let target = FORM_ERROR_ID;
       if (err instanceof ApiError && err.fieldErrors && Object.keys(err.fieldErrors).length > 0) {
         setErrors(err.fieldErrors);
+        target = firstErrorId(err.fieldErrors);
       } else if (err instanceof SessionExpiredError || (err instanceof ApiError && err.status === 401)) {
         setFormError("Your session has ended. Sign in again, then come back to this link.");
       } else if (err instanceof ApiError && err.status === 403) {
@@ -463,7 +467,7 @@ function JoinForm({
       } else {
         setFormError(err instanceof ApiError && err.message ? err.message : "Couldn’t join. Try again.");
       }
-      focusError.current = true;
+      setFocusTarget({ id: target });
     } finally {
       setBusy(false);
     }
@@ -473,7 +477,6 @@ function JoinForm({
     <form onSubmit={submit} noValidate aria-label="Join as an organiser" className="flex flex-col gap-6">
       {formError && (
         <p
-          ref={formErrorRef}
           id={FORM_ERROR_ID}
           role="alert"
           tabIndex={-1}
@@ -567,6 +570,13 @@ function JoinForm({
       </div>
     </form>
   );
+}
+
+/** The first field with an error, as the form shows them; the form's own error when it's none of them. */
+function firstErrorId(fieldErrors: Record<string, string>): string {
+  if (fieldErrors.displayName) return NAME_ID;
+  if (fieldErrors.categories) return categoryId(EVENT_CATEGORIES[0].value);
+  return FORM_ERROR_ID;
 }
 
 function BackLinks({ links }: { links: { href: string; label: string }[] }) {

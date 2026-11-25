@@ -84,6 +84,11 @@ export function formatEventDateShort(isoLike: string, timeZone: string = PLATFOR
   return `${weekday.format(date)} ${dayMonth.format(date)}`;
 }
 
+/** e.g. "25 Sep" — the day and month in the zone (Melbourne by default), as in formatEventDateShort without the weekday. */
+export function formatDayMonth(isoLike: string, timeZone: string = PLATFORM_TIME_ZONE): string {
+  return formattersFor(timeZone).dayMonth.format(new Date(isoLike));
+}
+
 /** e.g. "8:00 pm" — in the zone (Melbourne by default). */
 export function formatEventTime(isoLike: string, timeZone: string = PLATFORM_TIME_ZONE): string {
   return formattersFor(timeZone).time.format(new Date(isoLike)).toLowerCase();
@@ -103,6 +108,16 @@ export function formatEventTimeCompact(isoLike: string, timeZone: string = PLATF
 /** e.g. "Fri" — the short weekday in the zone (Melbourne by default), as in formatEventDateShort. */
 export function formatEventWeekday(isoLike: string, timeZone: string = PLATFORM_TIME_ZONE): string {
   return formattersFor(timeZone).weekday.format(new Date(isoLike));
+}
+
+/**
+ * Today's date in words, as the organiser Overview's greeting draws it: "Tuesday, 17 November", in
+ * the zone (Melbourne by default), no year.
+ */
+export function formatLongWeekdayDate(date: Date, timeZone: string = PLATFORM_TIME_ZONE): string {
+  const parts = cachedDateTimeFormat("en-AU", { timeZone, weekday: "long", day: "numeric", month: "long" }).formatToParts(date);
+  const part = (type: Intl.DateTimeFormatPartTypes) => parts.find((p) => p.type === type)?.value ?? "";
+  return `${part("weekday")}, ${part("day")} ${part("month")}`;
 }
 
 /**

@@ -1,16 +1,8 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
+import type { TicketCardState } from "@/lib/ticket-card-state";
 
-/** The eight states of UI / Ticket card · 1120. The first four are current tickets; the last four are past. */
-export type TicketCardState =
-  | "active"
-  | "transfer_pending"
-  | "checked_in"
-  | "changed"
-  | "transferred"
-  | "cancelled"
-  | "refunded"
-  | "ended";
+export type { TicketCardState };
 
 const PAST_STATES: readonly TicketCardState[] = ["transferred", "cancelled", "refunded", "ended"];
 
@@ -51,15 +43,25 @@ interface TicketCardProps {
   statusAction?: TicketCardAction & { label: string };
   /** "Show ticket →": current tickets only (never drawn on a past card). Left out, the card has no button (the Accept page). */
   showTicket?: TicketCardAction;
-  /** The title's heading level where the card sits (the list's sections are h2, so h3 by default). */
-  headingLevel?: 2 | 3 | 4;
+  /**
+   * The title's heading level where the card sits (the list's sections are h2, so h3 by default), or null for no
+   * heading: the My ticket page, where the tickets come before the page's h1, which names the same event.
+   */
+  headingLevel?: 2 | 3 | 4 | null;
+  /**
+   * Adds the event's title to each action's name for screen readers ("Show ticket, Here & Now"), where several
+   * cards sit together (My tickets) and a link list would otherwise read "Show ticket" over and over.
+   */
+  nameActionsByEvent?: boolean;
   className?: string;
 }
 
 const showTicketClass =
   "label-button flex min-h-14 w-full items-center justify-center gap-2 rounded-control bg-signal p-4 text-ink motion-safe:transition-colors motion-safe:duration-200 hover:bg-ink hover:text-signal focus-visible:bg-ink focus-visible:text-signal active:bg-ink active:text-signal";
 
-const statusActionClass = "body-s -my-2 inline-flex min-h-9 shrink-0 items-center font-semibold underline underline-offset-2";
+/** The bar's link: 20px of text, with a 44px target (the `after:` inset) that doesn't make the bar taller. */
+const statusActionClass =
+  "body-s relative inline-flex shrink-0 items-center font-semibold underline underline-offset-2 after:absolute after:-inset-x-2 after:-inset-y-3 after:content-['']";
 
 function Action({ action, className, children }: { action: TicketCardAction; className: string; children: ReactNode }) {
   return action.href !== undefined ? (
@@ -88,8 +90,12 @@ function Action({ action, className, children }: { action: TicketCardAction; cla
  *   current card and white on a past one; black with white text for Checked
  *   in (as the frames, not the handoff's table).
  *
- * The title wraps to two lines, then "…"; the date, venue and holder stay on
- * one line and truncate, so they never push the count out of its row
+ * The title wraps to two lines, then "…"; the date wraps (a time is never cut
+ * off); the venue and holder stay on one line and truncate, so they never
+ * push the count out of its row. The card is a container: narrower than 16rem
+ * (a phone at large text) the image goes above the words rather than
+ * squeezing them. The bar and "Show ticket" sit at the card's foot, so in a
+ * row of cards stretched to one height their buttons line up
  * (handoff 1.4). `data-state` carries the state for tests and styling hooks.
  */
 export default function TicketCard({
@@ -104,28 +110,48 @@ export default function TicketCard({
   statusAction,
   showTicket,
   headingLevel = 3,
+  nameActionsByEvent = false,
   className = "",
 }: TicketCardProps) {
   const past = PAST_STATES.includes(state);
-  const Heading = `h${headingLevel}` as const;
+  const Heading = `h${headingLevel ?? 3}` as const;
   const statusText = state === "active" ? null : (status ?? DEFAULT_STATUS[state]);
   const soft = past ? "text-muted" : "text-foreground";
+  const forEvent = nameActionsByEvent ? <span className="sr-only">, {eventTitle}</span> : null;
   const statusLook =
     state === "checked_in" ? "bg-ink text-paper" : past ? "bg-card text-foreground" : "bg-surface text-foreground";
+  const statusBar = statusText ? (
+    <div data-ticket-status="" className={`flex flex-wrap items-center justify-between gap-x-3 gap-y-1 rounded-control px-3 py-2 ${statusLook}`}>
+      <p className="body-s min-w-0 font-semibold break-words">{statusText}</p>
+      {statusAction && (
+        <Action action={statusAction} className={statusActionClass}>
+          {statusAction.label}
+          {forEvent}
+        </Action>
+      )}
+    </div>
+  ) : null;
+  const button =
+    showTicket && !past ? (
+      <Action action={showTicket} className={showTicketClass}>
+        Show ticket{forEvent} <span aria-hidden="true">→</span>
+      </Action>
+    ) : null;
   return (
     <article
       data-state={state}
-      className={`flex flex-col gap-4 rounded-card p-4 ${past ? "bg-surface" : "border border-surface-border bg-card"} ${className}`.trim()}
+      className={`@container flex flex-col gap-4 rounded-card p-4 ${past ? "bg-surface" : "border border-surface-border bg-card"} ${className}`.trim()}
     >
-      <div className="flex items-center gap-4">
+      <div className="flex flex-col items-start gap-4 @3xs:flex-row @3xs:items-center">
         <div
+          data-ticket-image=""
           className={`size-22 shrink-0 overflow-hidden rounded-control bg-surface-border *:size-full ${past ? "opacity-70 grayscale" : ""}`.trim()}
         >
           {image}
         </div>
-        <div className="flex min-w-0 flex-1 flex-col gap-1">
-          <p className={`truncate font-mono text-xs leading-4 ${soft}`}>{when}</p>
-          <Heading className="line-clamp-2 text-xl leading-7 font-semibold break-words text-foreground">{eventTitle}</Heading>
+        <div className="flex w-full min-w-0 flex-1 flex-col gap-1">
+          <p className={`font-mono text-xs leading-4 break-words ${soft}`}>{when}</p>
+          <Heading role={headingLevel === null ? "none" : undefined} className="line-clamp-2 text-xl leading-7 font-semibold break-words text-foreground">{eventTitle}</Heading>
           {venue && <p className={`body-s truncate ${soft}`}>{venue}</p>}
         </div>
       </div>
@@ -133,20 +159,12 @@ export default function TicketCard({
         <p className="body-s min-w-0 flex-1 truncate font-semibold">{holder}</p>
         {count && <p className="shrink-0 font-mono text-xs leading-5">{count}</p>}
       </div>
-      {statusText && (
-        <div data-ticket-status="" className={`flex items-center justify-between gap-3 rounded-control px-3 py-2 ${statusLook}`}>
-          <p className="body-s min-w-0 font-semibold break-words">{statusText}</p>
-          {statusAction && (
-            <Action action={statusAction} className={statusActionClass}>
-              {statusAction.label}
-            </Action>
-          )}
+      {/* The foot: only when there's something in it (an empty one would add a gap). */}
+      {(statusBar || button) && (
+        <div data-ticket-foot="" className="mt-auto flex flex-col gap-4">
+          {statusBar}
+          {button}
         </div>
-      )}
-      {showTicket && !past && (
-        <Action action={showTicket} className={showTicketClass}>
-          Show ticket <span aria-hidden="true">→</span>
-        </Action>
       )}
     </article>
   );

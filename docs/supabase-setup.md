@@ -50,13 +50,69 @@ Stripe (payments) and Vercel (hosting).
 The sign-up and password-reset screens ask people to type a code from their
 email, rather than click a link. Supabase sends links by default, so:
 
-- **Sign In / Providers → Email:** keep "Confirm email" **on**. Account
-  invites depend on it: accepting one needs only a verified email, so with
-  confirmation off anyone could sign up with an invited address and accept
-  the invite.
-- **Emails → Templates → "Confirm signup":** put `{{ .Token }}` in the body,
-  e.g. `Your Sheltüh verification code is {{ .Token }}`.
-- **Emails → Templates → "Reset password":** the same, with `{{ .Token }}`.
+- **Sign In / Providers → Email:** keep "Confirm email" **on**. With it
+  off, Supabase confirms every address itself, so a confirmed email proves
+  nothing:
+  - **anyone can sign up with a buyer's address and see and send that
+    buyer's tickets** (My tickets and sending a ticket go by the
+    account's confirmed email);
+  - account invites: accepting one needs only a verified email, so anyone
+    could sign up with an invited address and accept the invite;
+  - Who's Going and messaging trust it the same way.
+
+  **Smoke test before go-live:** sign up a fresh address and don't enter
+  the code. Supabase must not give it a session (signing in says the email
+  isn't confirmed); if it does, `GET /api/me` with that session's access
+  token must answer **403** (a 200 means "Confirm email" is off). Or check
+  `GET {SUPABASE_URL}/auth/v1/settings` (the publishable key as the
+  `apikey` header): `"mailer_autoconfirm"` must be `false`.
+- **Emails → Templates:** the app uses two of Supabase's emails, both a code
+  (`{{ .Token }}`), never a link, and one of its Security notifications,
+  "Password changed". Their branded versions, on the same email kit as every
+  other Sheltüh email, are committed in `supabase/templates/`.
+  For each, paste the subject into "Subject" and the whole file into
+  "Message body" (the Source view), then save:
+
+  | Template | Subject | File |
+  | --- | --- | --- |
+  | Confirm signup | `{{ .Token }} is your Sheltüh code` | `supabase/templates/confirm-signup.html` |
+  | Reset password | `{{ .Token }} is your Sheltüh reset code` | `supabase/templates/reset-password.html` |
+  | Security → Password changed | `Your Sheltüh password was changed` | `supabase/templates/password-changed.html` |
+
+  Leave Magic link, Change email address and Reauthentication alone: the app
+  never sends them. Things to know:
+  - **Security notifications:** "Password changed" goes out after every
+    password update while it's switched on: after a reset, and also when
+    someone accepting an invite sets their first password (its copy covers
+    both). Supabase gives it no time, so it says "was just changed" and the
+    email's own time shows when. Its "If this wasn't you" link and button go
+    to `https://sheltuh.com.au/forgot-password`. "Email address changed" can
+    stay on or off: it can't fire, because the app has no way to change an
+    account's email (nothing calls `updateUser` with an email), so there's no
+    branded version of it. If an email change is ever added, it needs one
+    (and the "Change email address" template).
+  - Copy `{{ .Token }}` and `{{ .Email }}` exactly. Supabase fills in the
+    subject and the body (Go's `html/template`), so the code can sit in the
+    subject.
+  - Gmail's "Copy code" chip and Apple's code autofill are the mail apps'
+    own choice. We can only make the code easy to find: it's in the subject
+    after the word "code", in the line "Your Sheltüh code is …", and in the
+    box as one run of digits that one tap selects. The code fields on the
+    sign-up and reset pages accept iOS's suggestion (`one-time-code`).
+  - Supabase sends these as HTML only; there's no plain-text version.
+  - The wordmark and fonts load from `https://sheltuh.com.au`, so they show
+    once the app is live there (before that, the alt text "Sheltüh" and
+    Arial). Outlook for Windows shows the column full width: Supabase
+    removes the HTML comments Outlook's fixed width relies on.
+  - The emails say "This code expires soon" rather than a time, because
+    the expiry isn't set here. If you want a time in them, check "Email OTP
+    Expiration" (Sign In / Providers → Email) and change the copy in
+    `lib/server/auth-email-templates.ts`.
+  - The code is as long as "Email OTP Length" says (8 today); the box fits
+    6 to 10 digits.
+  - To change them, edit `lib/server/auth-email-templates.ts`, run
+    `node --import tsx scripts/render-auth-email-templates.ts`, commit, and
+    paste again. `scripts/preview-auth-email-templates.ts` screenshots them.
 - **Don't use Users → "Invite user"** (or change the "Invite user"
   template). Its link goes to Supabase's own verify page, which this app
   doesn't pick up (sign-in uses PKCE), so the person would land nowhere.
@@ -598,16 +654,28 @@ left join public.organisers o on o.id = v.organiser_id
 where v.event_id = '<event id>' order by v.day desc, v.rows_served desc limit 50;
 ```
 
-**Withdrawing someone's details.** A buyer who asks (by email to support)
-for their name and email to stop being shown to the organiser: verify the
-request comes from that address, then clear the name and the notice stamp on
-every order for it. The row stays; the Orders view then shows "—", as for an
-order made before the feature. This does **not** recall a CSV the organiser
-already exported (the privacy policy says so); tell the buyer.
+**Withdrawing someone's details (one procedure for an address).** Someone
+who asks (by email to support) for their name and email to stop being shown
+to organisers: verify the request comes from that address, then run **both**
+statements below, in one go, with their address. The same person can be a
+buyer on some orders and, on others, the holder of a ticket someone sent
+them ("Ticket transfers" below), so clearing only one would leave them
+showing on the other. The first clears the name and the notice stamp on every
+order bought with the address (the Orders view then shows "—", as for an
+order made before the feature); the second stamps every ticket they accepted
+with it (the order keeps the entry as "1 ticket sent to someone else
+(details not shared)"; set once, the guard trigger refuses any other
+change). Either finding nothing is fine. The rows stay. Both hide the person
+from the Orders view, its search and its CSV
+(`tests/server/event-orders.test.ts` runs these exact statements). This does
+**not** recall a CSV the organiser already exported (the privacy policy says
+so); tell them.
 
 ```sql
 update public.orders set buyer_name = null, details_notice_at = null
 where lower(buyer_email) = lower('<address>');
+update private.ticket_transfers set holder_details_withdrawn_at = now()
+where status = 'accepted' and lower(accepted_email) = lower('<address>') and holder_details_withdrawn_at is null;
 ```
 
 The two columns are set and cleared together (`orders_details_notice_pair`),
@@ -678,9 +746,27 @@ Apply it in the SQL editor before deploying the app that reads it; sending
 stays off until `NEXT_PUBLIC_TICKET_TRANSFERS=1`. Never edit an accepted
 offer's row or delete it: its `issued_code` is the recipient's ticket, and
 the buyer's original code stays dead while it exists (the guard trigger
-refuses edits anyway). Support lists offers at `GET /api/admin/ticket-transfers`
-(by an order's or a transfer's reference) and cancels one that's still
-pending there, with a reason; an accepted one can't be undone in v1.
+refuses edits anyway). Support's page is **Admin → Ticket transfers**
+(`/admin/ticket-transfers`, also linked from Emails once "Find an order" has
+found one, and from the hub; the API is `GET /api/admin/ticket-transfers`):
+
+- **Finding a transfer.** Type the order's reference (`#7C1F2E0A`, from the
+  buyer's email or the organiser's Orders view) or the transfer's own (`#` and
+  8 characters, from the recipient's ticket) and Find. Each offer shows its
+  status, who sent it, who it went to and who accepted (addresses masked),
+  and when.
+- **Cancelling an offer.** Only one still waiting ("Waiting"): Cancel offer,
+  with a reason kept with it (3 to 500 characters, no email addresses). The
+  link stops working and the ticket stays with whoever sent it. 30 cancels an
+  hour per admin.
+- **An accepted transfer can't be undone in v1**: the recipient's code is the
+  ticket now and the buyer's is dead. If one must be reversed, there is no
+  supported way yet (a refund voids it, with the rest of the order).
+
+The event's organiser sees each order's tickets sent on, with the holder's
+name and email under the buyers' rules (12 months after the event, with the
+notice the holder was shown at accept); withdrawing someone (above, under
+"Organiser orders") hides them there and from the organiser's search and CSV.
 
 A ticket's offers, by the full order id (from the verified Stripe payment's
 metadata `orderId`, as for email changes); addresses masked:
@@ -696,17 +782,11 @@ where x.order_id = '<the payment metadata orderId>' order by x.created_at;
 Before refunding an order, check this: a refund voids every ticket of it,
 including ones its buyer sent on (the recipient isn't told in v1).
 
-**Withdrawing a holder's details.** A recipient who asks (by email to
-support) for their name and email to stop being shown to the organiser:
-verify the request comes from the address they accepted with, then stamp
-their holdings. The row stays (it's their ticket); the organiser's view
-hides the details once stamped (set once; the guard trigger refuses any
-other change):
-
-```sql
-update private.ticket_transfers set holder_details_withdrawn_at = now()
-where status = 'accepted' and lower(accepted_email) = lower('<address>') and holder_details_withdrawn_at is null;
-```
+**Withdrawing a holder's details.** A recipient who asks for their name and
+email to stop being shown to the organiser: use **"Withdrawing someone's
+details (one procedure for an address)"** under "Organiser orders" above, with
+the address they accepted with. It runs both statements, so the same address
+is also cleared on any order they bought themselves. The ticket keeps working.
 
 **Blanking typed details.** A sender or recipient who asks for the names
 and address typed into an offer to be removed (the sender's name, the

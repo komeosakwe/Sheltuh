@@ -30,6 +30,19 @@ async function fetchOrganiser(getToken: GetToken): Promise<OrganiserResult> {
   }
 }
 
+/** The window event every useOrganiser instance listens for (announceOrganiserChange). */
+const ORGANISER_CHANGED = "sheltuh:organiser-changed";
+
+/**
+ * Tells every useOrganiser on the page that the signed-in organiser's own record changed (a saved
+ * profile, a new or removed logo), so the parts that read it on their own (the dashboard's sidebar
+ * and rail, the header's account menu) show the saved version without a reload.
+ */
+export function announceOrganiserChange(organiser: OrganiserRecord) {
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(new CustomEvent<OrganiserRecord>(ORGANISER_CHANGED, { detail: organiser }));
+}
+
 const API_NOT_CONFIGURED = "The live API is not configured in this environment.";
 
 /**
@@ -71,6 +84,22 @@ export function useOrganiser() {
       cancelled = true;
     };
   }, [account, getToken]);
+
+  // A record saved elsewhere on the page (announceOrganiserChange), for this same account and
+  // organiser only: anything else waits for the account's own fetch.
+  useEffect(() => {
+    if (account === null) return;
+    const onChange = (event: Event) => {
+      const next = (event as CustomEvent<OrganiserRecord>).detail;
+      setFetched((was) =>
+        was && was.account === account && was.organiser && next && was.organiser.organiserId === next.organiserId
+          ? { account, organiser: next, error: null }
+          : was,
+      );
+    };
+    window.addEventListener(ORGANISER_CHANGED, onChange);
+    return () => window.removeEventListener(ORGANISER_CHANGED, onChange);
+  }, [account]);
 
   let state: OrganiserResult & { loading: boolean };
   if (!isApiConfigured) state = { loading: false, organiser: null, error: API_NOT_CONFIGURED };

@@ -36,7 +36,7 @@ export default function EditorSummary({
   return (
     <section
       aria-label="Event summary"
-      className="flex items-start gap-3 lg:flex-col lg:gap-3 lg:rounded-card lg:border lg:border-foreground lg:bg-card lg:p-4"
+      className="flex items-start gap-3 col-lg:flex-col col-lg:gap-3 col-lg:rounded-card col-lg:border col-lg:border-foreground col-lg:bg-card col-lg:p-4"
     >
       <EventArt
         poster={poster}
@@ -44,11 +44,11 @@ export default function EditorSummary({
         imageFocus={imageFocus}
         title={name || "Untitled event"}
         fit="auto"
-        className="aspect-square size-12 shrink-0 overflow-hidden rounded-control lg:aspect-[3/2] lg:size-auto lg:w-full"
+        className="aspect-square size-12 shrink-0 overflow-hidden rounded-control col-lg:aspect-[3/2] col-lg:size-auto col-lg:w-full"
       />
-      <div className="flex min-w-0 flex-1 flex-col gap-1 lg:gap-2">
+      <div className="flex min-w-0 flex-1 flex-col gap-1 col-lg:gap-2">
         <p
-          className={`line-clamp-2 text-base leading-6 font-semibold break-words lg:line-clamp-3 ${name ? "" : "text-muted"}`}
+          className={`line-clamp-2 text-base leading-6 font-semibold break-words col-lg:line-clamp-3 ${name ? "" : "text-muted"}`}
           data-summary-title=""
         >
           {name || "Untitled event"}
@@ -61,7 +61,7 @@ export default function EditorSummary({
         {organiser && <p className="text-sm text-muted">Organiser: {organiser}</p>}
         {lastSaved && <p className="meta text-muted">Last saved {lastSaved}</p>}
         {price && (
-          <p className="hidden text-sm tabular-nums lg:block">
+          <p className="hidden text-sm tabular-nums col-lg:block">
             {price.amount}
             {price.note && <span className="block text-xs text-muted">{price.note}</span>}
           </p>

@@ -17,6 +17,11 @@ vi.mock("@/lib/api/organisers", () => ({
   uploadOrganiserLogo: (...args: unknown[]) => uploadOrganiserLogo(...args),
   deleteOrganiserLogo: (...args: unknown[]) => deleteOrganiserLogo(...args),
 }));
+const announceOrganiserChange = vi.fn();
+vi.mock("@/lib/auth/useOrganiser", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/auth/useOrganiser")>()),
+  announceOrganiserChange: (...args: unknown[]) => announceOrganiserChange(...args),
+}));
 const prepareEventImage = vi.fn();
 vi.mock("@/lib/image", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/image")>()),
@@ -40,7 +45,7 @@ const PREPARED = new Blob(["shrunk"], { type: "image/jpeg" });
 
 let blobCount = 0;
 beforeEach(() => {
-  for (const fn of [uploadOrganiserLogo, deleteOrganiserLogo, prepareEventImage]) fn.mockReset();
+  for (const fn of [uploadOrganiserLogo, deleteOrganiserLogo, prepareEventImage, announceOrganiserChange]) fn.mockReset();
   prepareEventImage.mockResolvedValue(PREPARED);
   blobCount = 0;
   Object.assign(URL, {
@@ -143,8 +148,11 @@ describe("OrganiserLogoField", () => {
     pick(png());
     expect(prepareEventImage).toHaveBeenCalledTimes(1);
 
+    expect(announceOrganiserChange).not.toHaveBeenCalled();
     await act(async () => resolve({ ...RECORD, logoUrl: LOGO_URL }));
     expect(screen.getByRole("img", { name: "Your logo" })).toHaveAttribute("src", LOGO_URL);
+    // The dashboard's sidebar and rail (their own useOrganiser) take the saved record.
+    expect(announceOrganiserChange).toHaveBeenCalledWith({ ...RECORD, logoUrl: LOGO_URL });
     expect(statusText()).toContain("Logo saved. It’s on your public profile now.");
     expect(picker()).toHaveAccessibleName("Logo (optional) Change logo");
     expect(screen.getByRole("button", { name: "Remove logo" })).toBeInTheDocument();
@@ -172,6 +180,7 @@ describe("OrganiserLogoField", () => {
     renderField();
     pick(png());
     expect(await screen.findByRole("alert")).toHaveTextContent(message);
+    expect(announceOrganiserChange).not.toHaveBeenCalled();
     // Nothing changed: still the empty placeholder, and the status says nothing stale.
     expect(screen.getByText("No logo yet")).toBeInTheDocument();
     expect(statusText()).toBe("");
@@ -205,6 +214,7 @@ describe("OrganiserLogoField", () => {
     await expect(sentToken(deleteOrganiserLogo)).resolves.toBe("user-1-token");
     await waitFor(() => expect(screen.getByText("No logo yet")).toBeInTheDocument());
     expect(statusText()).toContain("Logo removed.");
+    expect(announceOrganiserChange).toHaveBeenCalledWith({ ...RECORD });
     expect(picker()).toHaveFocus();
     expect(screen.queryByRole("button", { name: "Remove logo" })).toBeNull();
   });

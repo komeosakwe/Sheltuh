@@ -101,8 +101,8 @@ describe("Nav — phone menu", () => {
     expect(linkHrefs(menu)).toEqual([
       ...PLACES,
       // The profile isn't loaded in this test (no API): its email and the place to edit the profile.
-      ["organiser@example.com, view profile", "/account#member-profile"],
-      ["My tickets", "/help#where-are-my-tickets"],
+      ["organiser@example.com, view profile", "/profile"],
+      ["My tickets", "/tickets"],
       ["Saved", "/saved"],
       ["Messages", "/messages"],
       ["Your events", "/dashboard"],

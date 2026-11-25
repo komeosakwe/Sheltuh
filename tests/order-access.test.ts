@@ -145,6 +145,17 @@ describe("order access tokens on this device (lib/order-access.ts)", () => {
     }
   });
 
+  it("forgetOrderAccessIfFinal: while the token can still send or take back a ticket, a scan doesn't end it (the rest still do)", () => {
+    rememberOrderAccess(ORDER, TOKEN);
+    forgetOrderAccessIfFinal(ORDER, { allowed: false, reason: "ticket_scanned" }, true);
+    expect(orderAccessFor(ORDER)).toBe(TOKEN);
+    for (const reason of ["event_ended", "changed_by_support"] as const) {
+      rememberOrderAccess(ORDER, TOKEN);
+      forgetOrderAccessIfFinal(ORDER, { allowed: false, reason }, true);
+      expect(orderAccessFor(ORDER), reason).toBeUndefined();
+    }
+  });
+
   it("storage that throws is ignored: nothing kept, nothing thrown", () => {
     vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
       throw new DOMException("full", "QuotaExceededError");

@@ -68,8 +68,20 @@ function MenuCount({ count, srText }: { count: number | null; srText: string }) 
  * hairline in Light (no shadow, as drawn), #1c1b17 with a 1px white stroke in Dark.
  */
 export default function AccountMenu({ account, initial }: { account: NavAccount; initial: string }) {
-  const { auth, current, unreadCount, adminWaiting, savedCount, profile, profileHref, name, showEvents, avatarCurrent } =
-    account;
+  const {
+    auth,
+    current,
+    unreadCount,
+    adminWaiting,
+    savedCount,
+    profile,
+    profileHref,
+    profileCurrent,
+    ticketsCurrent,
+    name,
+    showEvents,
+    avatarCurrent,
+  } = account;
   const router = useRouter();
   const panelRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
@@ -147,7 +159,7 @@ export default function AccountMenu({ account, initial }: { account: NavAccount;
   }
 
   // A link closes the menu (a link to the page already showing doesn't navigate).
-  function row(href: string, label: string, extra?: ReactNode, isCurrent?: "page") {
+  function row(href: string, label: string, extra?: ReactNode, isCurrent?: "page" | "location") {
     return (
       <li>
         <Link href={href} aria-current={isCurrent} className={rowClass} onClick={close}>
@@ -162,7 +174,6 @@ export default function AccountMenu({ account, initial }: { account: NavAccount;
   }
 
   const line2 = profile?.displayName ? auth.email : undefined;
-  const ownPage = profileHref.startsWith("/members/") ? current(profileHref) : undefined;
 
   return (
     <>
@@ -220,8 +231,8 @@ export default function AccountMenu({ account, initial }: { account: NavAccount;
           </div>
           <div aria-hidden="true" className={`mb-2 ${dividerClass}`} />
           <ul className="flex flex-col">
-            {row(profileHref, "Profile", undefined, ownPage)}
-            {row(MY_TICKETS_HREF, "My tickets")}
+            {row(profileHref, "Profile", undefined, profileCurrent)}
+            {row(MY_TICKETS_HREF, "My tickets", undefined, ticketsCurrent)}
             {row("/saved", "Saved", <MenuCount count={savedCount} srText={`, ${savedCount} saved`} />, current("/saved"))}
             {row(
               "/messages",

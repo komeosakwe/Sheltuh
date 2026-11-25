@@ -12,6 +12,7 @@ import { useAuth } from "@/lib/auth/AuthContext";
 import { useKeptWhileSignedOut } from "@/lib/auth/useKeptWhileSignedOut";
 import { useOrganiser } from "@/lib/auth/useOrganiser";
 import { withNext } from "@/lib/safe-next-path";
+import { useOpeningDashboard } from "./OpeningDashboard";
 import { START_TITLE_ID } from "./organisers-content";
 
 /**
@@ -77,12 +78,22 @@ export default function ApplyPageContent() {
   const keptForm = !settled && kept && kept.value !== false ? formViewFor(kept.value) : null;
   const onSuccess = (record: OrganiserRecord, as: string) => setJustSubmitted({ record, account: as });
   // Owner (26 Oct 2026): "if someone is already an organiser clicking for organiser should take them
-  // to the dashboard". Every "For organisers" link lands here, so an approved organiser goes straight on.
+  // to the dashboard". The site's own nav links them there directly (lib/organiser-nav.ts); anything
+  // else that lands here (a marketing link, a bookmark) sends an approved organiser straight on, once
+  // between this and OpeningDashboard around the page, which also hears when this load failed (so the
+  // page, with the error and Try again below, is shown).
   const router = useRouter();
+  const opening = useOpeningDashboard();
   const approved = settled && !error && current?.status === "approved";
   useEffect(() => {
-    if (approved) router.replace("/dashboard");
-  }, [approved, router]);
+    if (!approved) return;
+    if (opening) opening.goToDashboard();
+    else router.replace("/dashboard");
+  }, [approved, opening, router]);
+  const failed = settled && error !== null;
+  useEffect(() => {
+    opening?.reportPanelError(failed);
+  }, [failed, opening]);
 
   if (!auth.configured) {
     return (

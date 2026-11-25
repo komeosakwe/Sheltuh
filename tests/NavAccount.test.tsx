@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import Footer from "@/components/Footer";
 import Nav from "@/components/Nav";
 import { NavAccountProvider } from "@/components/nav/useNavAccount";
 import type { ProfileRecord } from "@/lib/api/types";
@@ -16,9 +17,10 @@ import { fakeAuthValue, FakeAuthProvider } from "./test-utils/fakeAuth";
 
 let pathname = "/events";
 const push = vi.fn();
+const prefetch = vi.fn();
 vi.mock("next/navigation", () => ({
   usePathname: () => pathname,
-  useRouter: () => ({ push }),
+  useRouter: () => ({ push, prefetch }),
 }));
 
 let profileState: ProfileState = { status: "loading" };
@@ -63,10 +65,12 @@ beforeEach(() => {
   unread = 3;
   saved = { status: "ready", count: 12 };
   push.mockReset();
+  prefetch.mockReset();
 });
 
 afterEach(() => {
   cleanup();
+  localStorage.clear();
 });
 
 function renderNav(auth: AuthContextValue = fakeAuthValue({ email: "latte@example.com" })) {
@@ -132,7 +136,7 @@ describe("phone drawer, signed in", () => {
     const first = renderNav();
     expect(within(first.drawer).getByRole("link", { name: "Latte, view profile", hidden: true })).toHaveAttribute(
       "href",
-      "/account#member-profile",
+      "/profile",
     );
     cleanup();
     profileState = { status: "loading" };
@@ -149,7 +153,7 @@ describe("phone drawer, signed in", () => {
       ["Nearby", "/map"],
       ["Community", "/community"],
       ["Latte, view profile", "/members/p-latte"],
-      ["My tickets", "/help#where-are-my-tickets"],
+      ["My tickets", "/tickets"],
       ["Saved", "/saved"],
       ["Messages", "/messages"],
       ["For organisers", "/organisers/apply"],
@@ -242,7 +246,7 @@ describe("avatar menu (from lg)", () => {
     const nav = within(panel).getByRole("navigation", { name: "Account", hidden: true });
     expect(names(nav)).toEqual([
       ["Profile", "/members/p-latte"],
-      ["My tickets", "/help#where-are-my-tickets"],
+      ["My tickets", "/tickets"],
       ["Saved, 12 saved", "/saved"],
       ["Messages, 3 unread", "/messages"],
       ["Settings", "/account"],
@@ -281,7 +285,63 @@ describe("avatar menu (from lg)", () => {
     profileState = { status: "ready", profile: null };
     const bare = requirePanel(renderNav().panel);
     expect(within(bare).getByText("latte@example.com")).toHaveClass("body-m");
-    expect(within(bare).getByRole("link", { name: "Profile", hidden: true })).toHaveAttribute("href", "/account#member-profile");
+    expect(within(bare).getByRole("link", { name: "Profile", hidden: true })).toHaveAttribute("href", "/profile");
+  });
+
+  it("sends a suspended member to /profile, not their member page (it's a 404 while they're suspended)", () => {
+    profileState = { status: "ready", profile: { ...LATTE, suspended: true } };
+    const { drawer, panel } = renderNav();
+    expect(within(requirePanel(panel)).getByRole("link", { name: "Profile", hidden: true })).toHaveAttribute("href", "/profile");
+    expect(within(drawer).getByRole("link", { name: "Latte, view profile", hidden: true })).toHaveAttribute("href", "/profile");
+  });
+
+  it("on /profile with a visible profile (Profile goes to the member page): Profile and the identity are the location", () => {
+    pathname = "/profile";
+    const { drawer, panel } = renderNav();
+    const row = within(requirePanel(panel)).getByRole("link", { name: "Profile", hidden: true });
+    expect(row).toHaveAttribute("href", "/members/p-latte");
+    expect(row).toHaveAttribute("aria-current", "location");
+    expect(row.querySelector(".umlaut")).toHaveAttribute("data-current", "");
+    expect(screen.getByRole("button", { name: "Account" })).toHaveAttribute("data-current", "");
+    const identity = within(drawer).getByRole("link", { name: "Latte, view profile", hidden: true });
+    expect(identity).toHaveAttribute("href", "/members/p-latte");
+    expect(identity).toHaveAttribute("aria-current", "location");
+  });
+
+  it.each([
+    ["/tickets", "page"],
+    ["/tickets/received/0b5c2f8e-7d6a-4c1b-9e3f-2a1d4c5b6e7f", "location"],
+    ["/tickets/accept", "location"],
+  ])("on %s, My tickets in the avatar menu and the drawer is aria-current=%s, and the avatar keeps its dots", (path, kind) => {
+    pathname = path;
+    const { drawer, panel } = renderNav();
+    const row = within(requirePanel(panel)).getByRole("link", { name: "My tickets", hidden: true });
+    expect(row).toHaveAttribute("href", "/tickets");
+    expect(row).toHaveAttribute("aria-current", kind);
+    expect(row.querySelector(".umlaut")).toHaveAttribute("data-current", "");
+    expect(within(drawer).getByRole("link", { name: "My tickets", hidden: true })).toHaveAttribute("aria-current", kind);
+    expect(screen.getByRole("button", { name: "Account" })).toHaveAttribute("data-current", "");
+  });
+
+  it("on the member page itself, Profile is the page", () => {
+    pathname = "/members/p-latte";
+    const { drawer, panel } = renderNav();
+    expect(within(requirePanel(panel)).getByRole("link", { name: "Profile", hidden: true })).toHaveAttribute("aria-current", "page");
+    expect(within(drawer).getByRole("link", { name: "Latte, view profile", hidden: true })).toHaveAttribute("aria-current", "page");
+  });
+
+  it("marks Profile and the avatar current on /profile", () => {
+    pathname = "/profile";
+    profileState = { status: "ready", profile: null };
+    const { drawer, panel } = renderNav();
+    const row = within(requirePanel(panel)).getByRole("link", { name: "Profile", hidden: true });
+    expect(row).toHaveAttribute("aria-current", "page");
+    expect(row.querySelector(".umlaut")).toHaveAttribute("data-current", "");
+    expect(screen.getByRole("button", { name: "Account" })).toHaveAttribute("data-current", "");
+    expect(within(drawer).getByRole("link", { name: "latte@example.com, view profile", hidden: true })).toHaveAttribute(
+      "aria-current",
+      "page",
+    );
   });
 
   it("is a disclosure: the avatar's aria-expanded follows the panel, and it keeps the page's theme inside the ink header, 8px under it", () => {
@@ -385,5 +445,157 @@ describe("avatar menu (from lg)", () => {
       expect(screen.queryByRole("button", { name: "Account" })).toBeNull();
       cleanup();
     }
+  });
+});
+
+describe("For organisers (the header's button and the drawer's)", () => {
+  const LATTE_ID = "user-latte";
+  const signedIn = () => fakeAuthValue({ email: "latte@example.com", userId: LATTE_ID });
+  /** The header's For organisers (the desktop row) and the drawer's. */
+  function organisersLinks(drawer: HTMLElement) {
+    const [desktopNav] = screen.getAllByRole("navigation", { name: "Primary" });
+    return [
+      within(desktopNav).getByRole("link", { name: "For organisers" }),
+      within(drawer).getByRole("link", { name: "For organisers", hidden: true }),
+    ];
+  }
+
+  it("goes straight to the dashboard for an approved organiser, prefetched, keeping its label", () => {
+    organiser = { loading: false, organiser: { status: "approved" }, error: null };
+    const { drawer } = renderNav(signedIn());
+    for (const link of organisersLinks(drawer)) {
+      expect(link).toHaveAttribute("href", "/dashboard");
+      expect(link).toHaveTextContent(/^For organisers$/);
+      expect(link).not.toHaveAttribute("aria-current");
+    }
+    expect(prefetch).toHaveBeenCalledWith("/dashboard");
+  });
+
+  it("goes to the dashboard while the record loads when this browser last showed them the organiser frame", () => {
+    localStorage.setItem("sheltuh:organiser-frame", LATTE_ID);
+    organiser = { loading: true, organiser: null, error: null };
+    const { drawer } = renderNav(signedIn());
+    for (const link of organisersLinks(drawer)) expect(link).toHaveAttribute("href", "/dashboard");
+    expect(prefetch).toHaveBeenCalledWith("/dashboard");
+  });
+
+  it("a hint for another account, or none, leaves it on the For organisers page while the record loads", () => {
+    localStorage.setItem("sheltuh:organiser-frame", "user-someone-else");
+    organiser = { loading: true, organiser: null, error: null };
+    const { drawer } = renderNav(signedIn());
+    for (const link of organisersLinks(drawer)) expect(link).toHaveAttribute("href", "/organisers/apply");
+    expect(prefetch).not.toHaveBeenCalled();
+  });
+
+  it("the record overrules the hint: a pending or rejected applicant, or a member, gets the For organisers page", () => {
+    localStorage.setItem("sheltuh:organiser-frame", LATTE_ID);
+    for (const record of [{ status: "pending" }, { status: "rejected" }, null]) {
+      organiser = { loading: false, organiser: record, error: null };
+      const { drawer } = renderNav(signedIn());
+      for (const link of organisersLinks(drawer)) expect(link).toHaveAttribute("href", "/organisers/apply");
+      cleanup();
+    }
+    expect(prefetch).not.toHaveBeenCalled();
+  });
+
+  it("signed out and in the demo it's the For organisers page, whatever the hint", () => {
+    localStorage.setItem("sheltuh:organiser-frame", LATTE_ID);
+    organiser = { loading: false, organiser: { status: "approved" }, error: null };
+    for (const auth of [
+      fakeAuthValue({ status: "signed-out", email: undefined, userId: LATTE_ID }),
+      fakeAuthValue({ configured: false, userId: LATTE_ID }),
+    ]) {
+      const { drawer } = renderNav(auth);
+      for (const link of organisersLinks(drawer)) expect(link).toHaveAttribute("href", "/organisers/apply");
+      cleanup();
+    }
+    expect(prefetch).not.toHaveBeenCalled();
+  });
+
+  it("isn't current on the dashboard's pages when it goes there (the avatar and Your events mark them); is on the apply page", () => {
+    organiser = { loading: false, organiser: { status: "approved" }, error: null };
+    for (const path of ["/dashboard", "/dashboard/events"]) {
+      pathname = path;
+      const { drawer } = renderNav(signedIn());
+      for (const link of organisersLinks(drawer)) expect(link).not.toHaveAttribute("aria-current");
+      // One current marker for the place: the avatar's dots, and Your events in the drawer.
+      const [desktopNav] = screen.getAllByRole("navigation", { name: "Primary" });
+      expect(within(desktopNav).getByRole("button", { name: "Account" })).toHaveAttribute("data-current", "");
+      expect(within(drawer).getByRole("link", { name: "Your events", hidden: true })).toHaveAttribute("aria-current", "page");
+      cleanup();
+    }
+    // A hinted account's link goes to /dashboard while the record loads: not current there either.
+    localStorage.setItem("sheltuh:organiser-frame", LATTE_ID);
+    organiser = { loading: true, organiser: null, error: null };
+    pathname = "/dashboard";
+    const hinted = renderNav(signedIn());
+    for (const link of organisersLinks(hinted.drawer)) expect(link).not.toHaveAttribute("aria-current");
+    cleanup();
+    localStorage.clear();
+    pathname = "/organisers/apply";
+    organiser = { loading: false, organiser: { status: "pending" }, error: null };
+    const { drawer } = renderNav(signedIn());
+    for (const link of organisersLinks(drawer)) expect(link).toHaveAttribute("aria-current", "page");
+  });
+
+  it("keeps this browser's hint true to the record once it loads: set for an approved organiser, cleared otherwise", () => {
+    const hint = () => localStorage.getItem("sheltuh:organiser-frame");
+    organiser = { loading: false, organiser: { status: "approved" }, error: null };
+    renderNav(signedIn());
+    expect(hint()).toBe(LATTE_ID);
+    cleanup();
+    // Loading, or a failed load, changes nothing.
+    for (const load of [
+      { loading: true, organiser: null, error: null },
+      { loading: false, organiser: null, error: "Couldn't load your organiser status." },
+    ]) {
+      organiser = load;
+      renderNav(signedIn());
+      expect(hint()).toBe(LATTE_ID);
+      cleanup();
+    }
+    // A record that isn't approved (a stale hint) clears it.
+    organiser = { loading: false, organiser: { status: "pending" }, error: null };
+    const { drawer } = renderNav(signedIn());
+    expect(hint()).toBeNull();
+    for (const link of organisersLinks(drawer)) expect(link).toHaveAttribute("href", "/organisers/apply");
+    cleanup();
+    // Another account's hint is left alone; nobody signed out writes one.
+    localStorage.setItem("sheltuh:organiser-frame", "user-someone-else");
+    organiser = { loading: false, organiser: null, error: null };
+    renderNav(signedIn());
+    expect(hint()).toBe("user-someone-else");
+    cleanup();
+    localStorage.clear();
+    organiser = { loading: false, organiser: { status: "approved" }, error: null };
+    renderNav(fakeAuthValue({ status: "signed-out", email: undefined, userId: LATTE_ID }));
+    expect(hint()).toBeNull();
+  });
+
+  it("the footer's For organisers follows the same rule; without the layout's provider it's the For organisers page", () => {
+    organiser = { loading: false, organiser: { status: "approved" }, error: null };
+    const footerLink = () =>
+      within(screen.getByRole("navigation", { name: "Explore" })).getByRole("link", { name: "For organisers" });
+    render(
+      <FakeAuthProvider value={signedIn()}>
+        <NavAccountProvider>
+          <Footer />
+        </NavAccountProvider>
+      </FakeAuthProvider>,
+    );
+    expect(footerLink()).toHaveAttribute("href", "/dashboard");
+    cleanup();
+    organiser = { loading: false, organiser: { status: "pending" }, error: null };
+    render(
+      <FakeAuthProvider value={signedIn()}>
+        <NavAccountProvider>
+          <Footer />
+        </NavAccountProvider>
+      </FakeAuthProvider>,
+    );
+    expect(footerLink()).toHaveAttribute("href", "/organisers/apply");
+    cleanup();
+    render(<Footer />);
+    expect(footerLink()).toHaveAttribute("href", "/organisers/apply");
   });
 });

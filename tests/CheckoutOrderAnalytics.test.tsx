@@ -6,6 +6,7 @@ import type { CustomerOrder } from "@/lib/api/types";
 
 vi.mock("next/navigation", () => ({
   useSearchParams: () => new URLSearchParams({ session_id: "ord_secret123" }),
+  useRouter: () => ({ push: vi.fn(), replace: vi.fn() }),
 }));
 const getOrderBySession = vi.fn();
 vi.mock("@/lib/api/orders", async (importOriginal) => ({

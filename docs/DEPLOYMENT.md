@@ -68,7 +68,7 @@ live. Details are in [`supabase-setup.md`](supabase-setup.md) and
 
       Then run every file that's missing, in filename order, one SQL Editor
       query per file (or `npx supabase db push`), up to and including the
-      newest, currently `20261204000000_event_before_you_go.sql`. Never
+      newest, currently `20261205000000_member_refunded_orders_index.sql`. Never
       skip one or change the order: later files rely on earlier ones
       (`20261023000100_review_hardening.sql` stops with a list of event ids
       if a stored ticket link breaks a newer rule; fix those and re-run it).
@@ -665,6 +665,19 @@ live. Details are in [`supabase-setup.md`](supabase-setup.md) and
           **Destructive once any offer is accepted**: dropping
           `ticket_transfers` voids every recipient's code and revives the
           senders' (roll the app forward instead).
+      63. `20261205000000_member_refunded_orders_index.sql` (My tickets,
+          docs/architecture.md "API", `GET /me/tickets`: index
+          `orders_refunded_email_idx` on `orders (lower(buyer_email))` where
+          `status in ('refunded', 'oversold_refund_required')`, for a
+          member's refunded and oversold orders, listed under Past). Needs
+          file 62 before it for the route (`member_held_tickets`); the index
+          itself needs nothing new. Additive: no table, column, function or
+          grant changes. **Apply it before deploying the app**: without it
+          `GET /me/tickets` still answers, but its refunded and oversold
+          branch reads every order on each call. The previous app never
+          uses it, so applying it early is safe. A plain `create index` holds a SHARE lock on `orders`
+          (order writes wait) while it builds: immediate pre-launch, outside
+          peak sales after. Reversible, not destructive: drop the index.
 
       **Files 33 to 37 can be applied ahead of this deploy, with the
       previous app still live.** "The previous app" here is the build of
@@ -1095,11 +1108,28 @@ live. Details are in [`supabase-setup.md`](supabase-setup.md) and
 1. [ ] Create the project in **Sydney (ap-southeast-2)**.
 2. [ ] Run every file in `supabase/migrations/` **in filename order**, from
        `20260925000000_init.sql` up to the newest (see "Go-live checklist").
-3. [ ] Auth settings: "Confirm email" **on** (Who's Going and messaging trust
-       `email_confirmed_at`, so this is a security setting, not a nicety);
-       OTP-style email templates; password policy; Site URL set to the real
-       domain; custom SMTP (built-in email is test-only). If you enable
-       "Secure email change", keep it on.
+3. [ ] Auth settings: "Confirm email" **on**. This is a security setting,
+       not a nicety: Who's Going, messaging, account invites, My tickets
+       and sending a ticket trust `email_confirmed_at`, and a buyer's
+       tickets belong to whoever's account has the buying address. **With
+       "Confirm email" off, anyone can sign up with a buyer's address and
+       see and send that buyer's tickets** (Supabase then confirms every
+       address itself). Also: OTP-style email templates; password policy;
+       Site URL set to the real domain; custom SMTP (built-in email is
+       test-only). If you enable "Secure email change", keep it on.
+       **Smoke test before go-live:** sign up a fresh address and don't
+       enter the code. Supabase must not give it a session (signing in says
+       the email isn't confirmed). If it does, call `GET /api/me` with that
+       session's access token: it must answer **403**. A 200 means the
+       address was confirmed without its code, i.e. "Confirm email" is off:
+       stop and turn it on. The other way to check: `GET
+       {SUPABASE_URL}/auth/v1/settings` with the publishable key as the
+       `apikey` header must say `"mailer_autoconfirm": false`.
+       - [ ] Paste the branded "Confirm signup" and "Reset password"
+             templates, and Security → "Password changed", with their
+             subjects, from `supabase/templates/` (`supabase-setup.md`,
+             "Auth settings"). Then sign up and reset a password on the
+             test project and check all three emails arrive.
 4. [ ] Schedule the daily cleanup in **Supabase Cron**:
        `select private.purge_social_data();` (deletes attendance 30 days after
        an event, old messages and reports per the retention rules). Steps are
@@ -1284,8 +1314,7 @@ Git → Ignored Build Step. GitHub Actions CI is unaffected.
        declined or cancelled, and received tickets keep working, so turning
        it off strands no one. Turn it on only once file 62 is applied and
        the transfer emails, the organiser's Orders view, reminders to
-       holders and the UI are deployed (until the emails ship, an offer's
-       email is never sent). Redeploy after changing it (it's baked in at
+       holders and the UI are deployed. Redeploy after changing it (it's baked in at
        build time). Once a ticket has been accepted, roll forward only:
        never redeploy a build from before ticket transfers (it would show
        the sender the dead code and offer its wallet pass).
@@ -1462,15 +1491,85 @@ from an email.
 
       ```sh
       X=$RANDOM
-      curl -sI -H "if-none-match: \"$LV-f\"" "$SITE/api/organisers/$ORG_ID/logo?v=$LV&x=$X" | head -1
+      curl -s -o /dev/null -w '%{http_code} %{size_download}\n' -H "if-none-match: \"$LV-f\"" "$SITE/api/organisers/$ORG_ID/logo?v=$LV&x=$X"
       curl -s -o /dev/null -w '%{http_code} %{size_download}\n' "$SITE/api/organisers/$ORG_ID/logo?v=$LV&x=$X"
       ```
 
-      The first is a `304`; the second must be `200` with a non-zero size,
-      never `304` or `200 0`. Do the same for an event image (a new `X`,
+      Both are GETs (a `curl -I` would send a HEAD, which a CDN may cache
+      apart from the GET, so it wouldn't test this). The first prints
+      `304 0`; the second must be `200` with a non-zero size, never `304` or
+      `200 0`. Do the same for an event image (a new `X`,
       `-H "if-none-match: \"$V\""` on `/api/events/$EVENT_ID/image?v=$V&x=$X`). If an empty body comes back,
       Vercel stored the 304: purge the CDN cache and report it, since every
       visitor would see a broken image for up to an hour.
+- [ ] **Story card** (`docs/architecture.md`, "Story card"). With `$SLUG` a
+      published event that hasn't ended. Every probe is a GET (a `curl -I`
+      HEAD is a draw of its own and may be cached apart from the GET):
+
+      ```sh
+      CARD="$SITE/events/$SLUG/story-card"
+      curl -s -o /dev/null -w '%{http_code} %{content_type} %{size_download}\n' "$CARD?format=story"
+      curl -s -o /dev/null -D - "$CARD?format=story" | grep -iE '^(cache-control|etag|vary|x-vercel-cache|age):'
+      curl -s -o /dev/null -w '%{http_code}\n' "$CARD?format=story&x=1"
+      ```
+
+      The first is `200 image/jpeg` with a size of a few hundred KB (a 500
+      here usually means the fonts didn't reach the function bundle:
+      `outputFileTracingIncludes` in `next.config.ts`). The second (run it
+      twice) shows `public, max-age=0, s-maxage=` at most `3600`, an `etag`,
+      and `x-vercel-cache: HIT` the second time. The third is `400`.
+      **`Vary`:** the handler sets none, but Next adds one: a local
+      `next start` sends `vary: rsc, next-router-state-tree,
+      next-router-prefetch, next-router-segment-prefetch` on the card
+      (observed 24 Nov 2026). Browsers don't send those headers on an image
+      request, so that's one variant in practice. Check what Vercel sends:
+      a `Vary` on headers that do differ between browsers would split the
+      CDN copy per variant (more draws, still correct); one on `Cookie` or
+      `Authorization` would be a finding to report.
+
+      **Other spellings of the same URL.** Next normalises the query before
+      the handler sees it, so these get the card too, each under its own CDN
+      key. Once the canonical URL above shows `HIT`, request each twice and
+      read `x-vercel-cache`:
+
+      ```sh
+      curl -s -o /dev/null -D - "$CARD?format=story&" | grep -iE '^(x-vercel-cache|age):'
+      curl -s -o /dev/null -D - "$CARD?format=st%6Fry" | grep -iE '^(x-vercel-cache|age):'
+      ```
+
+      A `MISS` then `HIT` on each means Vercel keys them apart from the
+      canonical URL (one extra draw per spelling, within the rate limit:
+      the accepted risk). A `HIT` on the first request means Vercel
+      normalises them itself. Either is fine; note which.
+
+      Then the 304 check, on the **square** card of an event whose square
+      card no one has fetched yet (`$SLUG2`: a fresh cache key; extra
+      parameters are refused, so pick another event if needed):
+
+      ```sh
+      curl -s -o /dev/null -w '%{http_code} %{size_download}\n' -H 'if-none-match: *' "$SITE/events/$SLUG2/story-card?format=square"
+      curl -s -o /dev/null -w '%{http_code} %{size_download}\n' "$SITE/events/$SLUG2/story-card?format=square"
+      ```
+
+      The first prints `304 0`; the second must be `200` with a size above
+      zero. An empty body means Vercel stored the 304: purge the CDN cache
+      and report it (every visitor would get an empty card for up to an
+      hour).
+      On a demo deployment (no Supabase env), `/events/neon-static/story-card?format=story`
+      is a `200 image/jpeg` with the sample photo in it (the demo photos are
+      bundled the same way).
+- [ ] **Optional, later (owner): a Vercel Firewall rule for the story card.**
+      Only if draws from odd spellings or many clients show up in usage.
+      In the project's Firewall, a custom rule: path matches
+      `/events/*/story-card` **and** the raw query string is neither
+      `format=story` nor `format=square` → Deny. Canonical URLs pass;
+      `?format=story&`, `?format=st%6Fry` and every other spelling are
+      refused at the edge before a function runs. **Needs confirming before
+      relying on it:** that the WAF's query condition matches the raw string
+      as sent (not a decoded or re-ordered form). Test it with the two
+      spellings above (expect a 403) and the canonical URL (expect the card),
+      in log-only mode first. The app's own pages only ever link the
+      canonical form (`storyCardPath`, `lib/story-card.ts`).
 - [ ] **Browser reuse of images** (`age`): the image and logo `max-age`
       equals their `s-maxage` (an hour) so a CDN copy with a large `age` is
       still fresh in the browser. On a second `curl -sI` of an image, check

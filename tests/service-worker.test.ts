@@ -182,6 +182,9 @@ describe("sw.js routing: never intercepted", () => {
     ["the manifest", req("/manifest.webmanifest")],
     ["a page fetched with fetch() (not a navigation)", req("/account")],
     ["an event page whose slug looks like an image, fetched as data", req("/events/poster.png")],
+    // The story card: an image with no image extension, so a copy with yesterday's tag is never kept (its CDN window is the cap).
+    ["the story card (an image request)", image("/events/neon-static/story-card?format=story")],
+    ["the story card's square post", image("/events/neon-static/story-card?format=square")],
     // The door scanner's decoder: HTTP-cached as immutable (next.config.ts), never stored by the worker.
     ["the door scanner's WASM decoder (fetched by the scanner)", req("/vendor/zxing-wasm/3.1.3/zxing_reader.wasm")],
   ])("%s", (_label, request) => {

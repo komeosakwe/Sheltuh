@@ -451,7 +451,7 @@ describe("cron route", () => {
 });
 
 describe("cron route, called every 5 minutes", () => {
-  it("with nothing due, answers with zeros in eleven queries, sends nothing and touches no job", async () => {
+  it("with nothing due, answers with zeros in seventeen queries, sends nothing and touches no job", async () => {
     vi.spyOn(console, "error").mockImplementation(() => {});
     api.sendEmail.mockRejectedValueOnce(new Error("down"));
     await paidOrder("fan@example.com", { runDeferred: true }); // a retry, not due for a minute
@@ -476,10 +476,11 @@ describe("cron route, called every 5 minutes", () => {
       expect(res.status).toBe(200);
       expect(res.body).toEqual({ claimed: 0, sent: 0, retrying: 0, failed: 0 });
       // Queueing member welcomes (private.queue_member_welcomes) and event reminders (private.queue_event_reminders),
-      // expiring overdue ticket transfer offers (private.expire_ticket_transfers), seven claims (ops alerts, everything else, then event reminders, messages to ticket holders and the
-      // organiser-published, organiser-joined and onboarding emails), recording the run and the trending
-      // refresh that rides on this cron (refreshTrending: the payouts job took trending's slot in vercel.json).
-      expect(queries).toBe(12);
+      // expiring overdue ticket transfer offers (private.expire_ticket_transfers), twelve claims (ops alerts, everything
+      // else, the organiser-published and organiser-joined emails, the five ticket transfer kinds, then onboarding,
+      // event reminders and messages to ticket holders), recording the run and the trending refresh that rides on
+      // this cron (refreshTrending: the payouts job took trending's slot in vercel.json).
+      expect(queries).toBe(17);
     }
     expect(counting.sendEmail).not.toHaveBeenCalled();
     expect(await stored()).toEqual(before);

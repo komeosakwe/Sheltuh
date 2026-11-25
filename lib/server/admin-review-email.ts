@@ -1,7 +1,22 @@
 import type { StateCode } from "@/lib/time-zones";
 import { subjectLine, type EmailMessage } from "./email";
 import { isPlainEmailAddress } from "./email-address";
-import { button, escapeHtml, eventBlock, heading, INK, MUTED, page, SANS } from "./email-layout";
+import {
+  KIT,
+  kitBody,
+  kitButtons,
+  kitFooter,
+  kitFooterText,
+  kitHeader,
+  kitHelp,
+  kitHelpText,
+  kitHero,
+  kitNotice,
+  kitPage,
+  kitStack,
+} from "./email-kit";
+import { escapeHtml } from "./email-layout";
+import { ticketWordmarkImage } from "./email-ticket-layout";
 import { formatTicketDate, formatTicketTime, type EventZone } from "./ticket-email";
 
 /**
@@ -16,6 +31,13 @@ import { formatTicketDate, formatTicketTime, type EventZone } from "./ticket-ema
  * an admin needs to know something is waiting (the event's title, its
  * organiser's name and its start; the applicant's organiser name) and the
  * link to the queue, where everything else is.
+ *
+ * Built on the 1120 email kit (lib/server/email-kit.ts) in Latte's organiser
+ * shell (no admin email was drawn; the closest frames are A3 to A5): the
+ * warm grey page, the wordmark, the black hero, the organiser's own text in
+ * an outlined box under "As submitted by the organiser:", the orange button,
+ * "Need help?" and the shared footer. The only images are the inline (cid)
+ * wordmark: nothing remote, no tracking.
  *
  * The subjects and preheaders are fixed: an applicant's or organiser's own
  * text (an event title, an organiser name) never goes in them, so it can't
@@ -83,13 +105,78 @@ export function reviewEventStart(startsAt: string, where: EventZone = {}): strin
   return `${formatTicketDate(startsAt, undefined, where)}, ${formatTicketTime(startsAt, undefined, where)}`;
 }
 
-const FOOTER_TEXT = "You're getting this because you're a Sheltüh admin.";
-const FOOTER_HTML = `<p style="margin:0;font-size:13px;line-height:20px;color:${MUTED}">You&rsquo;re getting this because you&rsquo;re a Sheltüh admin.</p>`;
+/** Why an admin got the email (the footer's reason line). */
+const REASON = "You’re getting this because you’re a Sheltüh admin.";
 
 /** The label over the organiser's own text, so it never reads as ours. */
 const SUBMITTED_LABEL = "As submitted by the organiser:";
-const SUBMITTED_LABEL_HTML = `<p style="margin:0 0 8px 0;font-size:13px;line-height:20px;color:${MUTED}">${escapeHtml(SUBMITTED_LABEL)}</p>`;
 const PREHEADER = "Open the review queue to approve or reject it.";
+
+/** One line of the organiser's own text: "Title: " then the value (plain text). */
+interface SubmittedLine {
+  label: string;
+  value: string;
+}
+
+interface AdminEmail {
+  /** The heading as one line (the title tag and the plain text's first line). */
+  headline: string;
+  /** The hero: the eyebrow and the headline over two lines (white, then orange). */
+  hero: { eyebrow: string; line1: string; line2: string };
+  preheader: string;
+  /** An optional lead paragraph (plain text). */
+  lead?: string;
+  submitted: ReadonlyArray<SubmittedLine>;
+  /** The button's label, and the plain text's "{action}: {link}". */
+  button: { label: string; href: string; action: string };
+  siteUrl: string;
+}
+
+/** The HTML and plain text of one admin email: the same content, in the same order. */
+function renderAdminEmail(e: AdminEmail): { text: string; html: string } {
+  const footer = { siteUrl: e.siteUrl, tone: "organiser" as const, reason: REASON };
+  const text = [
+    e.headline,
+    "",
+    ...(e.lead ? [e.lead, ""] : []),
+    SUBMITTED_LABEL,
+    ...e.submitted.map((l) => `${l.label}${l.value}`),
+    "",
+    `${e.button.action}: ${e.button.href}`,
+    "",
+    kitHelpText("organiser"),
+    "",
+    kitFooterText(footer),
+  ].join("\n");
+
+  // The label muted, the organiser's own words black.
+  const lines = e.submitted.map((l) => `${escapeHtml(l.label)}<span style="color:${KIT.black}">${escapeHtml(l.value)}</span>`);
+  const html = kitPage({
+    title: e.headline,
+    preheader: e.preheader,
+    siteUrl: e.siteUrl,
+    tone: "organiser",
+    body: kitStack([
+      kitHeader(),
+      kitHero(e.hero),
+      e.lead ? kitBody("", [e.lead]) : "",
+      kitNotice(SUBMITTED_LABEL, lines),
+      kitButtons([{ label: e.button.label, href: e.button.href, kind: "primary" }], { hug: true }),
+      kitHelp("organiser"),
+      kitFooter(footer),
+    ]),
+  });
+  return { text, html };
+}
+
+/** The event's lines as the organiser submitted them. */
+function eventLines(title: string, organiserName: string, starts: string): SubmittedLine[] {
+  return [
+    { label: "Title: ", value: title },
+    { label: "Organiser: ", value: organiserName },
+    { label: "Starts ", value: starts },
+  ];
+}
 
 /** "Event submitted for review" (or "resubmitted"), to one admin. */
 export function buildEventReviewEmail(input: {
@@ -111,33 +198,21 @@ export function buildEventReviewEmail(input: {
   const link = eventReviewQueueLink(siteUrl);
   const headline = resubmitted ? "An event was resubmitted for review" : "An event is waiting for review";
 
-  const text = [
+  const { text, html } = renderAdminEmail({
     headline,
-    "",
-    SUBMITTED_LABEL,
-    `Title: ${title}`,
-    `Organiser: ${organiserName}`,
-    `Starts ${starts}`,
-    "",
-    `Review it: ${link}`,
-    "",
-    FOOTER_TEXT,
-    "Sheltüh, Melbourne",
-  ].join("\n");
-
-  const html = page({
-    title: headline,
+    hero: {
+      eyebrow: "Event review",
+      line1: resubmitted ? "An event was resubmitted" : "An event is waiting",
+      line2: "for review",
+    },
     preheader: PREHEADER,
-    body:
-      heading(escapeHtml(headline)) +
-      SUBMITTED_LABEL_HTML +
-      eventBlock(title, [`Organiser: ${organiserName}`, `Starts ${starts}`]) +
-      button("Open the review queue", link) +
-      FOOTER_HTML,
+    submitted: eventLines(title, organiserName, starts),
+    button: { label: "Open the review queue", href: link, action: "Review it" },
+    siteUrl,
   });
 
   const subject = resubmitted ? "Event resubmitted for review" : "Event submitted for review";
-  return { to, subject, text, html };
+  return { to, subject, text, html, inlineImages: [ticketWordmarkImage()] };
 }
 
 const PUBLISHED_PREHEADER = "It's live now. Open the list to check it, or unpublish it.";
@@ -168,40 +243,21 @@ export function buildEventPublishedEmail(input: {
   const title = subjectLine(input.title);
   const organiserName = subjectLine(input.organiserName);
   const starts = reviewEventStart(input.startsAt, { timeZone: input.timeZone, state: input.state });
-  const tickets = input.ticketHost ? `Tickets: sold on ${subjectLine(input.ticketHost)}` : "Tickets: on Sheltüh";
+  const tickets = input.ticketHost ? `sold on ${subjectLine(input.ticketHost)}` : "on Sheltüh";
   const link = recentlyPublishedQueueLink(siteUrl);
   const headline = "An organiser published an event";
 
-  const text = [
+  const { text, html } = renderAdminEmail({
     headline,
-    "",
-    PUBLISHED_LEAD,
-    "",
-    SUBMITTED_LABEL,
-    `Title: ${title}`,
-    `Organiser: ${organiserName}`,
-    `Starts ${starts}`,
-    tickets,
-    "",
-    `Check it: ${link}`,
-    "",
-    FOOTER_TEXT,
-    "Sheltüh, Melbourne",
-  ].join("\n");
-
-  const html = page({
-    title: headline,
+    hero: { eyebrow: "Published event", line1: "An organiser published", line2: "an event" },
     preheader: PUBLISHED_PREHEADER,
-    body:
-      heading(escapeHtml(headline)) +
-      `<p style="margin:0 0 16px 0;font-family:${SANS};font-size:16px;line-height:24px;color:${INK}">${escapeHtml(PUBLISHED_LEAD)}</p>` +
-      SUBMITTED_LABEL_HTML +
-      eventBlock(title, [`Organiser: ${organiserName}`, `Starts ${starts}`, tickets]) +
-      button("Open recently published events", link) +
-      FOOTER_HTML,
+    lead: PUBLISHED_LEAD,
+    submitted: [...eventLines(title, organiserName, starts), { label: "Tickets: ", value: tickets }],
+    button: { label: "Open recently published events", href: link, action: "Check it" },
+    siteUrl,
   });
 
-  return { to, subject: "Event published by an organiser", text, html };
+  return { to, subject: "Event published by an organiser", text, html, inlineImages: [ticketWordmarkImage()] };
 }
 
 /** "Organiser application to review", to one admin (a new application or a resubmitted one). */
@@ -211,30 +267,16 @@ export function buildOrganiserReviewEmail(input: { to: string; organiserName: st
   const link = organiserReviewQueueLink(siteUrl);
   const headline = "An organiser application is waiting for review";
 
-  const text = [
+  const { text, html } = renderAdminEmail({
     headline,
-    "",
-    SUBMITTED_LABEL,
-    `Organiser name: ${organiserName}`,
-    "",
-    `Review it: ${link}`,
-    "",
-    FOOTER_TEXT,
-    "Sheltüh, Melbourne",
-  ].join("\n");
-
-  const html = page({
-    title: headline,
+    hero: { eyebrow: "Organiser review", line1: "An organiser application", line2: "is waiting for review" },
     preheader: PREHEADER,
-    body:
-      heading(escapeHtml(headline)) +
-      SUBMITTED_LABEL_HTML +
-      eventBlock(organiserName, []) +
-      button("Open the organiser queue", link) +
-      FOOTER_HTML,
+    submitted: [{ label: "Organiser name: ", value: organiserName }],
+    button: { label: "Open the organiser queue", href: link, action: "Review it" },
+    siteUrl,
   });
 
-  return { to, subject: "Organiser application to review", text, html };
+  return { to, subject: "Organiser application to review", text, html, inlineImages: [ticketWordmarkImage()] };
 }
 
 const JOINED_PREHEADER = "They're approved now. Open the list to check their profile.";
@@ -252,31 +294,15 @@ export function buildOrganiserJoinedEmail(input: { to: string; organiserName: st
   const link = approvedOrganisersLink(siteUrl);
   const headline = "An organiser joined with a link";
 
-  const text = [
+  const { text, html } = renderAdminEmail({
     headline,
-    "",
-    JOINED_LEAD,
-    "",
-    SUBMITTED_LABEL,
-    `Organiser name: ${organiserName}`,
-    "",
-    `Check it: ${link}`,
-    "",
-    FOOTER_TEXT,
-    "Sheltüh, Melbourne",
-  ].join("\n");
-
-  const html = page({
-    title: headline,
+    hero: { eyebrow: "Organiser link", line1: "An organiser joined", line2: "with a link" },
     preheader: JOINED_PREHEADER,
-    body:
-      heading(escapeHtml(headline)) +
-      `<p style="margin:0 0 16px 0;font-family:${SANS};font-size:16px;line-height:24px;color:${INK}">${escapeHtml(JOINED_LEAD)}</p>` +
-      SUBMITTED_LABEL_HTML +
-      eventBlock(organiserName, []) +
-      button("Open approved organisers", link) +
-      FOOTER_HTML,
+    lead: JOINED_LEAD,
+    submitted: [{ label: "Organiser name: ", value: organiserName }],
+    button: { label: "Open approved organisers", href: link, action: "Check it" },
+    siteUrl,
   });
 
-  return { to, subject: "Organiser joined with a link", text, html };
+  return { to, subject: "Organiser joined with a link", text, html, inlineImages: [ticketWordmarkImage()] };
 }

@@ -26,6 +26,7 @@ import { TICKET_CODE_PATTERN } from "@/lib/ticket-code";
 import { generateTicketCode } from "@/lib/server/ticket-issuance";
 import { CRON_SECRET, sessionAmount, SITE_URL, stripeWebhookRequest, TestApi } from "./helpers/api";
 import { seatedEvent } from "./helpers/seating";
+import { signUpAdmin } from "./helpers/fixtures";
 import { member } from "./helpers/members";
 import { createTestDb } from "./helpers/test-db";
 import {
@@ -56,6 +57,7 @@ const rules = vi.hoisted(() => ({ overrides: {} as Record<string, unknown> }));
 vi.mock("@/lib/ticket-transfer-rules", async (importOriginal) => {
   const real = await importOriginal<typeof import("@/lib/ticket-transfer-rules")>();
   return {
+    ...real,
     TICKET_TRANSFER_RULES: new Proxy(real.TICKET_TRANSFER_RULES, {
       get: (target, key) => (typeof key === "string" && key in rules.overrides ? rules.overrides[key] : Reflect.get(target, key)),
     }),
@@ -157,9 +159,10 @@ describe("sending", () => {
     expect(row).toMatchObject({ status: "pending", sender_kind: "buyer", sender_user_id: null });
     expect(row.ticket_code).toBe((await codesOf(api, order.orderId))[0]);
     expect(await jobsOf(api, transferId)).toEqual(["transfer_offer"]);
-    // Nothing leases a transfer job yet (PR-1): no email is sent.
+    // The offer email goes to the address typed straight after the response (ticket-transfer-emails.test.ts has the rest).
     await api.runDeferred();
-    expect(api.sendEmail).not.toHaveBeenCalled();
+    expect(api.sendEmail).toHaveBeenCalledTimes(1);
+    expect(api.sendEmail.mock.calls[0][0]).toMatchObject({ to: "sam@example.com", subject: "Alex sent you a ticket to NEON STATIC" });
   });
 
   it("a free ticket can be sent too", async () => {
@@ -334,6 +337,17 @@ describe("sending", () => {
     expect(res.status).toBe(400);
     expect(Object.keys(res.body.fieldErrors).sort()).toEqual(["email", "name", "senderName", "ticket"]);
     expect(res.body.fieldErrors.email).toBe("Enter a valid email");
+  });
+
+  it("refuses a sender name only Sheltüh may use (the emails quote it), confusables included: 400 fieldErrors.senderName", async () => {
+    const order = await paidOrder(api, world.eventId);
+    for (const senderName of ["Sheltüh Support", "SHELTUH", "\u0405h\u0435ltuh Team", "Admin", "the support crew", "Moderator"]) {
+      const res = await send(api, order.orderId, { ...OFFER, senderName }, { access: order.access });
+      expect([senderName, res.status, res.body.fieldErrors]).toEqual([senderName, 400, { senderName: "That name is reserved. Choose another." }]);
+    }
+    // Words that merely contain one are fine; the recipient's name (the sender's own typing, never quoted to others as Sheltüh's) isn't held to it.
+    expect((await send(api, order.orderId, { ...OFFER, senderName: "Adminah Supporta", name: "Support Desk" }, { access: order.access })).status).toBe(201);
+    expect(await api.db.query(`select count(*)::int as n from private.ticket_transfers`)).toEqual([{ n: 1 }]);
   });
 
   it("refuses the buyer's own address, ignoring case: 409 own_email with fieldErrors.email", async () => {
@@ -714,6 +728,10 @@ describe("accept", () => {
     expect((await accept(api, token, await member(api, { emailVerified: false }))).status).toBe(403);
     const res = await accept(api, token, await member(api), "@sam");
     expect([res.status, Object.keys(res.body.fieldErrors)]).toEqual([400, ["holderName"]]);
+    // A name only Sheltüh may use (the sender's email quotes it): refused, and the offer stays open.
+    const reserved = await accept(api, token, await member(api), "Sheltüh Admin");
+    expect([reserved.status, reserved.body.fieldErrors]).toEqual([400, { holderName: "That name is reserved. Choose another." }]);
+    expect((await api.db.query<{ status: string }>(`select status from private.ticket_transfers`))[0].status).toBe("pending");
   });
 
   it("not by the buyer (own_ticket): their account by email, or the account that sent it", async () => {
@@ -1057,6 +1075,44 @@ describe("support", () => {
     expect((await cancelAsAdmin("Buyer asked us to")).body).toEqual({ result: "cancelled" });
     expect(await transferRow(api, transferId)).toMatchObject({ status: "cancelled", cancelled_by: "admin", cancel_reason: "Buyer asked us to" });
     expect((await cancelAsAdmin("Buyer asked us to")).body.code).toBe("transfer_not_pending");
+  });
+
+  it("an accepted offer can't be cancelled (409); an unknown or malformed id is 404; every answer is private, no-store", async () => {
+    const { transferId } = await acceptedTransfer();
+    const cancelAsAdmin = (id: string) =>
+      api.call(adminCancelTicketTransfer, { token: world.admin.token, params: { transferId: id }, body: { reason: "Buyer asked us to" } });
+    const accepted = await cancelAsAdmin(transferId);
+    expect([accepted.status, accepted.body.code]).toEqual([409, "transfer_not_pending"]);
+    expect((await transferRow(api, transferId)).status).toBe("accepted");
+    expect((await cancelAsAdmin(crypto.randomUUID())).status).toBe(404);
+    expect((await cancelAsAdmin("not-a-uuid")).status).toBe(404);
+    const listed = await api.call(adminListTicketTransfers, { token: world.admin.token, query: {} });
+    expect(listed.headers.get("cache-control")).toBe("private, no-store");
+    expect(accepted.headers.get("cache-control")).toBe("private, no-store");
+    // Signed out.
+    expect((await api.call(adminListTicketTransfers, { query: {} })).status).toBe(401);
+  });
+
+  it("admin cancels: TICKET_TRANSFER_LIMITS.adminCancels (30 an hour per admin), then 429 rate_limited and the offer stays", async () => {
+    expect(TICKET_TRANSFER_LIMITS.adminCancels).toEqual({ hits: 30, window: "1 hour" });
+    const order = await paidOrder(api, world.eventId);
+    const transferId = await offer(api, order);
+    await api.db.query(
+      `insert into private.rate_limits (user_id, bucket, window_started_at, hits) values ($1, 'ticket_transfer_admin_cancels', now(), 30)`,
+      [world.admin.userId],
+    );
+    const res = await api.call(adminCancelTicketTransfer, {
+      token: world.admin.token,
+      params: { transferId },
+      body: { reason: "Buyer asked us to" },
+    });
+    expect([res.status, res.body.code]).toEqual([429, "rate_limited"]);
+    expect(Number(res.headers.get("retry-after"))).toBeGreaterThan(0);
+    expect((await transferRow(api, transferId)).status).toBe("pending");
+    // Another admin isn't limited by it.
+    const other = await signUpAdmin(api);
+    const allowed = await api.call(adminCancelTicketTransfer, { token: other.token, params: { transferId }, body: { reason: "Buyer asked us to" } });
+    expect(allowed.body).toEqual({ result: "cancelled" });
   });
 });
 

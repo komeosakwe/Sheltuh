@@ -1,11 +1,12 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import AccountContent from "@/components/account/AccountContent";
 import { avatarFileError } from "@/components/account/AvatarField";
 import MemberProfileSettings from "@/components/account/MemberProfileSettings";
 import { ApiError } from "@/lib/api/client";
 import type { ProfileRecord } from "@/lib/api/types";
+import { SessionExpiredError } from "@/lib/auth/AuthContext";
 import { fakeAuthValue, FakeAuthProvider } from "./test-utils/fakeAuth";
 
 vi.mock("@/lib/api/client", async (importOriginal) => ({
@@ -56,7 +57,7 @@ const PROFILE: ProfileRecord = {
 
 function renderSettings(profile: ProfileRecord = PROFILE, onSaved = vi.fn(), onMissing = vi.fn()) {
   const getToken = vi.fn().mockResolvedValue("t");
-  render(<MemberProfileSettings profile={profile} getToken={getToken} onSaved={onSaved} onMissing={onMissing} />);
+  render(<MemberProfileSettings profile={profile} getToken={getToken} onSaved={onSaved} onMissing={onMissing} returnTo="/account" />);
   return { onSaved, onMissing, getToken };
 }
 
@@ -163,6 +164,21 @@ describe("member profile settings (/account)", () => {
     renderSettings({ ...PROFILE, profileVisible: true });
     expect(screen.getByRole("link", { name: "See your profile as members see it" })).toHaveAttribute("href", "/members/pid-1");
   });
+
+  it("leaves that link out where the page has its own (showMemberPageLink false, /profile)", () => {
+    render(
+      <MemberProfileSettings
+        profile={{ ...PROFILE, profileVisible: true }}
+        getToken={vi.fn().mockResolvedValue("t")}
+        onSaved={vi.fn()}
+        onMissing={vi.fn()}
+        returnTo="/profile"
+        showMemberPageLink={false}
+      />,
+    );
+    expect(screen.getByRole("form", { name: "Your profile" })).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "See your profile as members see it" })).toBeNull();
+  });
 });
 
 describe("profile photo", () => {
@@ -206,6 +222,24 @@ describe("profile photo", () => {
     expect(screen.getAllByRole("status").some((s) => s.textContent === "Photo saved.")).toBe(true);
     // The preview is revoked by an effect cleanup after the busy state clears, a render after onSaved.
     await waitFor(() => expect(URL.revokeObjectURL).toHaveBeenCalledWith("blob:1"));
+  });
+
+  it("on Settings, a photo upload's expired session offers Sign in back to the card (/account#member-profile)", async () => {
+    getMyProfile.mockResolvedValue(PROFILE);
+    uploadMyAvatar.mockRejectedValue(new SessionExpiredError());
+    render(
+      <FakeAuthProvider value={fakeAuthValue({ email: "mia@example.com" })}>
+        <AccountContent />
+      </FakeAuthProvider>,
+    );
+    await screen.findByRole("form", { name: "Your profile" });
+    pick(new File(["x"], "me.png", { type: "image/png" }));
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("Your session has expired.");
+    expect(within(alert).getByRole("link", { name: "Sign in" })).toHaveAttribute(
+      "href",
+      "/login?next=%2Faccount%23member-profile",
+    );
   });
 
   it("explains a refused upload (413)", async () => {

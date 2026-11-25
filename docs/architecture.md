@@ -275,7 +275,7 @@ admin and message times) is in the platform's zone, Australia/Melbourne.
 | `take_client_rate_limit`, `take_seat_hold_attempt` | `take_rate_limit`'s fixed-window counter keyed on a client key (or, for `order_payment:order`, an order key). `take_seat_hold_attempt` takes one hit on the client's `seat_holds:<event id>` bucket, then one on its `seat_holds` (all events) bucket, in that order (nothing else writes them), and returns `ok`, `event` or `all`; a refusal keeps neither hit (`20261103000000_seat_hold_client_limits.sql`). |
 | `place_free_seated_order`, `request_free_seated_order` | `place_free_order` / `request_free_order` for a seated free order (the seat lock first; the order records its seats). A guest's order holds nothing until confirmed. `seats_unavailable` when a member's seat is gone. `20261122000000_order_buyer_details.sql` added a trailing `p_buyer_name text default null` (stored as `orders.buyer_name`; the old argument lists still work, and `request_free_order` keeps its 13-argument delegating form). |
 | `fulfil_order` | Queues the ticket email in the same step (see "Payment flow"). Takes inventory for every line item, issues the tickets and marks the order paid. If any ticket type has sold out, or the event is no longer published, it takes nothing and marks the order `oversold_refund_required`. Rows are locked in a fixed order, so concurrent orders can't deadlock. It's idempotent, so Stripe's webhook redeliveries are harmless. A seated order takes the event's seat lock first, needs every seat (free, its own hold, or an expired hold) and lines that match its seats exactly (no order buys a seated tier without seats), and gives each ticket one of its tier's seats; otherwise the oversold path, which also clears its holds. A paid order takes the payment intent's lock first and, after the pending check, applies an early refund recorded for its payment (once), by `record_payment_refund`'s rule (`20261111000300_refund_no_inference.sql`): in full (Stripe's `refunded`, or at least `total_cents`), the order becomes `refunded` with nothing taken, issued or emailed (holds cleared; returns `refunded`); in part (anything less), it's fulfilled as normal, then the amount is recorded and a `partial_refund` exception opened. The body is `fulfil_order_detailed`, which also returns `alert_queued` (that exception queued an ops alert), so the webhook drains the alert outbox only then; `fulfil_order` (same signature, the free paths') returns its status. |
-| `member_held_tickets` | Stable: the one definition of "holds a ticket" (see "Ticket transfers"): each ticket of a `paid` order whose `buyer_email` is the given verified address (ignoring case) that hasn't been sent to someone who accepted it, plus each ticket the given account accepted and still holds (not superseded, its order paid). Read by `set_going`, `GET /me`, `GET /events/{id}/going/me` and the accept's Who's Going cleanup. |
+| `member_held_tickets` | Stable: the one definition of "holds a ticket" (see "Ticket transfers"): each ticket of a `paid` order whose `buyer_email` is the given verified address (ignoring case) that hasn't been sent to someone who accepted it, plus each ticket the given account accepted and still holds (not superseded, its order paid). Read by `set_going`, `GET /me`, `GET /me/tickets`, `GET /events/{id}/going/me` and the accept's Who's Going cleanup. |
 | `create_ticket_transfer`, `create_holder_ticket_transfer` | A send (`20261203000000_ticket_transfers.sql`; see "Ticket transfers"): event (share), order (share) (`owner_only` for the paying browser, `p_sender_user_id` null, once support has changed the order's email, and for a signed-in sender whose `p_sender_email` isn't the order's `buyer_email` any more), ticket (update) by its number in the order; then `ticket_offer_refusal` (`not_paid`, `event_unlisted`, `closed`, `type_not_allowed`, `checked_in`, then, after expiring the ticket's overdue offer, `pending`, `already_sent`, `own_email`, `attempts_used`, `pending_cap`) and `insert_ticket_offer` (the account's, recipient address's and platform's allowances, then the offer and its `transfer_offer` job, in one block that rolls the hits back on `rate_limited`; a lost race on the one-pending index is `pending`). The rules and limits are parameters. The holder's form is refused by the API while recipients may not re-send. |
 | `cancel_ticket_transfer` | The buyer's (with the order it must belong to, a buyer's offer only, and the signed-in account or null for the paying browser) or support's (with a reason) cancel of a pending, unexpired offer: order (share; `owner_only` as the send's), ticket (update), transfer (update). `cancelled`, `not_pending`, `not_found`, `owner_only`. No email. |
 | `accept_ticket_transfer` | The accept, by the link token's hash, for any verified account: first an advisory lock on the account (its accepts one at a time, so `held_cap` is exact), then event, order, ticket, transfer locked in that order; an overdue offer is expired then (its email queued) and `unavailable`; `closed`, `ticket_unavailable`, `own_ticket`, `held_cap`, `user_unavailable`, `code_taken`; the account's allowance last (`rate_limited`, nothing written). Then the new code and serial, the notice time, a re-send's previous holding superseded, the giver's Who's Going opt-in removed unless they still hold a ticket for the event, and the `transfer_accepted` and `transfer_ticket` jobs. `already_accepted` for the same account again. |
@@ -725,7 +725,12 @@ admin and message times) is in the platform's zone, Australia/Melbourne.
      Sans and IBM Plex Mono self-hosted, `mso-padding-alt` on the buttons,
      the preheader hidden with `mso-hide:all`, so the emails can't drift
      apart; `tests/server/email-brand.test.ts` holds every builder to it.
-     The admin review emails stay on `lib/server/email-layout.ts`.
+     The admin review and ops alert emails use the same kit in Latte's
+     organiser shell (no admin email was drawn): the grey page, the black
+     hero, the organiser's own text (or the alert's details) in an outlined
+     box, the button and the footer line saying why the reader got it. No
+     email is left on the classic ivory page of `lib/server/email-layout.ts`
+     (only its helpers, `escapeHtml` and the wordmark, are still shared).
      Organiser emails A4 (7 days after approval) and A5 (the morning after
      each event) are built (`lib/server/onboarding-email.ts`) but not sent:
      their triggers need new onboarding / outbox kinds, a migration.
@@ -782,6 +787,10 @@ admin and message times) is in the platform's zone, Australia/Melbourne.
   the other `/orders/by-session` routes: the id is `ord_` + 32 hex, a
   UUIDv4, so 122 random bits (6 of its 128 are fixed by the format), sent
   only to the client that made the order (and in Stripe's `return_url`),
+  and to a signed-in account whose verified email is the order's buyer
+  email (My tickets, `GET /me/tickets`), only once it's paid, refunded or
+  oversold: never a pending order's, so never one whose session can still
+  be paid,
   never a `Referer` (`no-referrer`), never cached (`no-store`). With the
   secret, someone can mount the form and pay for that order; they can't
   change its amount. They can read what the form shows, until the session
@@ -1812,6 +1821,14 @@ old address's holder doesn't learn the new one. The browser forgets its
 token (`forgetOrderAccessIfFinal`, `lib/order-access.ts`) as soon as the
 server says `event_ended`, `ticket_scanned` or `changed_by_support`, in a
 read or a change's 409: none of them can ever be changed from there again.
+One exception (see "Ticket transfers"): the token is also the paying
+browser's proof of control for sending the order's tickets, so after
+`ticket_scanned` it's kept while the order still says this browser may send
+a ticket (`transfers.canSend`) or cancel an offer (an offer's `canCancel`):
+`neededForTickets` in the ticket page's `needsAccessForTickets`. A buyer of
+four who's been scanned in can still send the other three from that phone.
+`event_ended` and `changed_by_support` still end it (the server stops
+honouring it for sends then anyway).
 The change's own 200 is the same `CustomerOrder` as the read (`withWallet`
 included), so the page keeps its wallet buttons.
 
@@ -3058,7 +3075,10 @@ checkout and the privacy policy says so (`app/privacy`, to be approved by the
 owner). `supabase/migrations/20261122000000_order_buyer_details.sql`,
 `lib/server/handlers/event-orders.ts`, `lib/server/orders-report.ts`,
 `lib/server/order-input.ts` (`parseBuyerName`), `lib/api/types.ts`
-(`EventOrders`, `EventOrderRow`, `CheckoutBuyerDetails`).
+(`EventOrders`, `EventOrderRow`, `EventOrderHolder`, `CheckoutBuyerDetails`).
+The same goes for the people tickets were sent to ("Tickets sent on", below;
+the owner's decision for ticket transfers: the organiser sees the new holder's
+name and email under the buyers' rules).
 
 - **What is collected.** The checkout asks for "Your name" (`buyerName`, every
   checkout, paid or free, general admission or seated) and shows the notice
@@ -3100,14 +3120,40 @@ owner). `supabase/migrations/20261122000000_order_buyer_details.sql`,
   refund stays `paid` with `refundedCents` above 0), `buyerName`,
   `buyerEmail`, `tickets` (`{ticketTypeName, quantity}` from the order's priced
   snapshot), `paidCents` (what the buyer paid less Support Sheltüh, which is
-  the platform's; 0 for a free order) and `refundedCents`.
+  the platform's; 0 for a free order), `refundedCents` and `holders` (below).
+- **Tickets sent on** (`holders`, `EventOrderHolder`; "Ticket transfers"):
+  one entry per ticket of the order that someone accepted, for its *current*
+  holding (`status = 'accepted'` and not `superseded_at`), in ticket number
+  order: `ticketNumber` (the ticket's place in its order by type then code,
+  the number on the buyer's ticket page and email), `ticketTypeName`,
+  `holderName` (the name they confirmed), `holderEmail` (the verified email of
+  the account that accepted: `accepted_email`, never the address the sender
+  typed) and `transferredAt`. Name and email are shown only when the holder
+  was shown the organiser notice at accept (`holder_notice_at`, which the
+  database stamps), support hasn't withdrawn them (`holder_details_withdrawn_at`,
+  `docs/supabase-setup.md`), and within the same 12 months as the buyer's;
+  otherwise both are null and the entry stays (so the order still says a
+  ticket was sent). The holder's own notice is what counts: on an order made
+  before buyer names the buyer stays hidden and the holder is shown. Pending,
+  declined, cancelled and expired offers are never shown, nor anything the
+  sender typed, nor a ticket code (the original or the holder's). Refunded
+  orders keep their holders (a refund voids them: the organiser and support
+  see who had them). Read per listed order through `ticket_transfers_order_idx`
+  (the ticket's number by `tickets_order_idx`); no new index. The page shows
+  them under the order's tickets as plain lines ("1 ticket sent to Sam Lee ·
+  sam@… · Sent Thu 5 Nov"; hidden ones "1 ticket sent to someone else
+  (details not shared) · Sent Thu 5 Nov"; the dots are hidden from screen
+  readers, which hear commas), an interim line until the dashboard redesign draws its own
+  "Transferred" pattern; `holders` is the shape it builds on. Check-in stays
+  name-free.
 - **Search.** `POST …/orders/search` with the JSON body `{q, cursor, limit}`
   (at most 2 KB): the text searched for is a buyer's name or email, so it is
   never in a URL (request logs, browser history); `GET …/orders?q=` is a 400.
   `q` (control characters removed, trimmed, at most 100
   characters) matches the shown name or email, case- and accent-insensitively
   (the same fold as the admin searches: NFKD, combining marks removed, lower
-  case), or the short reference (with or without `#`). `%`, `_` and `\` match
+  case), a shown holder's name or email (the same fold; a hidden holder is
+  never found by what is hidden), or the short reference (with or without `#`). `%`, `_` and `\` match
   literally. It scans one event's orders through `orders_event_idx` (no index
   can serve a substring of a folded expression); an event's orders are bounded
   by its sales.
@@ -3118,7 +3164,10 @@ owner). `supabase/migrations/20261122000000_order_buyer_details.sql`,
   rows of buyer details per account per event per UTC day**, shared by the
   list, the search and the export (`EVENT_ORDERS_LIMITS.dailyRows`; sized so
   one full 20,000-row export fits with 5,000 rows of paging to spare): each
-  page adds the rows it returns, each export its row count, to
+  page adds the rows it returns plus the holders it shows (hidden ones don't
+  count; a search at least 1, even with an empty page, since its `total`
+  says how many orders match), each export its orders plus their shown
+  holders, to
   `private.order_detail_views` in one atomic upsert
   (`take_order_detail_budget`) before anything is returned. Past it: 429
   `code: "daily_limit"` and nothing served. If the count can't be recorded the
@@ -3128,15 +3177,21 @@ owner). `supabase/migrations/20261122000000_order_buyer_details.sql`,
   round the export's limits.
 - **The CSV** (`orders.csv`): every listed order (no search), newest
   first: Reference, Placed (in the event's zone), Name, Email, Tickets, Paid
-  (A$), Refunded (A$), Status. Built with `toCsv` (every cell quoted; text
+  (A$), Refunded (A$), Status, Transferred to (the order's holders in one
+  cell, "Sam Lee <sam@…> · GA; (hidden) <hidden> · VIP"; still one line per
+  order; the page's note beside "Export CSV" says "Includes people tickets
+  were sent to." once sending is on). Built with `toCsv` (every cell quoted; text
   starting with `= + - @`, a tab or a carriage return gets a leading `'`, so a
   buyer's "=HYPERLINK(…)" or an email starting with `+` is plain text; a BOM for
-  Excel). The order of work: a cheap `count(*)` of the listed orders (no details read);
-  more than 20,000 is a 409 before anything else (nothing logged or counted);
-  then `record_order_export` takes the rate limit and the daily budget and
-  writes the audit row (`private.order_detail_exports`: who, which event, how
-  many rows, when; no buyer data); only then are the rows read (at most as many
-  as were logged) and the file returned: an export that can't be logged is a
+  Excel). The order of work: a cheap `count(*)` of the listed orders and of
+  their shown holders (no details read); more than 20,000 orders is a 409
+  before anything else (nothing logged or counted); then `record_order_export`
+  takes the rate limit and the daily budget and writes the audit row
+  (`private.order_detail_exports`: who, which event, how many rows of
+  details, orders and shown holders together, when; no buyer data); only then
+  are the rows read (at most as many orders, and shown holders, as were
+  logged: a holder accepted between the count and the read is in the file
+  without a name or email) and the file returned: an export that can't be logged is a
   500, not a file, and a refused one a 429 (`rate_limited` or `daily_limit`). The analytics CSVs stay aggregate-only, and
   check-in stays name-free.
 - **After the organiser has them.** The notice tells buyers organisers may use
@@ -3144,16 +3199,119 @@ owner). `supabase/migrations/20261122000000_order_buyer_details.sql`,
   what an organiser does with a file is theirs to answer for (the organiser
   agreement, still to be drafted, and the Spam Act: no marketing email
   without consent). Sheltüh cannot recall an exported file.
-- **Withdrawing someone.** Self-serve withdrawal is not built: the buyer asks
-  support, and an admin clears the name for an address with the SQL in
-  `docs/supabase-setup.md` (the order then reads like a pre-release one).
-  This doesn't recall files already exported.
+- **Withdrawing someone.** Self-serve withdrawal is not built: the person
+  asks support, and an admin runs the one procedure for their address in
+  `docs/supabase-setup.md` ("Withdrawing someone's details"), whose two
+  statements clear the name on every order bought with it (the order then
+  reads like a pre-release one) and stamp every ticket accepted with it
+  (`holder_details_withdrawn_at`, once; the entry stays without details), so a
+  buyer who is also a holder elsewhere is hidden everywhere.
+  `tests/server/event-orders.test.ts` runs the runbook's statements and checks
+  the list, the search and the CSV. This doesn't recall files already
+  exported.
 - **Accepted limits.** The name stays in `orders` after the 12 months (only
   hidden from the API; there is no purge yet, so the privacy policy's
   retention wording should match). An organiser's account that is compromised
-  exposes its events' buyers: exports are rate-limited and logged, not
-  prevented. A buyer's name is checked for links, "@" and invisible
+  exposes its events' buyers (and holders): exports are rate-limited and
+  logged, not prevented. An export with more than 5,000 shown holders on top
+  of 20,000 orders passes the day's 25,000 rows and is refused (429
+  `daily_limit`): far beyond any event's size today. A buyer's name is checked for links, "@" and invisible
   characters but not for rude words.
+
+## Organiser dashboard summaries
+
+The organiser dashboard's Overview and Events tab read two summaries of the
+caller's own events (`lib/server/handlers/organiser-summary.ts`, routes
+`app/api/organisers/me/overview/route.ts` and
+`app/api/organisers/me/events/summary/route.ts`, client
+`lib/api/organiser-summary.ts`, types `OrganiserOverview`,
+`OrganiserEventSummaryPage` and friends in `lib/api/types.ts`). No migration:
+they read existing tables through existing indexes.
+
+The pages: the Overview is the dashboard's home, `/dashboard`
+(`components/dashboard/overview/*`), and the events list is the Events tab,
+`/dashboard/events`; the nav (`lib/organiser-nav.ts`) lists both. Both show
+only what the summaries say: no stand-in numbers, and what they can't say
+(Latte's unexplained "3", who follows) is left out. The Events tab's cards
+keep what the old list said for the undrawn stages (Sheltüh's note, the next
+step, the paid-draft payouts line) and its other actions (View public page,
+Orders, Analytics, Check-in) in a "···" menu per card
+(`lib/organiser-event-card.ts`) until the Manage tabs hold them; `?filter=`
+in the address opens a filter.
+
+- **Access.** `requireCaller`, then the caller's own approved organiser
+  (`requireApprovedOrganiser`): signed out 401; a member, an applicant, a
+  suspended organiser or an admin with no organiser of their own 403. The
+  routes take no organiser or event id, so another organiser's events can't
+  be named; the queries filter on the caller's `organiser_id` (and the gross
+  query on both the event ids and the organiser). Every response, errors
+  included, is `private, no-store`.
+- **Rate limit.** The two reads share 60 a minute per account
+  (`take_rate_limit` bucket `organiser_summary`, `ORGANISER_SUMMARY_LIMIT`),
+  taken after the organiser check and before any summary query: room for a
+  dashboard that refreshes and pages, while bounding how often one account
+  makes the database walk all its events. Past it: 429 `code: "rate_limited"`
+  with `Retry-After` 60.
+- **No buyer data.** Counts and money only: no names, emails, order ids or
+  references (tests check the JSON). Followers are a count of members who
+  followed in the week and still follow, never who (as "Following
+  organisers": organisers see counts only; showing who is owner question 34).
+- **Stage** (`OrganiserEventStage`, derived in SQL, never stored): `live`
+  (published, not ended; any external event), `sold_out` (published, not
+  ended, Sheltüh-ticketed, every ticket type's `quantity_sold >=
+  quantity_available`; a tier waiting for the one above isn't sold out, as
+  the public `soldOut`), `ended` (published, `ends_at` passed), `in_review`
+  (`pending_review`), `changes_needed` (`rejected`), `unpublished` (a draft
+  with an `approved` log entry: live once, then taken down, as the
+  dashboard's `ticketingLocked` reads it) and `draft`. Filters: `live` =
+  live + sold out, `drafts` = draft + unpublished + in review + changes
+  needed, `past` = ended; each event is in `all` and exactly one other.
+  `rejectionReason` only on `changes_needed` and `unpublished`.
+- **Numbers per event.** `ticketsSold` and `capacity` are the ticket types'
+  own counters (`quantity_sold`, `quantity_available`, in people), the same
+  numbers as `EventRecord.ticketsSold`; a full refund gives tickets back.
+  `grossCents` is the analytics gross over the event's whole life: every
+  `paid` order's `total_cents − support_cents` (refunded, refund-pending,
+  pending and failed orders left out), and `netCents` that less the orders'
+  `application_fee_cents` (the organiser's expected share before refunds and
+  disputes, as analytics' net), in one
+  grouped read for the page's events (`orders_event_paid_created_idx`). Which
+  of the two the cards show is owner question 39 (built: gross, as drawn and
+  as the analytics pages label it). Like analytics, neither subtracts a
+  partial refund (`amount_refunded_cents` on a still-`paid` order) or flags a
+  disputed payment: owner question 45. `free`: Sheltüh-ticketed with ticket
+  types all priced 0, or external with `externalFree`. External events have
+  no Sheltüh sales: 0 tickets, capacity and gross.
+- **The Overview.** `thisWeek` is the last 7 Melbourne days (today
+  included): `ticketsSold`, `views` and `viewsUnreliable` from the analytics
+  overview's own period query (`organiserPeriod`, so they equal
+  `GET …/analytics/overview?from=today−6&to=today`), `viewsComplete` (false
+  while part of the week is before view counting began) and `newFollowers`
+  (`organiser_follows.created_at` in those days, `organiser_follows_organiser_idx`).
+  `highlight` (the banner): the soonest `live` Sheltüh-ticketed event that
+  hasn't started, has tickets left and has sold at least one; null otherwise.
+  `upcoming`: the first two live or sold-out events of any ticketing.
+  `draftsCount`: the `drafts` filter's count. `performance`: up to 10 live or
+  sold-out Sheltüh-ticketed events, soonest first, with lifetime gross and
+  tickets sold this week against the 7 days before (`deltaPct` rounded; null
+  when the week before sold nothing). The Overview returns rows for at most
+  the 100 soonest live events: that caps what is returned, not the work (the
+  stage of every one of the organiser's events is still derived to sort and
+  filter, and the counts read them all).
+- **The Events tab.** Not-ended events soonest first, then ended ones most
+  recent first (the analytics overview's order); `limit` 20 (at most 50) and
+  a cursor like every list; `counts` (per filter and per stage) on every page.
+- **Cost.** Overview: ten reads in parallel (the analytics period query's
+  three for each week, the views start date, the follower count, the live
+  events and the grouped counts), then one gross read; Events: a page read
+  and a grouped count in parallel, then one gross read. No read per event,
+  but the events read and the counts cover every one of the organiser's
+  events, so the cost grows with how many events the organiser has (the rate
+  limit bounds how often). The events read goes through
+  `events_organiser_created_idx` with per-event lookups by primary key (ticket
+  types, photo) and `event_moderation_log_event_idx`;
+  `tests/server/organiser-summary.test.ts` checks the plans with sequential
+  scans discouraged.
 
 ## Trending
 
@@ -3688,6 +3846,152 @@ featured banner crops the photo or shows it whole.
   with a photo goes in `.scene-marker`. `e2e/map-image-focus.spec.ts` checks
   the box the photo actually fills, as well as its `object-position`.
 
+## Story card
+
+The "I’m going." card a ticket holder posts to an Instagram story or feed
+(design: `docs/design/story-card.md`; renderer: `lib/story-card.ts`,
+`lib/server/story-card-photo.ts`, `lib/server/story-card-render.tsx`). The
+route that serves it is `GET /events/{slug}/story-card?format=story|square`
+(`app/events/[slug]/story-card/route.ts` over
+`lib/server/handlers/story-card.ts`): a JPEG, 1080 × 1920 (story) or
+1080 × 1080 (square). The share buttons that use it come later (only on
+ticket-holder pages); this is just the image.
+
+- **A page route, not `/api`, and no image extension.** The demo build may
+  make no `/api/*` call (`e2e/demo.spec.ts`), and `/events/[slug]/…` follows
+  the `.ics` file. The path doesn't end in `.jpg` because the service worker
+  keeps same-origin images with an image extension for 7 days
+  (`public/sw.js` `routeFor`), which would show a stale tag;
+  `tests/service-worker.test.ts` checks the card is bypassed.
+- **Public per event** (owner decision, 24 Nov 2026; owner question 46). The
+  card shows only what the public event page shows: the title, date and
+  time, venue and suburb, the tag ("In 3 days", "Tomorrow", "Tonight",
+  "Today", "On now") and the cover photo. Never a price, ticket, QR, order,
+  buyer, organiser contact or attendee. Gating it to ticket holders would
+  need a credential in an image URL (history, logs, proxies) and lose the
+  CDN, and would break the emailed link for guest buyers; anyone can
+  screenshot the event page anyway. The handler never reads
+  `Authorization` or cookies, so every caller gets the same bytes
+  (`tests/server/story-card.test.ts` checks a signed-in caller gets the
+  same response; `tests/server/private-gets.test.ts` lists it as public
+  on purpose).
+- **Visibility.** Live: `findStoryCardEvent` (`lib/server/story-card-data.ts`)
+  reads the card's fields, the photo's version (`event_images.updated_at`,
+  whole seconds, as its public `?v=`) and focus, under the event page's rule
+  (`slug = $1 and status = 'published'`: the unique index on `events.slug`;
+  a slug that isn't one is refused without a query). No bytes. An event
+  that has ended (`ends_at`, or the start when there's none) has no card.
+  Demo (no Supabase): the sample events (`getEventBySlug`) with their
+  `public/events/` photos (`readDemoPhoto`), drawn at the demo clock
+  (`demoCardNow`: 3 days before the start, since most samples are past).
+- **Answers.**
+
+  | Status | When | Cache-Control |
+  | --- | --- | --- |
+  | 200 `image/jpeg` | published, not ended | `public, max-age=0, s-maxage={N}` (below), `ETag` |
+  | 304 | `If-None-Match` names the current version (a list, weak tags and `*` included) | the same headers as the 200 |
+  | 400 `{error, fieldErrors.format}` | `format` missing, repeated or not `story`/`square`, or **any other query parameter**, as the handler sees the query: after Next's normalisation (below), so `?x=1` is refused but other spellings of the canonical URL get the card. Checked before any read | `private, no-store` |
+  | 404 `{error: "Event not found."}` | malformed or unknown slug; draft, in review, rejected, unpublished; ended. One body for all | `private, no-store` |
+  | 429 | more than 20 draws in 10 minutes from this client (`STORY_CARD_RATE_LIMIT`, bucket `story_cards`), `Retry-After: 600` | `private, no-store` |
+  | 503 | this instance's render slots are full (2 drawing, 6 waiting: `STORY_CARD_RENDER_SLOTS`), `Retry-After: 30` | `private, no-store` |
+  | 500 | the drawing failed (logged with the redacted message only) | `private, no-store` |
+
+  A 200 also has `Content-Disposition: inline;
+  filename="sheltuh-{slug}-{format}.jpg"`, `X-Content-Type-Options:
+  nosniff` and `X-Robots-Tag: noindex` (a card is for sharing, not image
+  search). The handler sets no `Vary`; Next adds `vary: rsc,
+  next-router-state-tree, next-router-prefetch, next-router-segment-prefetch`
+  (seen on `next start`; headers browsers don't send for an image), and
+  what Vercel sends is checked on the first deploy (`docs/DEPLOYMENT.md`,
+  "Story card"). Next answers `HEAD` with the `GET` handler, so a `HEAD` is a draw
+  too (rate-limited the same).
+- **The CDN window, N** (`storyCardFreshSeconds`, `lib/story-card.ts`): the
+  smallest of an hour, the time to the next midnight in the **event's**
+  zone (when "In 3 days" becomes "In 2 days"), to the start and to the end
+  (when "Today" becomes "On now", and when the card is gone), less the time
+  the drawing took, and at least 1 second. So a shared copy never shows a
+  tag past its change, and a takedown or an admin's edit stops being served
+  within an hour. `max-age=0`: a browser asks again each time (the CDN
+  answers with a 304 while its copy is fresh). No `stale-while-revalidate`,
+  which could serve yesterday's tag.
+- **The version (the ETag)** is `storyCardVersion`: a hash of the renderer
+  version (`STORY_CARD_RENDERER_VERSION`, bumped with any design change),
+  the format, the title, the date line, the place, the tag, the photo's
+  version and its focus. Not `events.updated_at`, which changes for things
+  the card doesn't show. The 304 is decided after the visibility read and
+  before anything else: no photo is read, no rate-limit hit is taken and
+  nothing is drawn.
+- **A draw** takes a render slot first (`inStoryCardSlot`; a 503 when they're
+  full, before any database work beyond the visibility read), then, inside
+  it: one hit on the client's limit (`takeClientLimit`: a keyed hash
+  of the IP, `private.client_rate_limits`, no migration; it fails open
+  without `STRIPE_WEBHOOK_SECRET` or a client IP, like the other per-client
+  limits), the photo's bytes (`findPublicEventCover`, the same
+  published rule; if the event was unpublished in between, a 404 rather than
+  a card without its photo), and `drawStoryCard` (the
+  photo work in sharp with the upload's 24-megapixel cap and encode timeout,
+  Satori, then a JPEG). A photo that can't be decoded gives the no-photo
+  card. The demo has no rate limit (no database); the slots still apply.
+- **What the handler sees of the URL.** Next normalises the request URL
+  before the route handler runs (`normalizeCdnUrl` in
+  `next/dist/server/server-utils.js`): the query is parsed and re-formatted,
+  so percent-escapes are decoded, an empty trailing `&` disappears and
+  Next's own `nxtP…` keys are dropped; the slug parameter arrives decoded
+  too. So `?format=story&`, `?f%6Frmat=st%6Fry`, `?format=story&nxtPa=1` and
+  `/events/%6Eeon-static/story-card?format=story` all reach the handler as
+  the canonical URL and get the card, while each is a separate CDN key. The
+  strict query refuses genuinely different parameters (`?x=1`, a second
+  `format`), not every spelling of the same ones. See the accepted risk
+  below; there's no server-side cache of drawn cards.
+- **No network at render time.** next/og fetches a fallback face from
+  Google Fonts, or an emoji from a CDN, for any character its fonts lack.
+  Every string is fitted to the card's fonts first (`fitToStoryCardFont`:
+  emoji and other scripts dropped, accents the fonts lack taken off; an empty
+  title becomes the venue's name, then "Event"), and
+  `tests/server/story-card-render.test.ts` checks the coverage table against
+  the font files.
+- **Files on disk.** The renderer reads its four TTFs (`app/fonts/og/`), and
+  the demo the sample photo the event names (a dynamic path, which the
+  build's file tracing can't follow). `next.config.ts`
+  `outputFileTracingIncludes` adds both to the route's function bundle on
+  Vercel (`tests/next-config.test.ts` pins it); `npm run build` lists them in
+  `.next/server/app/events/[slug]/story-card/route.js.nft.json`. The route
+  runs on the Node runtime (the default; sharp and `fs` need it), never edge.
+
+### Accepted risks (story card)
+
+- **Anyone with an event's link can make its card.** It holds only public
+  fields; the owner chose this over a gated card (question 46). The share
+  page that links it will be noindex and not linked from the event page.
+- **Takedowns lag by up to an hour.** An unpublished event's or an edited
+  event's card can still be served from the CDN until N runs out (an hour at
+  most; "CDN windows"). A card someone already saved or posted can't be
+  recalled. For one that can't wait, purge the CDN from Vercel's dashboard.
+- **Render cost under abuse.** One draw is about a second of CPU. The
+  per-client limit and the per-instance slots bound one client and one
+  instance, but each CDN region misses separately and a distributed client
+  beats a per-IP limit; new instances cost money rather than fail. The
+  escalation is a Vercel firewall rule on the path (`docs/DEPLOYMENT.md`,
+  "Story card", optional). The query is strict, but only as Next hands it
+  over: other spellings of the canonical URL (an escaped letter, a trailing
+  `&`, a `nxtP…` key, an escaped slug) are separate CDN keys that each draw
+  once more. More keys means more draws, still capped by the per-client
+  limit and the per-instance slots; a flood refused because the slots are
+  full costs only the visibility read each.
+- **A 304 stored by the CDN** (needs verification, as for images): the 304
+  carries the 200's `public` header. If Vercel stored a 304 answered to a
+  conditional request on a miss, everyone would get an empty card for up to
+  N. Checked on the first deploy (`docs/DEPLOYMENT.md`, "Story card").
+- **Fails open** without `STRIPE_WEBHOOK_SECRET` or a client IP header (as
+  every per-client limit): the slots still bound each instance.
+- **The photo can change between the two reads** (only an admin can replace
+  a published event's photo): that card's bytes are newer than its ETag for
+  one CDN window. Harmless: the next draw has the new version.
+- **A glyph the coverage table wrongly claims** would make next/og fetch from
+  Google Fonts at render time (with only the card's public text). The table
+  is checked against the files in tests.
+- **Demo deployments** have no rate limit (no database), only the slots.
+
 ## Admin authoring
 
 Admins create events themselves, for any organiser
@@ -4124,8 +4428,8 @@ an approved organiser's event went live without one
   inbox previews are fixed text: the organiser's title and name appear only
   in the body, under "As submitted by the organiser:", so they can't be used
   to phish admins from our own signed address. Nothing else: no
-  description, contact details, venue address or buyer data; no images, no
-  tracking. An approved organiser's event goes live on their own publish
+  description, contact details, venue address or buyer data; no remote
+  images (the only image is the inline wordmark), no tracking. An approved organiser's event goes live on their own publish
   (`event_published`, queued by `private.publish_event`; see "Publishing
   events"): "Event published by an organiser", "It went live without review.
   Check it, and unpublish it if it shouldn't be on Sheltüh.", the same
@@ -4809,12 +5113,59 @@ person (`supabase/migrations/20261120000000_group_tickets.sql`,
 `NEXT_PUBLIC_TICKET_TRANSFERS` (`lib/ticket-transfers-flag.ts`): off stops new
 sends only; offers already made can be viewed, accepted, declined and
 cancelled, received tickets keep working at the door, and sent tickets stay
-sent. Built in stages: this release is the database, the API, the door and
-the redaction; the emails (and the offer link's token minting), the
-organiser's view, reminders to holders, the UI and recipients' wallet passes
-follow. Until the emails ship, the transfer jobs wait in the outbox: no
-release leases them (`ticketTransferJobsSoon` is empty, and the cron's drain
-doesn't name their kinds).
+sent. Built in stages: the database, the API, the door, the redaction, the
+UI, the emails, the organiser's view and the admin log (below) are in;
+reminders to holders and recipients' wallet passes follow.
+
+**The emails** (`lib/server/ticket-transfer-email.ts`, on the shared 1120 kit
+`lib/server/email-kit.ts`, to Latte's frames; the full ticket is the ticket
+email's own orange-outline card, owner decision). Each is an outbox job
+(`transfer_offer`, `transfer_accepted`, `transfer_declined`,
+`transfer_expired`, `transfer_ticket`), drained after the organiser emails in
+the cron and, kind by kind, straight after a send, accept or decline
+(`sendTicketTransferEmailsSoon`: the five kinds share one `DRAIN_BUDGET_MS`,
+30 s, so the routes' `maxDuration` of 60 s covers the whole run). The names
+quoted in them are held to the person-name rules (`parsePersonName`) and,
+for the sender's and the holder's, refused if only Sheltüh may use them
+(`isReserved`, as for member names: "Sheltüh Support", "Admin"):
+- **The offer**, to the address typed: the ticket card *locked* (a faded
+  pattern that doesn't decode, `public/email/ticket/qr-locked.png`, checked
+  with ZXing; no code of any kind), Accept and Decline
+  (`/tickets/accept#token=…`, `&decline=1`), "How it works", "Don't forward
+  this email: whoever accepts first gets the ticket.", the event's details
+  ("View event page"), host and "Before you go" (the organiser's rows as plain
+  lines, "Entry: …", as Latte draws the box). The link's token (32 random bytes) is minted per
+  attempt by the worker, its hash stored first; earlier copies stay valid.
+- **Accepted** (who now holds it, the accepting address masked only when it
+  isn't the one typed), **declined** and **expired** (the QR still works;
+  "Send to a friend" until the cut-off; if the ticket was checked in
+  meanwhile, only "It's been checked in at the door, so it can't be sent
+  on."), to the order's current
+  `buyer_email` (a holder's re-send: the address they accepted with).
+- **The recipient's ticket**, to the accepting account's address, in the
+  offer's pattern: "From {sender}", "Your ticket to {EVENT}.", the live card
+  with their issued code and its QR (`cid:`), "Show this at the door", their
+  received page, the details and "Before you go"; no order, amounts, or
+  "ticket n of N". Its footer, like the offer's, names the sender ("…because
+  {sender} sent you a ticket on Sheltüh.").
+- **The buyer's ticket email** shows a sent ticket as sent ("Sent to {name} ·
+  accepted {date}", "This QR code no longer works"): no code, no QR, no wallet
+  link; the full card is the first ticket still theirs; numbers are kept.
+
+Every kind is checked against its transfer's state when the job is read and
+again straight before the mail provider (`stillToSendTransfer`: the lease,
+and an offer still pending, unexpired and before the cut-off with its order
+paid and event published; a decision still that decision, to the sender's
+current address, and for declined and expired the ticket still the sender's
+(`SENDER_STILL_HOLDS`: the order paid and no current holding but the sender's
+own, so a late notice never says "Your QR code still works" after the ticket
+was sent again and accepted, or refunded) and not sent again since
+(`NOT_SENT_SINCE`: no later offer of the ticket, including a send that
+expired this overdue offer in its own transaction); a ticket still the
+current holding of a paid order): a change meanwhile defers it a minute, and
+the next read skips it. No token is minted for an offer that isn't open: the
+insert itself checks the offer's state. Names are escaped as quoted text; none
+becomes a link. Logs name the job id only.
 
 **The owner's rules** (`TICKET_TRANSFER_RULES`, each passed to the database
 as a parameter, so a change is one line with no migration): paid and free
@@ -4872,6 +5223,12 @@ accepted their received ticket (`ReceivedTicket`, by the transfer's id, the
 accepting account only) with their own code while it's valid, a transfer
 reference (`#` + 8 hex of the transfer's id) and never the order's id or
 reference, the buyer's name or email, amounts or the order's other tickets.
+My tickets (`GET /me/tickets`) lists each ticket the account accepted on the
+same terms, without the code: valid and upcoming while they hold it and the
+event hasn't ended; `void` (and past) once its order is refunded or it's sent
+on. One difference: a list card keeps the published event's public details
+(date, venue, photo) when it's void, where the received page drops them. The sender's order card counts only the tickets they still hold, and is
+past once every one has been sent.
 
 **The door.** `check_in_ticket` looks a code up as a ticket's code, else as an
 issued code. A scan whose credential isn't the live one is `transferred`
@@ -4884,11 +5241,21 @@ before the migration, have none. A request id replayed with the ticket's
 other credential is a `conflict`, as for another ticket. Older door clients
 show an unknown outcome as Not verified (fail closed).
 
-**Who's Going and GET /me** use `member_held_tickets`: a member who gave
+**Who's Going, GET /me and My tickets** use `member_held_tickets`: a member who gave
 away every ticket for an event can't opt in, and their opt-in is removed when
 the transfer is accepted (so they can't keep messaging its attendees); a
 recipient can opt in; `upcomingCount` counts held tickets (given-away ones
-out, received ones in).
+out, received ones in), and My tickets' `section` is upcoming only for them.
+
+**The organiser and support.** The event's Orders view lists each order's
+tickets sent on with their current holder's name and email, under the buyers'
+rules and the holder's own notice (`holders`: "Organiser orders"); pending
+offers aren't shown. Support's log is `/admin/ticket-transfers`
+(`components/admin/TicketTransfersAdmin.tsx`, linked from the admin hub and
+from Emails' "Find an order"): every offer newest first, or an order's or a
+transfer's by its reference (`?reference=`), status in words, the sender, the
+recipient's and the accepting address masked only, and "Cancel offer" with a
+reason for one still waiting (an accepted one can't be undone in v1).
 
 **Refunds** (D9): a refund of the buyer's order voids the recipient's ticket
 (the order isn't paid: `not_admissible` at the door, `void` on the received
@@ -4927,6 +5294,35 @@ let the old address's account through. `tests/server/ticket-transfer-races.test.
 refund, an opt-in and the sweep, two accepts of one account at the cap less
 one, and two sends.
 
+**The UI** (Latte's 1120 frames; owner rule: the full ticket is the orange-outline one everywhere):
+- **Sending**, on the ticket page (`/checkout/success`, `components/CheckoutConfirmation.tsx` and
+  `components/tickets/MyTicketView.tsx`): Manage order's "Send ticket to a friend" and the full-screen ticket's
+  Send, for a ticket the API says `canSend`, open `components/tickets/SendTicketDialog.tsx` (the 480 dialog
+  from 768, the bottom sheet below: their name, their email, the sender's own name, and a Privacy Policy link).
+  A ticket on offer keeps its QR with a "Waiting for Sam to accept" strip and Cancel; a sent one is the
+  Transferred ticket card (no code). A toast (`components/ui/Toast.tsx`) confirms a send or cancel. Signed in,
+  the page's `GET /orders/by-session/{id}` also sends the account's bearer token (`getOrderBySession`'s
+  `getToken`), so the buyer signed in with the buying email gets control, and the order is read again
+  (quietly) when an account signs in after it was read. Without control, Manage order's row says to sign in
+  (or switch account) with the buying email; the order id waits in this tab's sessionStorage under
+  `sheltuh:return-order` (`lib/ticket-transfer-return.ts`), and the sign-in's `next` carries only
+  `/checkout/success?send={n}` (never the order id: OAuth puts `next` in Supabase's redirect URL). `?send={n}`
+  brings ticket n into view and opens Send for it once the order says it can be sent.
+- **Accepting**, `/tickets/accept#token=…` (`app/(account)/tickets/accept`, `AcceptTicketFlow`), in the
+  account frame: the token is read from the fragment (`useFragmentToken`, `lib/link-token.ts`; `&decline=1`
+  from the email's Decline opens the decline question) and taken out of the address bar, then kept only in
+  this tab's sessionStorage under `sheltuh:ticket-offer` for the sign-in round trip: never a query string,
+  cookie or localStorage. It's forgotten once used, once the server says it can't be, and on the person's own
+  Sign out (`AuthContext.signOut`, global); the page's Switch account signs out locally and keeps it. Opening
+  only reads (`POST /ticket-transfers/view`). The full ticket shows with its QR locked (a placeholder that
+  encodes nothing, and no code of any kind). Signed in: "Your name" (shared with the organiser, said so) and
+  Accept, then `/tickets/received/{transferId}` (`ReceivedTicket`, account-gated: the recipient's own QR, no
+  order data, the transfer's reference).
+- **Headers and analytics**: `next.config.ts` sends `Referrer-Policy: no-referrer` and
+  `X-Robots-Tag: noindex, nofollow` for `/tickets/accept` and `/tickets/received/:path*` (and their pages'
+  metadata says the same). Analytics never keeps a fragment, and replaces the id in
+  `/tickets/received/{id}` with `[transferId]` (`sanitizePathname`, `lib/analytics-privacy.ts`).
+
 ### Accepted risks (ticket transfers)
 
 - **A forwarded or leaked offer link** (O1, the owner's choice): whoever
@@ -4938,8 +5334,8 @@ one, and two sends.
   (a new transfer back to the buyer superseding the holding).
 - **Resale and refund fraud** (D9): sell, send, then get refunded voids the
   recipient's ticket. Recipients can't send on; organisers and support see
-  transfers (the admin list now; the organiser's Orders view next); the ToS
-  covers resale (the owner's wording).
+  transfers (the organiser's Orders view and the admin log); the ToS covers
+  resale (the owner's wording).
 - **Static wallet passes** keep showing the sender's old QR; the door says
   "sent to someone else".
 - **Code collisions**: issued codes and new ticket codes share one space
@@ -4966,8 +5362,8 @@ one, and two sends.
   bounded by one person's tickets.
 - **Privacy**: new personal data: the sender's typed name; a third party's
   typed name and email (deleted 30 days after the event unless accepted); the
-  holder's confirmed name and email (for the organiser, with notice, next
-  release). Support withdraws a holder's details on request
+  holder's confirmed name and email (shown to the organiser, with notice,
+  for 12 months after the event). Support withdraws a holder's details on request
   (`holder_details_withdrawn_at`, `docs/supabase-setup.md`). The Privacy
   Policy wording is the owner's.
 
@@ -5424,7 +5820,7 @@ limiters (`take_rate_limit`, `take_client_rate_limit`,
 started by their first hit that answer only allowed or not, so the value is
 the window's length (`windowSeconds(limit.window)`), the longest the reset
 can be: 60 for the per-minute ones (payment page, GA checkout per minute,
-wallet passes, invite resend cooldown), 300 check-ins (and an email resent
+wallet passes, invite resend cooldown, organiser dashboard summaries), 300 check-ins (and an email resent
 in the last 5 minutes), 600 the per-10-minute ones (checkout per client,
 seat-hold attempts, Who's Going list, member profiles and photos, Orders
 view reads), 3600 the hourly ones, 86400 the 24-hour and 1-day ones. When
@@ -5447,6 +5843,7 @@ without one. The UI keeps showing the API's words, which already say when
 | `GET /events?q&category&pricing&onOrAfter&upcoming&cursor&limit` | public (published only), soonest first. `onOrAfter` (`YYYY-MM-DD`, 400 otherwise): events starting on or after that date in each event's own zone (`(starts_at at time zone time_zone)::date`, with a coarse `starts_at` bound a day earlier for `events_status_starts_idx`). `upcoming=1` (or `true`): only events that haven't ended (`ends_at > now()`, in progress included); the home page and /events always send it. `recent` (`1`/`true`, `only`, `0`/`false`; additive, needs `upcoming=1` else 400; any other value 400): also lists events that ended within the last 14 days (`RECENT_EVENT_DAYS`, `lib/recent-events.ts`), after every upcoming one and most recently ended first (`only`: just those; the app no longer asks for it since the home's "Recently on" was removed in redesign PR 3, and the server still answers it; /events sends `1`, except in near-a-suburb mode). They stay openable by slug but can't be bought (`orders_not_ended`); their cards say "Ended". The map stays upcoming-only. `pricing=free`: has ticket types, all free, or is external with `externalFree`; `paid`: has a paid ticket type (an event with no ticket types is neither, and so is an external event that isn't free: its price isn't known). 400 for an unknown `category`, `pricing` or `upcoming` value. Every item carries `ticketingMode`, `externalFree`, `externalProvider` and, for external events only, `externalTicketUrl` (see "External ticketing"). 200: `public, max-age=0, s-maxage=60, stale-while-revalidate=120` (shared at the CDN: "CDN windows"), except with a non-empty `q`: `private, no-store` (a search is never shared). With `upcoming`, the page's ids are selected first (`lib/server/upcoming-page.ts`) |
 | `GET /events/slug/{slug}` | public (published only); a list item's shape plus, for an approved organiser, the Host card's `organiserWebsiteUrl`, `organiserSocialLinks` and `organiserBio` (see "Organiser profiles"). 200: `public, max-age=0, s-maxage=15, stale-while-revalidate=45` ("CDN windows"). Query parameters are ignored (the seat page's `?seatMapVersion=` only makes a new cache key). Every public event (list, slug, favourites, organiser profile, trending) carries `soldOut`, and per ticket type `soldOut` and `remaining` (only when 10 or fewer are left): see "Waitlist" |
 | `GET /events/{slug}/calendar.ics` (a page route, not under `/api`: `app/events/[slug]/calendar.ics/route.ts`) | public (published only; demo mode: the sample events). The event as an iCalendar file (`lib/calendar.ts` `buildIcs`, its URL from `NEXT_PUBLIC_SITE_URL`), `text/calendar; charset=utf-8`, `Content-Disposition: inline`, `public, max-age=300, s-maxage=300`. 404 (JSON, `private, no-store`) otherwise. No personal data |
+| `GET /events/{slug}/story-card?format=story\|square` (a page route, not under `/api`: `app/events/[slug]/story-card/route.ts`) | public (published and not ended; demo mode: the sample events at the demo clock). The "I’m going." story card as `image/jpeg`, 1080 × 1920 or 1080 × 1080. 200: `public, max-age=0, s-maxage={N}` (N at most an hour and never past the next tag change), ETag and 304. 400 for any other query; 404 (one body) for anything not published or ended; 429 (20 draws per 10 minutes per client), 503 (render slots), all `private, no-store`. No token read, no personal data. See "Story card" |
 | `POST /events/{eventId}/waitlist` `{email?}` · `DELETE /events/{eventId}/waitlist` | POST: public (a member's token is read, optionally). 201/200 `{status: "joined", maskedEmail, alreadyJoined}` for a member's own verified email; 202 `{status: "confirmation_sent", expiresInHours}` for anyone else, whatever the address's history; 400 email; 404 not published; 409 external, ended or not sold out; 503 busy (the platform caps; the link is emailed after the response, so a failed send isn't reported). DELETE: signed in, leaves (204, idempotent) |
 | `GET /events/{eventId}/waitlist/status` | signed in: `{joined, maskedEmail?}`; 404 not published |
 | `POST /waitlist/confirm` `{token}` · `POST /waitlist/leave` `{token}` | public (the emailed token is the credential). Confirm: 200 `{status: "joined", eventTitle, eventSlug, ticketsAvailable}` (also when already on the list); 400; 404; 410 expired or used; 409 closed. Leave: 200 `{status: "left", eventTitle?}` (the title only while the event is published; idempotent); 400; 404 |
@@ -5460,10 +5857,10 @@ without one. The UI keeps showing the API's words, which already say when
 | `POST /orders/confirm` `{token}` | public (the emailed token is the credential). 200 `{url}` (also when already confirmed, within 24 hours); 400 malformed; 404 unknown; 410 expired (confirmed or not); 409 sold out, allowance used, or a ticket type no longer free |
 | `GET /orders/by-session/{orderId}` | public (id is the credential). `CustomerOrder` only (see "Payment flow"), `private, no-store`; `wallet: {google, apple}` when the tickets can be added to a wallet (see "Wallet passes"). With the order's token in `x-order-access` (a paid order, the paying browser), also `emailChange`, and `email` until the event ends, except once support has changed the email: then `emailChange: {allowed: false, reason: "changed_by_support"}` and neither `email` nor `maskedEmail`, even before the event ends (expected, not a malformed answer); without it, `maskedEmail` is left out once the order's email has been changed (see "Buyer email checks") |
 | `POST /orders/by-session/{orderId}/email` `{email}` | public, the paying browser only: the order's token in `x-order-access` (and optionally the buyer's bearer token: their own confirmed address is allowed). 200 `OrderEmailChangeResult` `{result: "changed" \| "unchanged", order}`; 404 malformed (no query), unknown, not a card order, or a missing or wrong token (one body for all); 400 `fieldErrors.email`, or `code: "email_typo"` / `"email_no_mail"` with `suggestion`; 409 `order_not_paid`, `changed_by_support` ("Contact support to change this email again"), `event_ended`, `ticket_scanned`, `email_already_changed`, `email_has_account` ("Contact support to use this address"), `email_change_busy` (Retry-After 2); 429 `rate_limited` over 10 an hour from this client or 5 a day for this order. `private, no-store`. See "Buyer email checks" |
-| `POST /orders/by-session/{orderId}/ticket-transfers` `{ticket, name, email, senderName}` | public, with control of the order: the paying browser (`x-order-access`) or a signed-in, verified account whose email is the order's `buyer_email` exactly (ignoring case). Sends ticket number `ticket` (see "Ticket transfers"). 404 malformed (no query), sending off (`NEXT_PUBLIC_TICKET_TRANSFERS`) or unknown; 429 per client (20 an hour) and per order (10 a day); 400 `fieldErrors` (every field at once), or `email_typo` / `email_no_mail`; 403 `order_owner_only` (naming the buying address masked); 409 `order_not_paid`, `event_unlisted`, `transfers_closed`, `ticket_type_not_transferable`, `ticket_checked_in`, `transfer_pending`, `ticket_already_sent`, `own_email` (with `fieldErrors.email`), `transfer_attempts_used`, `transfer_pending_cap`; 429 `rate_limited` (the account's, the recipient address's or the platform's daily allowance). 201 `TicketTransferCreated` `{transferId, order}`, `private, no-store` |
+| `POST /orders/by-session/{orderId}/ticket-transfers` `{ticket, name, email, senderName}` | public, with control of the order: the paying browser (`x-order-access`) or a signed-in, verified account whose email is the order's `buyer_email` exactly (ignoring case). Sends ticket number `ticket` (see "Ticket transfers"). 404 malformed (no query), sending off (`NEXT_PUBLIC_TICKET_TRANSFERS`) or unknown; 429 per client (20 an hour) and per order (10 a day); 400 `fieldErrors` (every field at once; `senderName` also refuses a name only Sheltüh may use), or `email_typo` / `email_no_mail`; 403 `order_owner_only` (naming the buying address masked); 409 `order_not_paid`, `event_unlisted`, `transfers_closed`, `ticket_type_not_transferable`, `ticket_checked_in`, `transfer_pending`, `ticket_already_sent`, `own_email` (with `fieldErrors.email`), `transfer_attempts_used`, `transfer_pending_cap`; 429 `rate_limited` (the account's, the recipient address's or the platform's daily allowance). 201 `TicketTransferCreated` `{transferId, order}`, `private, no-store` |
 | `POST /orders/by-session/{orderId}/ticket-transfers/{transferId}/cancel` | as the send's control, whatever the flag. 200 `{order}`; 403 `order_owner_only`; 404 not this order's; 409 `transfer_not_pending`, `cancel_not_allowed`; 429 per client |
 | `POST /ticket-transfers/view` `{token}` | public, read-only (the link's token, in the body, is the credential). 200 `TicketOffer`: `open` (the names, the recipient's address masked, the expiry, the event while published, the ticket's type, seat and group place) or, for the account that accepted it, `{status: "accepted", transferId}`; 404 "This ticket offer has expired or was already used." for everything else; 429 per client (60 an hour, every attempt) |
-| `POST /ticket-transfers/accept` `{token, holderName}` | any verified account (401 / 403). 200 `{transferId}` (also again by the same account); 404 the uniform answer; 400 `fieldErrors.holderName`; 409 `transfers_closed`, `ticket_unavailable`, `own_ticket`, `received_cap`; 429 per client (30 an hour) or `rate_limited` (the account's 10 an hour) |
+| `POST /ticket-transfers/accept` `{token, holderName}` | any verified account (401 / 403). 200 `{transferId}` (also again by the same account); 404 the uniform answer; 400 `fieldErrors.holderName` (also a name only Sheltüh may use); 409 `transfers_closed`, `ticket_unavailable`, `own_ticket`, `received_cap`; 429 per client (30 an hour) or `rate_limited` (the account's 10 an hour) |
 | `POST /ticket-transfers/decline` `{token}` | public. 200 `{status: "declined"}`; 404 the uniform answer; 429 per client |
 | `GET /me/received-tickets/{transferId}` | verified, the account that accepted it (404 otherwise). `ReceivedTicket`, `private, no-store`: the recipient's own code only while valid (order paid, not sent on), never the order's id or reference, the buyer, amounts or other tickets |
 | `POST /me/received-tickets/{transferId}/ticket-transfers` | verified. 409 `resend_not_allowed` while recipients may not re-send (the owner's rule); the route exists so the rule is a one-line change |
@@ -5515,7 +5912,8 @@ without one. The UI keeps showing the API's words, which already say when
 | `GET /admin/reports/{reportId}/avatar` | admin: a profile report's copy of the photo. 404 none |
 | `GET /organisers/{organiserId}/follow` · `POST …/follow` `{notifyNewEvents?}` · `DELETE …/follow` | GET signed in, `{following, notifyNewEvents}` (404 not approved). POST verified email: 201 new (emails off unless `notifyNewEvents: true`) / 200 existing; 400 not a boolean (null included) or own organiser; 404; 409 500 follows; 429. DELETE signed in, 204 idempotent |
 | `GET /me/following?cursor&limit` · `GET /me/following/events?cursor&limit` | signed in: `FollowedOrganiser` items; upcoming events of followed organisers (public event shape), soonest first |
-| `GET /me` | verified email (`requireVerifiedCaller`: 401 signed out, 403 unverified): the caller's own `AccountSummary`, `private, no-store`. `upcomingCount`: how many published events that haven't started yet (`starts_at > now()`, so an event in progress no longer counts) the caller has a `paid` order for whose `buyer_email` equals their verified email ignoring case, the same match as Who's Going (`set_going`; no +tag or Gmail-dot folding). Free tickets are A$0 paid orders and count; a partly refunded order stays `paid` and counts; pending, failed, refunded and oversold orders don't. Distinct events: several orders, or a group order, for one event count once. Only the token's email decides whose orders are counted. One query on `orders_paid_email_event_idx` (`lower(buyer_email), event_id`, paid only; `20261201000000_member_upcoming_index.sql`). `username` (if set) and `usernameChangeableAt` (only while a change has to wait) from `member_username_state`, in the same statement (see "Usernames"). `GET /profiles/me` isn't used for this: it's a 404 for a member without a Who's Going profile |
+| `GET /me` | verified email (`requireVerifiedCaller`: 401 signed out, 403 unverified): the caller's own `AccountSummary`, `private, no-store`. `upcomingCount`: how many published events that haven't started yet (`starts_at > now()`, so an event in progress no longer counts) the caller holds a ticket for (`member_held_tickets`, as Who's Going: a ticket of a `paid` order whose `buyer_email` equals their verified email ignoring case, no +tag or Gmail-dot folding, that they haven't sent to someone who accepted it; or a ticket sent to them that they accepted and still hold, its order paid; see "Ticket transfers"). Free tickets are A$0 paid orders and count; a partly refunded order stays `paid` and counts; pending, failed, refunded and oversold orders don't. Distinct events: several orders, a group order, or bought and received tickets for one event count once. Only the token's email and user id decide whose tickets are counted. One query on `orders_paid_email_event_idx` (`lower(buyer_email), event_id`, paid only; `20261201000000_member_upcoming_index.sql`) and `ticket_transfers_holder_idx`. `username` (if set) and `usernameChangeableAt` (only while a change has to wait) from `member_username_state`, in the same statement (see "Usernames"). `GET /profiles/me` isn't used for this: it's a 404 for a member without a Who's Going profile |
+| `GET /me/tickets?cursor&limit` | verified email (`requireVerifiedCaller`: 401 signed out, 403 unverified): the caller's My tickets, `MyTicketsPage` (`lib/server/handlers/my-tickets.ts`), `private, no-store`, one card per order or received ticket. Orders: `paid`, `refunded` and `oversold_refund_required` orders whose `buyer_email` equals the verified email ignoring case (the exact address, as `member_held_tickets` and the send's control match: never +tag or Gmail-dot folding, never `buyer_email_key`, the free-order allowance's folded key); pending and failed ones aren't listed. Each order card has its `orderId` (its page is `/checkout/success?session_id={orderId}`), status and `refundReason`, `totalCents`, `ticketCount`, and of the tickets the caller still holds `heldCount`, `pendingCount` (on offer, not expired) and `checkedInCount`, and `ticketTypeName` when there's one type. Received: each transfer the account accepted (superseded ones too: `void`), with the transfer's id and reference, `fromName`, `holderName`, `acceptedAt`, the type, `status` (`valid` while held, as `member_held_tickets`, else `void`) and `checkedInAt` only while valid; nothing of the sender's order (no order id or reference, buyer, amounts or other tickets; the event's own title). Both carry `section`, `eventTitle`, `eventListed` and, only while the event is published, its slug, times, zone, venue name, suburb and photo (`imageUrl`, `imageFocus`): on every card, valid or not (refunded, sent away, void), unlike the ticket page and the received page, which show them only while the tickets are valid; they're the event's public details, and a past card still says which night it was. Never a ticket code or issued code, the buyer's name or email, Stripe ids or the fee split. `section` `upcoming`: the caller holds a ticket of it (`member_held_tickets`) and the event hasn't ended (in progress, and unlisted events, included); `past` otherwise (ended, refunded or oversold, every ticket sent away, a void received ticket). Upcoming first by the event's `starts_at`; then past by its `ends_at`, newest first (a refunded or sent-away card of an event still to come is past and sorts first); ties by kind, then id. `counts: {upcoming, past}` over the whole lists, on every page (an empty one too); not `upcomingCount` (distinct published events not started yet). 20 a page by default, 50 at most; 400 a bad cursor. Only the token's email and user id pick the cards: nothing in the query does. One read-only statement: every card is numbered, the page cut, and only the page's cards joined to their details. Paid orders by `orders_paid_email_event_idx`, refunded and oversold ones by `orders_refunded_email_idx` (`lower(buyer_email)` where `status in ('refunded', 'oversold_refund_required')`; `20261205000000_member_refunded_orders_index.sql`, applied before the app: without it the route still answers, but that branch reads every order), received ones by `ticket_transfers_holder_idx`, tickets by `tickets_order_idx` |
 | `PUT /me/username` `{username}` | verified email (see "Usernames"): claims it, normalised (NFKC, trimmed, one leading `@` dropped, lower case). 200 `AccountSummary`; the same name again is a 200 that changes nothing. 400 `fieldErrors.username`; 401; 403 suspended; 409 `code: "username_taken"` (live or held: the same answer) with `fieldErrors.username`; 429 `code: "username_change_too_soon"` with `changeableAt` and Retry-After; 429 past the lookup allowance (`username_lookups` 30 / 10 minutes and `username_lookups_daily` 100 / 24 hours, shared with the check, taken before the lookup) or the saves allowance (`username_changes` 10 / 24 hours, PUT only, taken before the claim) |
 | `DELETE /me/username` | signed in (no verified email needed; suspended members too). The name is held 30 days; the clock isn't reset. 204, idempotent |
 | `POST /me/username/check` `{username}` | verified email. A POST so the name stays out of URLs and logs. 200 `UsernameCheck` `{username, available, yours?}`: `available` false for a live or held name alike (the caller's own released name included), `yours` for (a spelling of) their current name. 400; 403 suspended; 429 (the allowance PUT uses). Says nothing about the caller's clock |
@@ -5547,9 +5945,11 @@ without one. The UI keeps showing the API's words, which already say when
 | `POST /events/{id}/outbound` | public, no body needed (`{}`). 204 (counted or not); 404 not a published external event |
 | `GET /organisers/me/events/{id}/tracking-links` · `POST …` `{label}` · `DELETE …/tracking-links/{linkId}` | organiser (own events). POST 201; 400 label; 409 label taken or 20 links. DELETE 204, idempotent |
 | `GET /organisers/me/events/{id}/analytics?from&to&compare` · `…/analytics.csv` | organiser (own events). 400 bad range. The JSON has `waitlistCount` (people on the event's waitlist now: a count only) |
-| `GET /organisers/me/events/{id}/orders?cursor&limit` · `POST …/orders/search` `{q, cursor, limit}` · `GET …/orders.csv` | organiser (own events), or admin (platform-managed organisers' events only; anything else 404); 403 suspended or not approved. The event's orders with buyers' names and emails for 12 months after it ends (`EventOrders`); see "Organiser orders". `GET …/orders?q=` is 400 (search is the POST, so the text is never in a URL). 429 `rate_limited` (reads 240 per 10 minutes; exports 10 an hour, each logged) or `daily_limit` (25,000 rows per account per event per day, list and export together); the CSV is 409 over 20,000 orders, decided on a count before anything is logged. `private, no-store` |
+| `GET /organisers/me/events/{id}/orders?cursor&limit` · `POST …/orders/search` `{q, cursor, limit}` · `GET …/orders.csv` | organiser (own events), or admin (platform-managed organisers' events only; anything else 404); 403 suspended or not approved. The event's orders with buyers' names and emails for 12 months after it ends (`EventOrders`), and each order's tickets sent on with their holders (`holders`); see "Organiser orders". `GET …/orders?q=` is 400 (search is the POST, so the text is never in a URL). 429 `rate_limited` (reads 240 per 10 minutes; exports 10 an hour, each logged) or `daily_limit` (25,000 rows per account per event per day, list and export together); the CSV is 409 over 20,000 orders, decided on a count before anything is logged. `private, no-store` |
 | `POST /organisers/me/events/{id}/check-ins` `{code, requestId}` · `GET …/check-ins` · `POST …/check-ins/{checkInId}/undo` `{reason}` | organiser (own events), or admin (platform-managed organisers' events only; anything else 404); see "Check-in". Every ticket outcome is 200; 400 bad body, 404, 409 request id reused for another code, 413, 429. `checkInId`s are uuids |
 | `GET /organisers/me/analytics/overview?from&to&compare` · `…/overview.csv` | organiser: all own events. 400 bad range |
+| `GET /organisers/me/overview` | organiser: own events only. `OrganiserOverview` (this week's tickets, views, new followers; the banner's event; the next two events; drafts count; Performance). `private, no-store`; 60 a minute per account with the other summary read (429 `rate_limited`). See "Organiser dashboard summaries" |
+| `GET /organisers/me/events/summary?filter&cursor&limit` | organiser: own events only. `OrganiserEventSummaryPage` (`filter` `all` (default), `live`, `drafts`, `past`; 400 `fieldErrors.filter` otherwise; counts per filter on every page). `private, no-store`; 60 a minute per account with the other summary read (429 `rate_limited`). See "Organiser dashboard summaries" |
 | `GET /admin/organisers?status&q&limit&cursor` · `POST /admin/organisers/{id}/approve` · `…/reject` | admin. Items (and the decision responses) are `AdminOrganiserRecord`: the full record plus `recentEdits` (newest 20 log entries), most recently updated first. `q` (optional, at most 100 characters used): name, contact email or social handle containing it, ignoring case and accents (NFKD, combining marks removed; a leading `@` is ignored for handles; LIKE wildcards match literally); no index (a substring of a folded expression), it scans one status's organisers. Control characters in `q` are dropped. `limit` 20 by default, at most 50. The admin event editor's organiser picker searches with it. Approve/reject: 409 unless pending |
 | `POST /admin/organisers/{id}/event-review` `{required, reason}` | admin (see "Publishing events"). Turns review of the organiser's events on or off, any status; logged as a `profile_edit` with the reason. 200 `AdminOrganiserRecord` (`eventReviewRequired`; unchanged and nothing logged if it already was so); 400 `fieldErrors.required` (not a boolean) or `fieldErrors.reason` (1–500 characters, cleaned like a message); 404 |
 | `POST /admin/organisers/{id}/suspend` `{reason}` | admin. Takedown of an approved organiser (see "Organiser profiles"). 200 `{organiser, eventsUnpublished, submissionsRejected}`; 400 reason missing, over 500 characters or with control/invisible characters; 404 unknown; 409 not approved |
@@ -5650,6 +6050,7 @@ the same URL that someone ran that search moments ago.
 | Event image, organiser logo and cover (current `v` only) | `public, max-age=3600, s-maxage=3600`, ETag (304) | about an hour (two at most, if the CDN dropped `Age`) |
 | Seat map (current `v` only) | `public, max-age=31536000, s-maxage=3600, immutable` | about an hour at the CDN; a year in a browser that already has it (a new map is a new URL) |
 | Calendar `.ics` | `public, max-age=300, s-maxage=300` | 5 minutes (plus a browser's 5) |
+| Story card `GET /events/{slug}/story-card` | `public, max-age=0, s-maxage={N}`, ETag (304); N is at most 3600 and ends at the next tag change (midnight in the event's zone, the start, the end) | about an hour at most (never past a tag change); a browser revalidates every time |
 
 What that means:
 
@@ -5664,7 +6065,7 @@ What that means:
   profile, or an admin's edit can still be served from the CDN for up to
   about 3 minutes in the feed and on a profile, about 1 minute on the event
   page (checkout refuses at once), and about an hour for an image, a logo,
-  a cover or a seat map at the CDN (an admin's cover removal included). `max-age` equals `s-maxage` for images and
+  a cover or a seat map at the CDN (an admin's cover removal included), and up to an hour for a story card (less when its tag changes sooner). `max-age` equals `s-maxage` for images and
   logos on purpose: a browser counts the CDN copy's `Age` against `max-age`
   (RFC 9111), so a copy is never stale on arrival and the whole chain still
   ends an hour after the function answered. A browser that already loaded
@@ -5700,6 +6101,27 @@ What that means:
   in `lib/api/types.ts`, index in
   `supabase/migrations/20261201000000_member_upcoming_index.sql`; tests
   `tests/server/me.test.ts`.
+- My tickets (`GET /api/me/tickets`): `lib/server/handlers/my-tickets.ts`
+  (`listMyTickets`; its own file so the `issued_code` source scan covers it),
+  route `app/api/me/tickets/route.ts`, client `listMyTickets` in
+  `lib/api/me.ts`, types `MyTicketsPage` / `MyTicketItem` in
+  `lib/api/types.ts`, index in
+  `supabase/migrations/20261205000000_member_refunded_orders_index.sql`;
+  tests `tests/server/my-tickets.test.ts`, `tests/api-me.test.ts`. The page:
+  `app/(account)/tickets/page.tsx` over `components/tickets/MyTicketsList.tsx`
+  (cards' words in `lib/my-tickets.ts`, demo `sampleMyTickets` in
+  `lib/sample-order.ts`); tests `tests/my-tickets.test.ts`,
+  `tests/MyTicketsList.test.tsx`, `e2e/my-tickets.spec.ts`.
+- Organiser dashboard summaries (`GET /api/organisers/me/overview`,
+  `GET /api/organisers/me/events/summary`):
+  `lib/server/handlers/organiser-summary.ts` (`getMyOverview`,
+  `getMyEventsSummary`; reuses `organiserPeriod` and `viewsTrackedSince` from
+  `handlers/analytics.ts`), routes `app/api/organisers/me/overview/route.ts`
+  and `app/api/organisers/me/events/summary/route.ts`, client
+  `lib/api/organiser-summary.ts`, types `OrganiserOverview`,
+  `OrganiserEventSummaryPage`, `OrganiserEventSummary`,
+  `OrganiserEventPerformance`, `OrganiserEventStage` in `lib/api/types.ts`;
+  tests `tests/server/organiser-summary.test.ts`.
 - Delayed payouts: `supabase/migrations/20261119000000_delayed_payouts.sql`;
   `lib/server/order-transfers.ts` (the job), `lib/server/handlers/payouts.ts`
   (cron, organiser and admin routes), the session shape in
@@ -5764,7 +6186,7 @@ What that means:
   the join path, the unavailable copy); `components/admin/OrganiserLinksAdmin.tsx`
   (on `/admin/invites`); `app/organisers/join/page.tsx` with
   `components/organisers/OrganiserJoinFlow.tsx`; the welcome in
-  `components/dashboard/DashboardContent.tsx`; tests
+  `components/dashboard/JoinedWelcome.tsx` (on the Overview); tests
   `tests/server/organiser-links.test.ts`, `tests/OrganiserLinksAdmin.test.tsx`,
   `tests/OrganiserJoinFlow.test.tsx`, `e2e/organiser-links.spec.ts`.
 - `lib/auth/AuthContext.tsx`: Supabase Auth in the browser.
@@ -5881,6 +6303,16 @@ What that means:
   image's `id` (`generateImageMetadata`) is a hash of what the card shows,
   so its URL changes when the card does. Pages with nothing of their own
   inherit the site's `app/opengraph-image.tsx`.
+- Story card ("Story card"): rules `lib/story-card.ts` (browser-safe), photo
+  work `lib/server/story-card-photo.ts`, drawing
+  `lib/server/story-card-render.tsx`, live read
+  `lib/server/story-card-data.ts`, handlers
+  `lib/server/handlers/story-card.ts` (`getStoryCard`, `getDemoStoryCard`,
+  `storyCardRoute`), route `app/events/[slug]/story-card/route.ts`, fonts
+  `app/fonts/og/InstrumentSans-*.ttf`, tracing `next.config.ts`
+  `outputFileTracingIncludes`, previews `scripts/preview-story-cards.ts`;
+  tests `tests/story-card.test.ts`, `tests/server/story-card-render.test.ts`,
+  `tests/server/story-card.test.ts`.
 
 ## Event clips
 
@@ -7357,7 +7789,8 @@ ad pixels: it is PostHog (above) with campaign tags on links.
   checkout page's Report-Only policy would need their hosts); (4) a server-side
   Conversions API option so hashed buyer details never need to reach the browser;
   (5) organiser sign-off, since buyer data is organisers' data; (6) keeping the
-  tags off `/checkout/*`, `/auth/*` and the emailed-link pages; (7) a legal check
+  tags off `/checkout/*`, `/auth/*` and the emailed-link pages (among them `/tickets/accept`, whose
+  fragment carries a sent ticket's token, and `/tickets/received/*`); (7) a legal check
   against the Privacy Act / APPs and the Spam Act for any email matching. Until
   then, UTM links plus PostHog answer "which campaign brought signups and sales".
 

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { buildTicketEmail } from "@/lib/server/ticket-email";
+import { KIT } from "@/lib/server/email-kit";
 import { eventPublicLink, inviteText, tellAFriendHtml, tellAFriendLinks } from "@/lib/server/share-email";
 import type { EventRecord, OrderRecord } from "@/lib/server/types";
 
@@ -23,10 +24,13 @@ describe("Tell a friend (lib/server/share-email.ts)", () => {
     for (const l of links) expect(l.href).not.toContain("@");
   });
 
-  it("escapes the HTML block", () => {
-    const html = tellAFriendHtml(tellAFriendLinks("<b>x</b>", "Sat", LINK));
-    expect(html).toContain("Tell a friend:");
+  it("escapes the HTML block, Latte's 1120 \"Going with friends?\" box with a chip per link", () => {
+    const links = tellAFriendLinks("<b>x</b>", "Sat", LINK);
+    const html = tellAFriendHtml(links);
+    expect(html).toContain("Going with friends?</h2>");
     expect(html).not.toContain("<b>x</b>");
+    for (const l of links) expect(html).toContain(`>${l.label}</a>`);
+    expect(html).toContain(`bgcolor="${KIT.cream}"`);
   });
 });
 

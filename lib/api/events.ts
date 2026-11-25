@@ -7,7 +7,6 @@ import { ApiError, apiFetch, type GetToken } from "./client";
 import type {
   EventRecord,
   ImageDisplayInput,
-  Paginated,
   PublishEventConflictCode,
   PublishEventResponse,
   ReleaseTicketsResult,
@@ -202,12 +201,6 @@ export function publishConflictCode(err: unknown): PublishEventConflictCode | un
   if (!(err instanceof ApiError) || err.status !== 409) return undefined;
   const code = err.body?.code;
   return PUBLISH_CONFLICT_CODES.find((c) => c === code);
-}
-
-export async function listMyEvents(getToken: GetToken, cursor?: string) {
-  const token = await getToken();
-  const qs = cursor ? `?cursor=${encodeURIComponent(cursor)}` : "";
-  return apiFetch<Paginated<EventRecord>>(`/organisers/me/events${qs}`, { token });
 }
 
 export async function getMyEvent(eventId: string, getToken: GetToken) {

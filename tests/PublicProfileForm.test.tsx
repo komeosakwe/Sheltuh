@@ -20,8 +20,10 @@ vi.mock("@/lib/api/organisers", () => ({
 }));
 
 let organiserState: { loading: boolean; organiser: OrganiserRecord | null; error: string | null };
+const announceOrganiserChange = vi.fn();
 vi.mock("@/lib/auth/useOrganiser", () => ({
   useOrganiser: () => ({ ...organiserState, refetch: vi.fn() }),
+  announceOrganiserChange: (...args: unknown[]) => announceOrganiserChange(...args),
 }));
 
 const RECORD: OrganiserRecord = {
@@ -42,6 +44,7 @@ const RECORD: OrganiserRecord = {
 afterEach(cleanup);
 beforeEach(() => {
   updateOrganiserProfile.mockReset();
+  announceOrganiserChange.mockReset();
   organiserState = { loading: false, organiser: RECORD, error: null };
 });
 
@@ -127,8 +130,11 @@ describe("PublicProfileForm", () => {
     const busy = screen.getByRole("button", { name: "Saving…" });
     expect(busy).toHaveAttribute("aria-disabled", "true");
 
+    expect(announceOrganiserChange).not.toHaveBeenCalled();
     resolve({ ...RECORD, description: "New bio.", xHandle: "nsnoise" });
     await waitFor(() => expect(screen.getByRole("status")).toHaveTextContent("Profile saved."));
+    // The dashboard's sidebar and rail (their own useOrganiser) take the saved record.
+    expect(announceOrganiserChange).toHaveBeenCalledWith({ ...RECORD, description: "New bio.", xHandle: "nsnoise" });
     expect(screen.getByLabelText("X username")).toHaveValue("nsnoise");
     expect(screen.getByRole("button", { name: "Save profile" })).not.toHaveAttribute("aria-disabled");
   });
@@ -270,6 +276,7 @@ describe("PublicProfileForm", () => {
     fireEvent.change(screen.getByLabelText("Bio (required)"), { target: { value: "Changed." } });
     save();
     expect(await screen.findByRole("alert")).toHaveTextContent("Your organiser status changed");
+    expect(announceOrganiserChange).not.toHaveBeenCalled();
   });
 });
 

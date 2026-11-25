@@ -1,4 +1,5 @@
 import ApplyPageContent from "./ApplyPageContent";
+import OpeningDashboard from "./OpeningDashboard";
 import OrganisersHero from "./OrganisersHero";
 import { OrganiserPillars, PublishSteps, WhySheltuh } from "./OrganisersSections";
 import Strap from "@/components/ui/Strap";
@@ -8,11 +9,12 @@ import { START_EYEBROW, START_ID, START_TITLE_ID } from "./organisers-content";
  * /organisers/apply, the For organisers page (redesign PR 6; the owner's mock): the hero, Create /
  * Reach / Grow, the four steps, Why Sheltüh? and the Start organising panel, which holds the
  * application itself (ApplyPageContent: sign in, the form, its status). Every "For organisers"
- * link lands here; an approved organiser still goes straight on to /dashboard.
+ * link lands here; an approved organiser still goes straight on to /dashboard (the site's own
+ * nav links there directly; OpeningDashboard covers the page while they're sent on).
  */
 export default function OrganisersPage() {
   return (
-    <>
+    <OpeningDashboard>
       <OrganisersHero />
       <div className="page-container pb-16 md:pb-24">
         <OrganiserPillars className="mt-8 lg:mt-4" />
@@ -30,6 +32,6 @@ export default function OrganisersPage() {
           </div>
         </section>
       </div>
-    </>
+    </OpeningDashboard>
   );
 }

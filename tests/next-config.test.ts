@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { PHASE_DEVELOPMENT_SERVER, PHASE_PRODUCTION_BUILD, PHASE_PRODUCTION_SERVER } from "next/constants";
@@ -40,7 +40,7 @@ describe("next.config headers", () => {
     expect(byKey["x-robots-tag"]).toMatch(/\bnoindex\b/);
   });
 
-  it.each(["/waitlist/:path*", "/following/:path*", "/holder-messages/:path*", "/invite", "/organisers/join"])(
+  it.each(["/waitlist/:path*", "/following/:path*", "/holder-messages/:path*", "/invite", "/organisers/join", "/tickets/accept", "/tickets/received/:path*"])(
     "keeps the emailed or shared link page %s (a token in its fragment) out of Referers and search indexes, like checkout",
     async (source) => {
       const byKey = await headersFor(source);
@@ -83,10 +83,26 @@ describe("next.config headers", () => {
       "/holder-messages/:path*",
       "/invite",
       "/organisers/join",
+      "/tickets/accept",
+      "/tickets/received/:path*",
       "/auth/:path*",
       "/search",
       "/vendor/zxing-wasm/:path*",
     ]);
+  });
+});
+
+describe("next.config: file tracing", () => {
+  it("bundles the story card's fonts and the demo's sample photos with its route (read from disk at paths tracing can't follow)", () => {
+    expect(nextConfig.outputFileTracingIncludes).toEqual({
+      "/events/\\[slug\\]/story-card": ["./app/fonts/og/InstrumentSans-*.ttf", "./public/events/*.{jpg,jpeg,png,webp}"],
+    });
+    // Every file the patterns name is there: the four weights the renderer loads, and every sample photo.
+    const fonts = readdirSync(path.join(process.cwd(), "app/fonts/og")).filter((f) => /^InstrumentSans-.*\.ttf$/.test(f));
+    expect(fonts.sort()).toEqual(["InstrumentSans-Bold.ttf", "InstrumentSans-Medium.ttf", "InstrumentSans-Regular.ttf", "InstrumentSans-SemiBold.ttf"]);
+    const photos = readdirSync(path.join(process.cwd(), "public/events")).filter((f) => f !== "README.md");
+    expect(photos.length).toBeGreaterThan(0);
+    for (const photo of photos) expect(photo).toMatch(/\.(jpg|jpeg|png|webp)$/);
   });
 });
 

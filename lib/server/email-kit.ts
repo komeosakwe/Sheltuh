@@ -102,10 +102,12 @@ export interface KitPageInput {
   tone: EmailTone;
   /** More phone rules (no media query around them), e.g. the full ticket's. */
   phoneCss?: string;
+  /** More head markup (trusted), after the colour-scheme metas: e.g. the auth templates' format-detection. */
+  head?: string;
 }
 
 /** The page: a white column of at most 600px (32px padding) on the tone's page colour; on a phone, the column edge to edge with 16px sides. */
-export function kitPage({ title, preheader, siteUrl, body, tone, phoneCss = "" }: KitPageInput): string {
+export function kitPage({ title, preheader, siteUrl, body, tone, phoneCss = "", head = "" }: KitPageInput): string {
   const bg = tone === "customer" ? KIT.cream : KIT.surface;
   return `<!DOCTYPE html>
 <html lang="en-AU" xmlns="http://www.w3.org/1999/xhtml">
@@ -115,7 +117,7 @@ export function kitPage({ title, preheader, siteUrl, body, tone, phoneCss = "" }
 <meta name="x-apple-disable-message-reformatting">
 <meta name="color-scheme" content="light">
 <meta name="supported-color-schemes" content="light">
-<title>${escapeHtml(title)}</title>
+${head ? `${head}\n` : ""}<title>${escapeHtml(title)}</title>
 <style>
 ${ticketFontFace(siteUrl)}:root{color-scheme:light;supported-color-schemes:light}
 body{margin:0;padding:0}table{border-collapse:collapse}img{border:0;outline:none}a{color:${KIT.black}}
@@ -148,9 +150,14 @@ ${body}
 
 // --- Shared pieces ---
 
-/** The orange wordmark, top left (inline `cid:`: send ticketWordmarkImage() with the email). */
+/**
+ * The orange wordmark, top left (inline `cid:`: send ticketWordmarkImage() with
+ * the email). The frames' wordmark box is 106 x 31 with the 24px-high artwork
+ * at its top, so 7px of padding under the image puts the next block where the
+ * frames do (32px below the box).
+ */
 export function kitHeader(): string {
-  return wordmarkTag(106, 24);
+  return `<table ${TABLE}><tr><td style="padding:0 0 7px 0">${wordmarkTag(106, 24)}</td></tr></table>`;
 }
 
 /** The customer intro: an orange mono eyebrow (left out when empty) over a bold heading (24/32; 22/28 on a phone). Plain text. */
@@ -346,7 +353,8 @@ export function kitFooter({ siteUrl, tone, reason, reasonLink }: KitFooterInput)
     tone === "customer" ? kitType("mono", 12, 16, 500, KIT.muted, "letter-spacing:0.72px") : kitType("mono", 12, 16, 400, KIT.muted);
   return (
     `<table ${FULL}><tr><td align="center" style="border-top:1px solid ${KIT.line};padding:24px 0 0 0">` +
-    `<table ${TABLE} align="center"><tr><td>${wordmarkTag(88, 20)}</td></tr></table>` +
+    // The frames' footer wordmark box is 88 x 26 (the 20px artwork at its top): 6px under it, as kitHeader.
+    `<table ${TABLE} align="center"><tr><td style="padding:0 0 6px 0">${wordmarkTag(88, 20)}</td></tr></table>` +
     kitP(KIT_TAGLINE, kitType("sans", 14, 20, 400, KIT.muted, "text-align:center;padding-top:8px")) +
     kitP("SHELT&Uuml;H &middot; MELBOURNE", `${city};text-align:center;padding-top:8px`) +
     kitP(linkLine, `${small};text-align:center;padding-top:8px`) +

@@ -184,6 +184,11 @@ describe("EmailOutbox: find an order, change its email", () => {
     // The field is a reference's width, not the page's.
     expect(input.parentElement).toHaveClass("max-w-xs");
     expect(screen.getByRole("heading", { name: "Order #7C1F2E0A: Neon Static" })).toBeInTheDocument();
+    // Support checks the order's sent tickets from here (before a refund, say).
+    expect(screen.getByRole("link", { name: "Tickets sent on from order #7C1F2E0A" })).toHaveAttribute(
+      "href",
+      "/admin/ticket-transfers?reference=%237C1F2E0A",
+    );
     // No status filter is selected while one order is shown.
     for (const filter of within(screen.getByRole("group", { name: "Show emails" })).getAllByRole("button")) {
       expect(filter).toHaveAttribute("aria-pressed", "false");
@@ -206,6 +211,7 @@ describe("EmailOutbox: find an order, change its email", () => {
     expect(await screen.findByRole("heading", { name: "Failed ticket emails" })).toBeInTheDocument();
     expect(input).toHaveValue("");
     expect(input).toHaveFocus();
+    expect(screen.queryByRole("link", { name: /Tickets sent on/ })).toBeNull();
   });
 
   it("changes a paid order's email with a reason, then shows the change and says so", async () => {

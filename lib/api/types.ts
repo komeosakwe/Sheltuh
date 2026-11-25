@@ -2717,6 +2717,34 @@ export interface EventOrderRow {
   paidCents: number;
   /** Refunded so far, in cents (a refund of the tickets' price; 0 for none). */
   refundedCents: number;
+  /**
+   * The order's tickets that were sent on and accepted (docs/architecture.md,
+   * "Organiser orders"): one entry per such ticket, naming its current
+   * holder, in ticket number order. Empty when none was sent; offers not yet
+   * accepted are never listed. Always sent by the API; optional so older
+   * fixtures stay valid.
+   */
+  holders?: EventOrderHolder[];
+}
+
+/**
+ * EventOrderRow.holders: one ticket of the order that was sent on and
+ * accepted, and who holds it now. The holder's name and email follow the
+ * buyer's rules: shown only with the notice the holder was shown when
+ * accepting, until EventOrders.detailsVisibleUntil, and not once support has
+ * withdrawn them on request; otherwise both are null and the entry stays. A
+ * hidden detail is hidden from the search too. Never a ticket code.
+ */
+export interface EventOrderHolder {
+  /** The ticket's number in its order (1.., by ticket type then code: the number on the buyer's ticket page and email). */
+  ticketNumber: number;
+  ticketTypeName: string;
+  /** The name the holder confirmed when accepting, or null (hidden). */
+  holderName: string | null;
+  /** The verified email of the account that accepted, or null (hidden). */
+  holderEmail: string | null;
+  /** When it was accepted (ISO 8601). */
+  transferredAt: string;
 }
 
 /**
@@ -2727,10 +2755,11 @@ export interface EventOrderRow {
  * else 404; a suspended organiser 403). Orders that were paid or free-issued
  * (or refunded after tickets were issued), newest first. `q` (at most 100
  * characters) matches the name, email or short reference, ignoring case and
- * accents; `total` counts the orders matching it. Pages of `limit` (default
- * 20, at most 50). Rate limited (429 `rate_limited`), and 25,000 rows of
- * details per account per event per day, list and export together (429
- * `daily_limit`). `private, no-store`.
+ * accents, or a shown holder's name or email (EventOrderRow.holders); `total`
+ * counts the orders matching it. Pages of `limit` (default 20, at most 50).
+ * Rate limited (429 `rate_limited`), and 25,000 rows of details per account
+ * per event per day, list and export together, each shown holder counting as
+ * a row (429 `daily_limit`). `private, no-store`.
  * GET .../orders.csv downloads every visible order (at most 20,000, else 409;
  * 10 exports an hour per account, 429 `rate_limited`; each is logged and
  * counts to the daily rows).
@@ -2806,6 +2835,150 @@ export interface AnalyticsQuery {
   to?: string;
   /** Also return the previous period of the same length. */
   compare?: "prevPeriod";
+}
+
+// ---------------------------------------------------------------------------
+// Organiser dashboard summaries (docs/architecture.md, "Organiser dashboard summaries")
+// ---------------------------------------------------------------------------
+
+/**
+ * Where one of the organiser's events stands, as the dashboard's pills and
+ * filters show it (derived by the API, never stored):
+ *
+ * - `live`: published and not ended. Sheltüh-ticketed with tickets left, or
+ *   any external event (sold elsewhere: never `sold_out`).
+ * - `sold_out`: published, not ended, Sheltüh-ticketed, and every ticket type
+ *   sold out (a tier waiting for the one above isn't sold out).
+ * - `ended`: published, and its end time has passed.
+ * - `in_review`: sent to Sheltüh's review queue (`pending_review`).
+ * - `changes_needed`: Sheltüh rejected it (`rejected`; `rejectionReason` says why).
+ * - `unpublished`: a draft that was live before and was taken down
+ *   (`rejectionReason` has the admin's reason, if they gave one).
+ * - `draft`: a draft that has never been live.
+ */
+export type OrganiserEventStage = "live" | "sold_out" | "ended" | "in_review" | "changes_needed" | "unpublished" | "draft";
+
+/** The Events tab's filters: `live` = live + sold_out; `drafts` = draft + unpublished + in_review + changes_needed; `past` = ended. */
+export const ORGANISER_EVENT_FILTERS = ["all", "live", "drafts", "past"] as const;
+export type OrganiserEventFilter = (typeof ORGANISER_EVENT_FILTERS)[number];
+
+/** How many of the organiser's events each filter (and each stage) holds. Every event counts in `all` and in exactly one other filter. */
+export interface OrganiserEventCounts {
+  all: number;
+  live: number;
+  drafts: number;
+  past: number;
+  byStage: Record<OrganiserEventStage, number>;
+}
+
+/**
+ * One of the organiser's own events with its sales so far. No buyer data.
+ * For an external event (`ticketingMode: "external"`) sales happen elsewhere:
+ * `ticketsSold`, `capacity` and `grossCents` are 0, and `free` is its
+ * "free entry" flag.
+ */
+export interface OrganiserEventSummary {
+  eventId: string;
+  title: string;
+  /** The public page is /events/{slug} (only while it's live, sold out or ended). */
+  slug: string;
+  stage: OrganiserEventStage;
+  startsAt: string;
+  endsAt: string;
+  /** Format `startsAt` / `endsAt` in this zone (lib/format.ts). */
+  timeZone: AustralianTimeZone;
+  state: StateCode;
+  venueName: string;
+  suburb: string;
+  /** Same-origin, versioned path of the event's photo (as EventRecord.imageUrl); absent without one. */
+  imageUrl?: string;
+  imageFocus?: ImageFocus;
+  ticketingMode: TicketingMode;
+  /**
+   * Sheltüh-ticketed: it has ticket types and all are free ("Free",
+   * "A$0 · free"). External: the organiser marked entry free.
+   */
+  free: boolean;
+  /** Tickets sold now, in people (a group ticket counts everyone it admits): EventRecord.ticketsSold added up. */
+  ticketsSold: number;
+  /** Tickets on sale in total, in people: every ticket type's quantity added up. */
+  capacity: number;
+  /**
+   * What buyers have paid for the event so far, in cents: every `paid`
+   * order, all time, booking fees they paid included, never Support Sheltüh,
+   * before any partial refund (as analytics).
+   * The analytics `grossCents` over the event's whole life.
+   */
+  grossCents: number;
+  /**
+   * The organiser's expected share before refunds and disputes: `grossCents`
+   * less Sheltüh's booking fees (whoever paid them). Not what Stripe pays out:
+   * a partial refund (`amount_refunded_cents` on a still-`paid` order) isn't
+   * subtracted and a disputed payment isn't flagged, as in analytics. The
+   * analytics `netCents` over the event's whole life.
+   */
+  netCents: number;
+  /** `changes_needed` and `unpublished` only, when Sheltüh gave a reason. */
+  rejectionReason?: string;
+}
+
+/** GET /api/organisers/me/events/summary?filter&cursor&limit. */
+export interface OrganiserEventSummaryPage {
+  /** The filter's events: those not ended soonest first, then ended ones most recent first. */
+  items: OrganiserEventSummary[];
+  nextCursor?: string;
+  counts: OrganiserEventCounts;
+}
+
+/** One live (not ended) Sheltüh-ticketed event on the Overview's Performance panel. */
+export interface OrganiserEventPerformance {
+  eventId: string;
+  title: string;
+  stage: "live" | "sold_out";
+  free: boolean;
+  ticketsSold: number;
+  capacity: number;
+  /** All time, as OrganiserEventSummary.grossCents and netCents. */
+  grossCents: number;
+  netCents: number;
+  /** Tickets sold in `thisWeek.range`, and in the 7 days before it (`paid` orders, as analytics counts them). */
+  ticketsThisWeek: number;
+  ticketsPreviousWeek: number;
+  /**
+   * (this week − previous week) ÷ previous week as a whole percentage
+   * (rounded). Null when the previous week sold nothing: no meaningful
+   * percentage.
+   */
+  deltaPct: number | null;
+}
+
+/** GET /api/organisers/me/overview. */
+export interface OrganiserOverview {
+  /** The last 7 Melbourne days, today included. */
+  thisWeek: {
+    range: DateRange;
+    /** The analytics overview's `totals.ticketsSold` for the same range. */
+    ticketsSold: number;
+    /** The analytics overview's `totals.views` for the same range: a lower bound when `viewsUnreliable`. */
+    views: number;
+    viewsUnreliable: boolean;
+    /** False when part of the week is before view counting began: `views` misses those days. */
+    viewsComplete: boolean;
+    /** Members who started following in the range and still follow: a count only, never who. */
+    newFollowers: number;
+  };
+  /**
+   * The banner's event: the soonest live (not sold out) Sheltüh-ticketed
+   * event that hasn't started, has tickets left and has sold at least one.
+   * Null otherwise (no banner).
+   */
+  highlight: OrganiserEventSummary | null;
+  /** The next two live or sold-out events (any ticketing), soonest first. */
+  upcoming: OrganiserEventSummary[];
+  /** The Events tab's `drafts` count. */
+  draftsCount: number;
+  /** Live and sold-out Sheltüh-ticketed events, soonest first, at most 10. */
+  performance: OrganiserEventPerformance[];
 }
 
 /** A shareable link that attributes views and orders to where it was posted. */
@@ -3000,6 +3173,102 @@ export interface AccountSummary {
    */
   usernameChangeableAt?: string;
   upcomingCount: number;
+}
+
+/**
+ * Which list a My tickets card is in (GET /api/me/tickets). `upcoming`: the
+ * caller still holds a ticket of it and its event hasn't ended (in progress
+ * included; an unlisted event too, shown as no longer listed). `past`:
+ * everything else (ended, refunded, every ticket sent away, a void received
+ * ticket).
+ */
+export type MyTicketSection = "upcoming" | "past";
+
+/**
+ * What every My tickets card has. The event's details are public ones, sent
+ * only while it's published (`eventListed`), on every card, valid or not (a
+ * past or void card too, unlike the ticket and received pages); unset
+ * otherwise.
+ */
+interface MyTicketEventFields {
+  section: MyTicketSection;
+  /** An order: the event's title when it was placed (as on its ticket page). A received ticket: the event's title. */
+  eventTitle: string;
+  eventListed: boolean;
+  eventSlug?: string;
+  eventStartsAt?: string;
+  eventEndsAt?: string;
+  /** Sent with the times (as CustomerOrder's). */
+  eventTimeZone?: AustralianTimeZone;
+  eventState?: StateCode;
+  venueName?: string;
+  suburb?: string;
+  imageUrl?: string;
+  imageFocus?: ImageFocus;
+}
+
+/**
+ * An order the caller bought: a `paid`, `refunded` or
+ * `oversold_refund_required` order whose buyer email is the caller's
+ * verified email (ignoring case; the exact address). Its page is
+ * `/checkout/success?session_id={orderId}`. Never its codes, buyer name or
+ * email, Stripe ids or fee split.
+ */
+export interface MyTicketOrderItem extends MyTicketEventFields {
+  kind: "order";
+  orderId: string;
+  status: "paid" | "refunded" | "oversold_refund_required";
+  /** As CustomerOrder.refundReason: set only for `refunded` and `oversold_refund_required`. */
+  refundReason?: "oversold" | "refunded";
+  /** What the buyer paid, all-inclusive. */
+  totalCents: number;
+  /** The order's tickets (one per person, a group's included); 0 when none were ever issued (oversold). */
+  ticketCount: number;
+  /** Tickets of it the caller still holds (not sent to someone who accepted them); 0 unless the order is paid. */
+  heldCount: number;
+  /** Held tickets on offer to someone (an offer in progress that hasn't expired). */
+  pendingCount: number;
+  /** Held tickets checked in at the door. */
+  checkedInCount: number;
+  /** The ticket type's name when all its tickets are of one type; unset otherwise (and with no tickets). */
+  ticketTypeName?: string;
+}
+
+/**
+ * A ticket someone sent the caller and they accepted (by their account). Its
+ * page is `/tickets/received/{transferId}`. Nothing from the sender's order:
+ * no order id or reference, buyer, amounts or other tickets; and no code.
+ */
+export interface MyTicketReceivedItem extends MyTicketEventFields {
+  kind: "received";
+  transferId: string;
+  /** The transfer's reference ("#1A2B3C4D"), never the order's. */
+  reference: string;
+  /** As ReceivedTicket.status: `void` once the order it came from was refunded, or it was sent on. */
+  status: "valid" | "void";
+  fromName: string;
+  holderName: string;
+  acceptedAt: string;
+  ticketTypeName: string;
+  /** Only while `valid`, once it's been checked in. */
+  checkedInAt?: string;
+}
+
+export type MyTicketItem = MyTicketOrderItem | MyTicketReceivedItem;
+
+/**
+ * GET /api/me/tickets?cursor&limit: one page of the caller's My tickets
+ * (verified email required; never cached), one card per order or received
+ * ticket. Upcoming cards first, by the event's start, soonest first; then
+ * past ones, by the event's end, newest first: a refunded or sent-away card
+ * of an event that's still to come is past too, and sorts first. `counts`
+ * are the caller's whole lists, on every page (an empty one too). Not AccountSummary.upcomingCount (distinct published
+ * events not started yet): `counts.upcoming` is cards whose event hasn't ended.
+ */
+export interface MyTicketsPage {
+  items: MyTicketItem[];
+  nextCursor?: string;
+  counts: { upcoming: number; past: number };
 }
 
 /** POST /api/me/username/check {username}: whether the caller could have that username. */

@@ -145,17 +145,19 @@ describe("AccountShell", () => {
     expect(pills[0]).toHaveClass("bg-surface");
   });
 
-  it("goes to the pages, and to the interim Profile and My tickets pages", async () => {
+  it("goes to the pages (Profile to /profile while the profile is hidden), My tickets to its list", async () => {
     const { tabs, sidebar } = await renderShell();
     for (const nav of [tabs, sidebar]) {
       const hrefs = within(nav)
         .getAllByRole("link")
         .map((link) => link.getAttribute("href"));
-      expect(hrefs).toEqual(["/account#member-profile", "/help#where-are-my-tickets", "/saved", "/messages", "/account"]);
+      expect(hrefs).toEqual(["/profile", "/tickets", "/saved", "/messages", "/account"]);
     }
   });
 
   it.each([
+    ["/profile", "profile"],
+    ["/tickets", "tickets"],
     ["/saved", "saved"],
     ["/messages", "messages"],
     ["/messages/c-1", "messages"],
@@ -172,6 +174,37 @@ describe("AccountShell", () => {
     expect(currentItem).toHaveLength(1);
     expect(currentItem[0]).toHaveAttribute("data-account-nav", key);
     expect(currentItem[0]).toHaveClass("text-signal");
+  });
+
+  it.each(["/tickets/accept", "/tickets/received/0b5c2f8e-7d6a-4c1b-9e3f-2a1d4c5b6e7f"])(
+    "under My tickets (%s): its place, as aria-current=\"location\" (the link goes to the list)",
+    async (path) => {
+      pathname = path;
+      const { tabs, sidebar } = await renderShell();
+      expect(tabs.querySelectorAll("[aria-current]")).toHaveLength(1);
+      expect(tabs.querySelector('[aria-current="location"]')).toHaveAttribute("data-account-tab", "tickets");
+      expect(sidebar.querySelector('[aria-current="location"]')).toHaveAttribute("data-account-nav", "tickets");
+      expect(sidebar.querySelector('[aria-current="page"]')).toBeNull();
+    },
+  );
+
+  it("goes to the member page once other members can open it, and on /profile marks Profile as the location", async () => {
+    profileState = { status: "ready", profile: { ...LATTE, profileVisible: true } };
+    pathname = "/profile";
+    const { tabs, sidebar } = await renderShell();
+    expect(within(tabs).getByRole("link", { name: "Profile" })).toHaveAttribute("href", "/members/p-latte");
+    expect(tabs.querySelectorAll("[aria-current]")).toHaveLength(1);
+    expect(tabs.querySelector('[aria-current="location"]')).toHaveAttribute("data-account-tab", "profile");
+    expect(sidebar.querySelector('[aria-current="location"]')).toHaveAttribute("data-account-nav", "profile");
+    expect(sidebar.querySelector('[aria-current="page"]')).toBeNull();
+  });
+
+  it("keeps a suspended member's Profile on /profile (their member page is a 404 while suspended)", async () => {
+    profileState = { status: "ready", profile: { ...LATTE, profileVisible: true, suspended: true } };
+    const { tabs, sidebar } = await renderShell();
+    for (const nav of [tabs, sidebar]) {
+      expect(within(nav).getByRole("link", { name: "Profile" })).toHaveAttribute("href", "/profile");
+    }
   });
 
   it("shows no pill for a count that's unknown or zero", async () => {

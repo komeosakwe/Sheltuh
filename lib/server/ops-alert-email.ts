@@ -1,5 +1,22 @@
 import type { PaymentExceptionDetails, PaymentExceptionKind } from "@/lib/api/types";
 import { subjectLine, type EmailMessage } from "./email";
+import {
+  KIT,
+  kitBody,
+  kitFooter,
+  kitFooterText,
+  kitHeader,
+  kitHelp,
+  kitHelpText,
+  kitHero,
+  kitLink,
+  kitNotice,
+  kitPage,
+  kitStack,
+  kitText,
+} from "./email-kit";
+import { escapeHtml } from "./email-layout";
+import { ticketWordmarkImage } from "./email-ticket-layout";
 
 /**
  * The ops alert about one payment exception (docs/architecture.md, "Refunds
@@ -9,6 +26,12 @@ import { subjectLine, type EmailMessage } from "./email";
  * Stripe's event id. Never the buyer's
  * address, the order id (the confirmation page's credential) or the payment
  * intent: the admin API (GET /api/admin/payment-exceptions) has the rest.
+ *
+ * Both alerts are built on the 1120 email kit in Latte's organiser shell, like
+ * the admin review emails (lib/server/admin-review-email.ts): the hero
+ * repeats the subject (the kind and the order's reference, or the event), the
+ * urgent line leads, the details sit in an outlined box, then what to do and
+ * where. The plain text says the same, in the same order.
  */
 export interface OpsAlert {
   kind: PaymentExceptionKind;
@@ -93,10 +116,6 @@ function minorUnits(amount: number, currency: string): string {
   }
 }
 
-function escapeHtml(value: string): string {
-  return value.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
-}
-
 /** Only Stripe's own id shapes reach the email. */
 function stripeEventId(value: string | undefined): string | undefined {
   return value && /^evt_[A-Za-z0-9_]{1,250}$/.test(value) ? value : undefined;
@@ -135,6 +154,66 @@ export function opsAlertLines(alert: OpsAlert): string[] {
   return lines;
 }
 
+/** Why the reader got an ops alert (the footer's reason line). */
+const REASON = "You’re getting this because this address gets Sheltüh’s ops alerts.";
+
+interface OpsEmail {
+  /** The plain text's first line and the title tag. */
+  title: string;
+  hero: { eyebrow: string; line1: string; line2: string };
+  /** The inbox preview: one of the alert's own lines. */
+  preheader: string;
+  /** The urgent line, first and in bold; absent when not urgent. */
+  urgent?: string;
+  details: ReadonlyArray<string>;
+  action: string;
+  /** "Open exceptions: …" or "Event page: …": the text, and the URL inside it to link (if any). */
+  where: { text: string; href?: string };
+  siteUrl: string;
+}
+
+function renderOpsEmail(e: OpsEmail): { text: string; html: string } {
+  const footer = { siteUrl: e.siteUrl, tone: "organiser" as const, reason: REASON };
+  const text = [
+    e.title,
+    "",
+    ...(e.urgent ? [e.urgent] : []),
+    ...e.details,
+    "",
+    e.action,
+    "",
+    e.where.text,
+    "",
+    kitHelpText("organiser"),
+    "",
+    kitFooterText(footer),
+  ].join("\n");
+
+  // The URL in the "where" line as a link; the rest of the line as text.
+  const href = e.where.href;
+  const at = href ? e.where.text.indexOf(href) : -1;
+  const whereHtml =
+    href && at >= 0
+      ? escapeHtml(e.where.text.slice(0, at)) + kitLink(href, escapeHtml(href)) + escapeHtml(e.where.text.slice(at + href.length))
+      : escapeHtml(e.where.text);
+  const html = kitPage({
+    title: e.title,
+    preheader: e.preheader,
+    siteUrl: e.siteUrl,
+    tone: "organiser",
+    body: kitStack([
+      kitHeader(),
+      kitHero(e.hero),
+      e.urgent ? kitBody(e.urgent, []) : "",
+      kitNotice("Details", e.details.map((line) => `<span style="color:${KIT.black}">${escapeHtml(line)}</span>`)),
+      kitStack([kitBody("", [e.action]), kitText(whereHtml)], 16),
+      kitHelp("organiser"),
+      kitFooter(footer),
+    ]),
+  });
+  return { text, html };
+}
+
 export function buildOpsAlertEmail(to: string, alert: OpsAlert, siteUrl: string): EmailMessage {
   const title = TITLES[alert.kind];
   const subject = subjectLine(
@@ -142,13 +221,26 @@ export function buildOpsAlertEmail(to: string, alert: OpsAlert, siteUrl: string)
   );
   const lines = opsAlertLines(alert);
   const action = ACTIONS[alert.kind];
-  const where = `Open exceptions: GET ${siteUrl}/api/admin/payment-exceptions (admin sign-in).`;
-  const text = [title, "", ...lines, "", action, "", where, ""].join("\n");
-  const html =
-    `<p><strong>${escapeHtml(title)}</strong></p>` +
-    `<ul>${lines.map((line) => `<li>${escapeHtml(line)}</li>`).join("")}</ul>` +
-    `<p>${escapeHtml(action)}</p><p>${escapeHtml(where)}</p>`;
-  return { to, subject, text, html };
+  const api = `${siteUrl}/api/admin/payment-exceptions`;
+  const where = `Open exceptions: GET ${api} (admin sign-in).`;
+  // opsAlertLines puts the urgent line first.
+  const [urgent, details] = alert.urgent ? [lines[0], lines.slice(1)] : [undefined, lines];
+  const { text, html } = renderOpsEmail({
+    title,
+    hero: {
+      eyebrow: alert.urgent ? "Urgent payment exception" : "Payment exception",
+      line1: title,
+      line2: alert.reference ? `Order ${alert.reference}` : "Not matched to an order yet",
+    },
+    // The urgent line, or the order line: the first of the lines.
+    preheader: lines[0],
+    urgent,
+    details,
+    action,
+    where: { text: where },
+    siteUrl,
+  });
+  return { to, subject, text, html, inlineImages: [ticketWordmarkImage()] };
 }
 
 /**
@@ -180,13 +272,16 @@ export function buildCheckoutSurgeAlertEmail(to: string, alert: CheckoutSurgeAle
     "someone may be starting unpaid checkouts from many addresses: unpaid Stripe sessions hold no general " +
     "admission tickets and expire on their own. Check the event's pending orders and the hosting logs, and " +
     "block abusive traffic at the firewall if needed. At most one alert per event per window.";
-  const where = alert.eventSlug
-    ? `Event page: ${siteUrl}/events/${encodeURIComponent(alert.eventSlug)}`
-    : "The event has no public page right now.";
-  const text = [title, "", ...lines, "", action, "", where, ""].join("\n");
-  const html =
-    `<p><strong>${escapeHtml(title)}</strong></p>` +
-    `<ul>${lines.map((line) => `<li>${escapeHtml(line)}</li>`).join("")}</ul>` +
-    `<p>${escapeHtml(action)}</p><p>${escapeHtml(where)}</p>`;
-  return { to, subject, text, html };
+  const page = alert.eventSlug ? `${siteUrl}/events/${encodeURIComponent(alert.eventSlug)}` : undefined;
+  const where = page ? `Event page: ${page}` : "The event has no public page right now.";
+  const { text, html } = renderOpsEmail({
+    title,
+    hero: { eyebrow: "Ops alert", line1: title, line2: `for ${subjectLine(alert.eventTitle)}` },
+    preheader: lines[1],
+    details: lines,
+    action,
+    where: { text: where, href: page },
+    siteUrl,
+  });
+  return { to, subject, text, html, inlineImages: [ticketWordmarkImage()] };
 }

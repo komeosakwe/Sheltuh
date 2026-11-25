@@ -30,12 +30,14 @@ export const ADMIN_SUB_NAV: SubNavLink[] = [
 const NEW_EVENT_HREF = "/admin/events/new";
 /** Messages to ticket holders: a page of its own, reached from Emails, so Emails is its section. */
 export const EVENT_MESSAGES_HREF = "/admin/event-messages";
+/** Tickets sent on ("Send ticket to a friend"): reached from Emails' "Find an order" and the hub, so Emails is its section. */
+export const TICKET_TRANSFERS_HREF = "/admin/ticket-transfers";
 
 /** The link for this page: the hub only on /admin itself; a section for its own pages too (an event's edit page is Events). */
 export function adminSectionFor(pathname: string): string | null {
   if (pathname === "/admin") return "/admin";
   if (pathname === NEW_EVENT_HREF) return NEW_EVENT_HREF;
-  if (pathname === EVENT_MESSAGES_HREF) return "/admin/emails";
+  if (pathname === EVENT_MESSAGES_HREF || pathname === TICKET_TRANSFERS_HREF) return "/admin/emails";
   const match = ADMIN_SUB_NAV.find((link) => link.href !== "/admin" && (pathname === link.href || pathname.startsWith(`${link.href}/`)));
   return match?.href ?? null;
 }

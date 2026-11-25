@@ -103,7 +103,7 @@ describe("Home (demo data, Wed 21 Oct 2026; the proposal, redesign PR 3)", () =>
     expect(container.querySelector("[data-reveal], [data-reveal-stagger], .reveal-pending")).toBeNull();
   });
 
-  it("keeps everything in the 1312px page column; orange buttons are the search and the carousel's ticket actions only, never on the band", async () => {
+  it("keeps everything in the page column; orange buttons are the search and the carousel's ticket actions only, never on the band", async () => {
     const { container } = render(<Home />);
     await settle();
     for (const section of container.querySelectorAll("section")) expect(section.closest(".page-container")).not.toBeNull();

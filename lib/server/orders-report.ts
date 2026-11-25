@@ -1,5 +1,5 @@
 import type { EventOrderRow } from "@/lib/api/types";
-import type { CsvCell } from "./csv";
+import { defuseFormula, type CsvCell } from "./csv";
 
 /**
  * The organiser's CSV of an event's orders (GET .../orders.csv). Built by
@@ -10,9 +10,25 @@ import type { CsvCell } from "./csv";
  *
  * Names and emails are blank for an order whose details aren't shown
  * (EventOrderRow.buyerName). The short reference is the only order id.
+ * "Transferred to" lists the order's tickets that were sent on and accepted
+ * (EventOrderRow.holders), one line per order still: "Sam Lee
+ * <sam@example.com> · GA", with "(hidden)" and "hidden" for details that
+ * aren't shown. Each holder's name is defused on its own (defuseFormula), not
+ * only the cell's start, so a later "=..." stays plain text if the cell is
+ * split; the cell then goes through toCsv like the rest.
  */
 
-const HEADER: CsvCell[] = ["Reference", "Placed", "Name", "Email", "Tickets", "Paid (A$)", "Refunded (A$)", "Status"];
+const HEADER: CsvCell[] = [
+  "Reference",
+  "Placed",
+  "Name",
+  "Email",
+  "Tickets",
+  "Paid (A$)",
+  "Refunded (A$)",
+  "Status",
+  "Transferred to",
+];
 
 /** "2026-12-05 19:30" in the event's own zone (what the organiser sees on the page). */
 export function placedInZone(iso: string, timeZone: string): string {
@@ -35,6 +51,13 @@ export function orderStatusLabel(row: Pick<EventOrderRow, "status" | "refundedCe
   return row.refundedCents > 0 ? "Part refunded" : "Paid";
 }
 
+/** The "Transferred to" cell: each holder as "Name <email> · Ticket type", joined by "; " (empty when none). */
+export function transferredToText(row: Pick<EventOrderRow, "holders">): string {
+  return (row.holders ?? [])
+    .map((h) => `${h.holderName === null ? "(hidden)" : defuseFormula(h.holderName)} <${h.holderEmail ?? "hidden"}> · ${h.ticketTypeName}`)
+    .join("; ");
+}
+
 /** The CSV rows (header first) for `rows`, with times in `timeZone`. */
 export function eventOrdersCsv(rows: EventOrderRow[], timeZone: string): CsvCell[][] {
   return [
@@ -48,6 +71,7 @@ export function eventOrdersCsv(rows: EventOrderRow[], timeZone: string): CsvCell
       { cents: row.paidCents },
       { cents: row.refundedCents },
       orderStatusLabel(row),
+      transferredToText(row),
     ]),
   ];
 }
