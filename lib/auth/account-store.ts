@@ -12,10 +12,12 @@
  * - A change saved elsewhere on the page (update) replaces it, and an answer that was already on its
  *   way when the change landed is dropped (it may predate the change). So is any answer overtaken by
  *   a newer request (a forced reload after a join or a submit).
- * - A quiet check that fails (a network error, a 5xx: `isFailure`) keeps the good answer it was
- *   checking, so a page never swaps what it shows (a form being filled in, above all) for an error.
- *   Any other answer lands (a profile that's gone, a changed status), and so does a failure when
- *   there's nothing good to keep, or when the person asked (force).
+ * - A quiet check that fails for a passing reason (`isFailure`: offline, a timeout, a 5xx, a 429;
+ *   lib/auth/transient-failure.ts) keeps the answer it was checking, so a page never swaps what it
+ *   shows (a form being filled in, above all) for an error that says nothing about the record. Any other
+ *   answer lands, errors included: a profile that's gone, a changed status, a 401 or 403 (an account
+ *   revoked or deleted, a session that's over), a 400. So does a passing failure when there's no
+ *   answer to keep, or when the person asked (force).
  * - It's only ever one account's: another account's answer replaces it, and clear() (the person's
  *   own Sign out) forgets it. Readers check `account` before showing it. A fetcher that rejects
  *   (the session turned out to be someone else's) is no answer at all: nothing is kept or cleared.
@@ -57,7 +59,7 @@ export interface AccountStore<T> {
 const stores = new Set<{ clear: () => void }>();
 
 export interface AccountStoreOptions<T> {
-  /** An answer that's a failed check (a network error, a 5xx), not news about the record. */
+  /** An answer that's a check failing for a passing reason (lib/auth/transient-failure.ts), not news about the record. */
   isFailure?: (value: T) => boolean;
 }
 
@@ -91,7 +93,7 @@ export function createAccountStore<T>({ isFailure = () => false }: AccountStoreO
         (value) => {
           finished();
           if (generation !== id) return;
-          // A quiet check that failed keeps the good answer it was checking.
+          // A quiet check that failed for a passing reason keeps the answer it was checking.
           if (!force && isFailure(value) && settled?.account === account && !isFailure(settled.value)) return;
           settled = { account, value, at: Date.now() };
           emit();

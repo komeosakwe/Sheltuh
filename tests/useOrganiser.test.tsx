@@ -205,6 +205,21 @@ describe("useOrganiser", () => {
     }
   });
 
+  it("a quiet check the API refuses (401: the account revoked or deleted) replaces the approved record with its error", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      getMyOrganiser.mockResolvedValueOnce(record("user-a", "approved"));
+      const first = hook(A);
+      await waitFor(() => expect(first.result.current.organiser?.status).toBe("approved"));
+      vi.setSystemTime(Date.now() + 60_000);
+      getMyOrganiser.mockRejectedValueOnce(new ApiError(401, "Sign in again."));
+      hook(A);
+      await waitFor(() => expect(first.result.current).toMatchObject({ loading: false, organiser: null, error: "Sign in again." }));
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("a first load that fails shows the error", async () => {
     getMyOrganiser.mockRejectedValueOnce(new ApiError(503, "Service unavailable."));
     const { result } = hook(A);

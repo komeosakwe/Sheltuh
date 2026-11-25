@@ -1,5 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { ApiError } from "@/lib/api/client";
 import { createAccountStore, FRESH_MS, resetAccountStores } from "@/lib/auth/account-store";
+import { AccountMismatchError, SessionExpiredError } from "@/lib/auth/session-token";
+import { isTransientFailure } from "@/lib/auth/transient-failure";
 
 /** The signed-in account's shared records (lib/auth/account-store.ts): one request, one copy, one account. */
 
@@ -216,3 +219,18 @@ describe("createAccountStore with isFailure (a failed check)", () => {
     expect(store.snapshot()).toBeNull();
   });
 });
+
+describe("isTransientFailure", () => {
+  it("passing: offline or a timeout (status 0), a 5xx, a 429, an error that isn't the API's", () => {
+    for (const err of [new ApiError(0, "Couldn't reach the server."), new ApiError(500, "x"), new ApiError(503, "x"), new ApiError(429, "x"), new TypeError("x")]) {
+      expect(isTransientFailure(err)).toBe(true);
+    }
+  });
+
+  it("the API's answer: 401, 403, any other 4xx, and a session that's over", () => {
+    for (const err of [new ApiError(401, "x"), new ApiError(403, "x"), new ApiError(400, "x"), new ApiError(409, "x"), new SessionExpiredError(), new AccountMismatchError()]) {
+      expect(isTransientFailure(err)).toBe(false);
+    }
+  });
+});
+

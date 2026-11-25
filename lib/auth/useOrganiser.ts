@@ -6,6 +6,7 @@ import { getMyOrganiser } from "@/lib/api/organisers";
 import type { OrganiserRecord } from "@/lib/api/types";
 import { accountKey } from "./account";
 import { createAccountStore } from "./account-store";
+import { isTransientFailure } from "./transient-failure";
 import { useAccountToken } from "./useAccountToken";
 import { AccountMismatchError, useAuth } from "./AuthContext";
 
@@ -13,24 +14,30 @@ interface OrganiserResult {
   /** null = signed in but no application on file yet. */
   organiser: OrganiserRecord | null;
   error: string | null;
+  /** The error is a passing one (isTransientFailure): a quiet check that gets it keeps the record it has. */
+  transient: boolean;
 }
 
 async function fetchOrganiser(getToken: GetToken): Promise<OrganiserResult> {
   try {
     const organiser = await getMyOrganiser(getToken);
-    return { organiser, error: null };
+    return { organiser, error: null, transient: false };
   } catch (err) {
     // The session is someone else's by now: no answer for this account (lib/auth/account-store.ts).
     if (err instanceof AccountMismatchError) throw err;
     if (err instanceof ApiError && err.status === 404) {
-      return { organiser: null, error: null };
+      return { organiser: null, error: null, transient: false };
     }
-    return { organiser: null, error: err instanceof Error ? err.message : "Couldn't load your organiser status." };
+    return {
+      organiser: null,
+      error: err instanceof Error ? err.message : "Couldn't load your organiser status.",
+      transient: isTransientFailure(err),
+    };
   }
 }
 
 /** The signed-in account's organiser record, shared by every useOrganiser on the page (lib/auth/account-store.ts). */
-const organiserStore = createAccountStore<OrganiserResult>({ isFailure: (result) => result.error !== null });
+const organiserStore = createAccountStore<OrganiserResult>({ isFailure: (result) => result.transient });
 
 /**
  * Tells every useOrganiser on the page that the signed-in organiser's own record changed (a saved
@@ -41,7 +48,7 @@ const organiserStore = createAccountStore<OrganiserResult>({ isFailure: (result)
  */
 export function announceOrganiserChange(organiser: OrganiserRecord) {
   organiserStore.update(({ value }) =>
-    value.organiser && value.organiser.organiserId === organiser.organiserId ? { organiser, error: null } : null,
+    value.organiser && value.organiser.organiserId === organiser.organiserId ? { organiser, error: null, transient: false } : null,
   );
 }
 
@@ -60,8 +67,9 @@ const noSnapshot = () => null;
  * it. A token refresh fetches nothing. `refetch` (after a user action: a submit, a join, Try again)
  * always asks the API, and every reader gets the answer; it keeps the current result while it runs
  * (`refreshing`), so a page never swaps what it shows (a form being filled in, above all) for a loader.
- * A quiet check that fails (offline, a 5xx) keeps the record it was checking rather than show the
- * error; a first load that fails shows it. Every request is made as the account its answer is kept
+ * A quiet check that fails for a passing reason (offline, a 5xx, a 429) keeps the record it was
+ * checking rather than show the error; any other answer (a 401 for an account that's gone) replaces
+ * it, and a first load that fails shows its error. Every request is made as the account its answer is kept
  * for (useAccountToken): one made as someone else's session is refused and keeps nothing.
  */
 export function useOrganiser() {
@@ -96,7 +104,7 @@ export function useOrganiser() {
     if (signedOutByUser) organiserStore.clear();
   }, [signedOutByUser]);
 
-  let state: OrganiserResult & { loading: boolean };
+  let state: Omit<OrganiserResult, "transient"> & { loading: boolean };
   if (!isApiConfigured) state = { loading: false, organiser: null, error: API_NOT_CONFIGURED };
   else if (auth.status === "loading") state = { loading: true, organiser: null, error: null };
   else if (account === null) state = { loading: false, organiser: null, error: null };

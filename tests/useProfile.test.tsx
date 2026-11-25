@@ -57,6 +57,16 @@ describe("useProfile", () => {
     expect(later.result.current.state).toEqual({ status: "ready", profile: profile("Mia") });
   });
 
+  it("a quiet check the API refuses (401: the account revoked or deleted) replaces the profile with its error", async () => {
+    getMyProfile.mockResolvedValueOnce(profile("Mia"));
+    const first = hook(() => A);
+    await waitFor(() => expect(first.result.current.state).toMatchObject({ status: "ready" }));
+    vi.setSystemTime(Date.now() + 60_000);
+    getMyProfile.mockRejectedValueOnce(new ApiError(401, "Sign in again."));
+    hook(() => A);
+    await waitFor(() => expect(first.result.current.state).toEqual({ status: "error", message: "Sign in again." }));
+  });
+
   it("an authoritative answer still lands: a changed profile, and one that's gone (404)", async () => {
     getMyProfile.mockResolvedValueOnce(profile("Mia"));
     const first = hook(() => A);
