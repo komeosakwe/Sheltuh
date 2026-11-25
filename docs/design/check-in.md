@@ -266,7 +266,7 @@ Same order as phones. The viewfinder stays 4:3 (528×396).
 
 #### 5.A2 Header and counters (`CheckInHeader.tsx`)
 
-- **Row:** on the left, the back link `backLinkClass` "← Your events" to `/dashboard`. On the right, the eyebrow
+- **Row:** on the left, the back link `backLinkClass` "← Your events" to `/dashboard/events`. On the right, the eyebrow
   "Door check-in" with the date (`formatEventDateTimeRange(startsAt)`). Phones: the date is a second eyebrow line,
   "Sat 18 Oct, 7:00 pm", right-aligned under "Door check-in" inside the 44px row, so it adds no height. `md+`: one
   line, "Door check-in · Sat 18 Oct, 7:00 pm". Nothing sits between the h1 and the counters.

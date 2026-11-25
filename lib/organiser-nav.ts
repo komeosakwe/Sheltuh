@@ -2,19 +2,19 @@
  * The organiser area's places (Latte's dashboard frames: "Org / Sidebar" and its collapsed rail),
  * in the frames' order, listing only the pages that are built. The frames draw Overview, Events,
  * Orders (labelled "Analytics" on most frames, KEY-SPECS §9.1), Attendees, Payouts and Settings;
- * until Overview, Orders & sales, Attendees and Settings are built (organiser-dashboard plan
- * OD-4, OD-7, OD-9, OD-12) the slots hold what exists today: Events (the events list at
- * /dashboard), Analytics in the Orders slot (the frames' own label for it), Payouts, and the
- * public Profile in the Settings slot. Each later page swaps its entry in here.
+ * until Orders & sales, Attendees and Settings are built (organiser-dashboard plan OD-7, OD-9,
+ * OD-12) the slots hold what exists today: Overview (/dashboard, the dashboard's home), Events (the
+ * events list at /dashboard/events), Analytics in the Orders slot (the frames' own label for it),
+ * Payouts, and the public Profile in the Settings slot. Each later page swaps its entry in here.
  */
-export type OrganiserNavKey = "events" | "analytics" | "payouts" | "profile";
+export type OrganiserNavKey = "overview" | "events" | "analytics" | "payouts" | "profile";
 
 /**
- * The rail's icon for each place (components/dashboard/ui/icons.tsx): Latte's calendar and wallet;
+ * The rail's icon for each place (components/dashboard/ui/icons.tsx): Latte's grid, calendar and wallet;
  * a chart for Analytics (Latte's receipt is for Orders, which replaces it) and a shopfront for the
  * public Profile (not the person the header's account menu uses).
  */
-export type OrganiserNavIcon = "calendar" | "chart" | "wallet" | "store";
+export type OrganiserNavIcon = "grid" | "calendar" | "chart" | "wallet" | "store";
 
 export interface OrganiserNavLink {
   key: OrganiserNavKey;
@@ -23,8 +23,21 @@ export interface OrganiserNavLink {
   icon: OrganiserNavIcon;
 }
 
+/** The Overview, the dashboard's home. */
+export const OVERVIEW_HREF = "/dashboard";
+/** The events list (Latte's Events tab). */
+export const EVENTS_HREF = "/dashboard/events";
+/** A new event (the editor). */
+export const NEW_EVENT_HREF = "/dashboard/new";
+
+/** Where an organiser manages one of their events: its editor (read-only once live, with its panels). */
+export function manageEventHref(eventId: string): string {
+  return `/dashboard/${encodeURIComponent(eventId)}`;
+}
+
 export const ORGANISER_NAV: OrganiserNavLink[] = [
-  { key: "events", label: "Events", href: "/dashboard", icon: "calendar" },
+  { key: "overview", label: "Overview", href: OVERVIEW_HREF, icon: "grid" },
+  { key: "events", label: "Events", href: EVENTS_HREF, icon: "calendar" },
   { key: "analytics", label: "Analytics", href: "/dashboard/analytics", icon: "chart" },
   { key: "payouts", label: "Payouts", href: "/dashboard/payouts", icon: "wallet" },
   { key: "profile", label: "Profile", href: "/dashboard/profile", icon: "store" },
@@ -45,15 +58,16 @@ export function isFullScreenOrganiserPath(pathname: string): boolean {
 }
 
 /**
- * The place a dashboard page belongs to: Payouts, Analytics and Profile for their own pages (an
- * event's report is in Analytics), and Events for the list and everything about one event (new,
- * edit, orders). Null outside the dashboard.
+ * The place a dashboard page belongs to: the Overview for /dashboard itself; Payouts, Analytics and
+ * Profile for their own pages (an event's report is in Analytics); and Events for the list and
+ * everything about one event (new, edit, orders). Null outside the dashboard.
  */
 export function organiserSectionFor(pathname: string): OrganiserNavKey | null {
-  if (pathname !== "/dashboard" && !pathname.startsWith("/dashboard/")) return null;
+  if (pathname !== OVERVIEW_HREF && !pathname.startsWith(`${OVERVIEW_HREF}/`)) return null;
+  if (pathname === OVERVIEW_HREF || pathname === `${OVERVIEW_HREF}/`) return "overview";
   if (EVENT_ANALYTICS_PATH.test(pathname)) return "analytics";
   const match = ORGANISER_NAV.find(
-    (link) => link.href !== "/dashboard" && (pathname === link.href || pathname.startsWith(`${link.href}/`)),
+    (link) => link.href !== OVERVIEW_HREF && (pathname === link.href || pathname.startsWith(`${link.href}/`)),
   );
   return match?.key ?? "events";
 }

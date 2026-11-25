@@ -208,7 +208,7 @@ describe("DashboardContent — each event's status, date and actions", () => {
     expect(rowOf("dad")).toHaveTextContent(/Sat 12 Dec( 2026)?, 7:00 pm · Taylors Lakes/);
     const statusOf = (title: string) => rowOf(title).getAttribute("data-status");
     expect(within(rowOf("dad")).getByText("Draft")).toBeInTheDocument();
-    expect(within(rowOf("Waiting")).getByText("Waiting for review")).toBeInTheDocument();
+    expect(within(rowOf("Waiting")).getByText("In review")).toBeInTheDocument();
     expect(within(rowOf("Live")).getByText("Published")).toBeInTheDocument();
     expect(within(rowOf("Nope")).getByText("Rejected")).toBeInTheDocument();
     expect(within(rowOf("Taken down")).getByText("Unpublished")).toBeInTheDocument();
@@ -239,7 +239,7 @@ describe("DashboardContent — each event's status, date and actions", () => {
       ["Edit", "Edit dad", "/dashboard/d"],
       ["Analytics", "Analytics for dad", "/dashboard/events/d/analytics"],
     ]);
-    // Waiting for review can't be edited (the API refuses): View submission, and its seat map.
+    // In review can't be edited (the API refuses): View submission, and its seat map.
     expect(actionsOf("Waiting")).toEqual([
       ["View submission", "View submission for Waiting", "/dashboard/p"],
       ["Analytics", "Analytics for Waiting", "/dashboard/events/p/analytics"],
@@ -356,32 +356,6 @@ describe("DashboardContent — payouts before publishing paid events", () => {
     await waitFor(() => expect(screen.getByText("Event paid-draft")).toBeInTheDocument());
     expect(rowOf("Event paid-draft")).not.toHaveTextContent("Paid tickets:");
     expect(screen.queryByRole("link", { name: "set up payouts" })).toBeNull();
-  });
-});
-
-describe("DashboardContent — the welcome after joining with an organiser link", () => {
-  afterEach(() => window.history.replaceState(null, "", "/"));
-
-  it("says welcome once (?welcome=organiser), focused, and takes the parameter out of the address bar", async () => {
-    organiser = { organiserId: "org-1", status: "approved", displayName: "Neon Collective" };
-    listMyEvents.mockResolvedValue({ items: [] });
-    window.history.replaceState(null, "", "/dashboard?welcome=organiser");
-    renderDashboard();
-    const welcome = await screen.findByText("Welcome to Sheltüh, Neon Collective.");
-    const box = welcome.closest("[tabindex='-1']");
-    await waitFor(() => expect(box).toHaveFocus());
-    expect(box).toHaveTextContent(/set up payouts before selling paid tickets\. Your first paid event is checked/);
-    expect(within(box as HTMLElement).getByRole("link", { name: "your profile" })).toHaveAttribute("href", "/dashboard/profile");
-    expect(window.location.search).toBe("");
-    expect(window.location.pathname).toBe("/dashboard");
-  });
-
-  it("says nothing without it", async () => {
-    listMyEvents.mockResolvedValue({ items: [] });
-    window.history.replaceState(null, "", "/dashboard");
-    renderDashboard();
-    await screen.findByText("No events yet");
-    expect(screen.queryByText(/Welcome to Sheltüh/)).toBeNull();
   });
 });
 

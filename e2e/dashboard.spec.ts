@@ -108,12 +108,12 @@ for (const vp of [
   { width: 320, height: 640 },
   { width: 1280, height: 900 },
 ]) {
-  test.describe(`/dashboard at ${vp.width}×${vp.height}`, () => {
+  test.describe(`/dashboard/events at ${vp.width}×${vp.height}`, () => {
     test.use({ viewport: vp });
 
     test("the organiser nav marks Events; New event is an action; rows show status and actions, 44px, no sideways scroll", async ({ page }) => {
       await signedInWithEvents(page, DASHBOARD_EVENTS, { payoutsEnabled: false });
-      await page.goto("/dashboard");
+      await page.goto("/dashboard/events");
       const main = page.getByRole("main");
       await expect(main.getByRole("heading", { level: 2, name: "dad" })).toBeVisible({ timeout: 30_000 });
 
@@ -129,7 +129,7 @@ for (const vp of [
       await expect(newEvent).not.toHaveAttribute("aria-current");
       await expect(newEvent).toHaveAttribute("href", "/dashboard/new");
 
-      for (const status of ["Published", "Draft", "Waiting for review", "Rejected", "Unpublished"]) {
+      for (const status of ["Published", "Draft", "In review", "Rejected", "Unpublished"]) {
         await expect(main.locator("[data-event-row]").getByText(status, { exact: true })).toBeVisible();
       }
       // The payouts hint (paid draft, payouts not set up), with its link.
@@ -180,7 +180,7 @@ for (const vp of [
 
 test("keyboard: the organiser nav and its Log out, then New event, then each row's actions, with a visible focus ring", async ({ page }) => {
   await signedInWithEvents(page, DASHBOARD_EVENTS);
-  await page.goto("/dashboard");
+  await page.goto("/dashboard/events");
   await expect(page.getByRole("heading", { level: 2, name: "dad" })).toBeVisible({ timeout: 30_000 });
 
   await page.getByRole("navigation", { name: "Organiser" }).getByRole("link", { name: "Profile", exact: true }).focus();
@@ -206,7 +206,7 @@ test("an organiser with no events is invited to create their first (and only the
   page,
 }) => {
   await signedInWithEvents(page, []);
-  await page.goto("/dashboard");
+  await page.goto("/dashboard/events");
   const create = page.getByRole("link", { name: "Create your first event" });
   await expect(create).toBeVisible({ timeout: 30_000 });
   await expect(create).toHaveAttribute("href", "/dashboard/new");
@@ -215,7 +215,7 @@ test("an organiser with no events is invited to create their first (and only the
 
 test("no organiser frame or nav until the organiser is approved", async ({ page }) => {
   await signedInWithEvents(page, [], { status: "pending" });
-  await page.goto("/dashboard");
+  await page.goto("/dashboard/events");
   await expect(page.getByText("Your organiser application is still pending review.")).toBeVisible({ timeout: 30_000 });
   await expect(page.getByRole("navigation", { name: "Organiser" })).toHaveCount(0);
   await expect(page.locator("[data-organiser-shell]")).toHaveCount(0);
@@ -226,6 +226,7 @@ test("the organiser nav is on the other organiser pages, marking where you are, 
   test.slow();
   await signedInWithEvents(page, DASHBOARD_EVENTS);
   for (const [path, current, state] of [
+    ["/dashboard", "Overview", "page"],
     ["/dashboard/payouts", "Payouts", "page"],
     ["/dashboard/profile", "Profile", "page"],
     ["/dashboard/analytics", "Analytics", "page"],

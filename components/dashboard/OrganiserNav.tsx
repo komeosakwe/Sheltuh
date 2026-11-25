@@ -10,6 +10,7 @@ import {
   ChartIcon,
   CollapseIcon,
   ExpandIcon,
+  GridIcon,
   LogOutIcon,
   StoreIcon,
   WalletIcon,
@@ -20,6 +21,7 @@ import { ORGANISER_NAV, organiserCurrent, type OrganiserNavIcon } from "@/lib/or
 import OrganiserAvatar from "./OrganiserAvatar";
 
 const ICONS: Record<OrganiserNavIcon, ComponentType<{ className?: string }>> = {
+  grid: GridIcon,
   calendar: CalendarIcon,
   chart: ChartIcon,
   wallet: WalletIcon,
@@ -79,15 +81,16 @@ export function OrganiserSidebar({ organiser, pathname }: { organiser: Organiser
 
 /** The » / « buttons: 48 × 48, radius 8, the icon centred, filled #1f1f1f (surface on ink) under the pointer or focus. */
 const RAIL_BUTTON =
-  "inline-flex size-12 shrink-0 items-center justify-center rounded-control text-foreground hover:bg-surface focus-visible:bg-surface motion-safe:transition-colors motion-safe:duration-200 motion-safe:ease-out";
+  "inline-flex size-[48px] shrink-0 items-center justify-center rounded-control text-foreground hover:bg-surface focus-visible:bg-surface motion-safe:transition-colors motion-safe:duration-200 motion-safe:ease-out";
 
 /**
  * A rail place (and Log out): its icon over its short label (Label/Tag), 56px wide and at least
- * 56px tall. Under the pointer or keyboard focus it fills #333 (border/subtle on ink); the current
+ * 56px tall. The rail's sizes are in px, not rem, so larger text grows the labels (which wrap) but
+ * not the rail itself, which would otherwise take a phone's width from the page. Under the pointer or keyboard focus it fills #333 (border/subtle on ink); the current
  * place fills #1f1f1f with the orange dot, so the two never look alike.
  */
 function railItemClass(current: boolean) {
-  return `relative flex min-h-14 w-14 flex-col items-center justify-center gap-0.5 rounded-control px-0.5 py-1.5 text-center text-foreground motion-safe:transition-colors motion-safe:duration-200 motion-safe:ease-out ${
+  return `relative flex min-h-[56px] w-[56px] flex-col items-center justify-center gap-[2px] rounded-control px-0 py-[6px] text-center text-foreground motion-safe:transition-colors motion-safe:duration-200 motion-safe:ease-out ${
     current ? "bg-surface" : "hover:bg-surface-border focus-visible:bg-surface-border"
   }`;
 }
@@ -146,7 +149,7 @@ export function OrganiserRail({ organiser, pathname }: { organiser: Organiser; p
         data-surface="ink"
         data-organiser-rail=""
         aria-label={ASIDE_LABEL}
-        className="flex w-16 shrink-0 flex-col items-center gap-2 px-1 py-6 lg:hidden"
+        className="flex w-[64px] shrink-0 flex-col items-center gap-[8px] px-[4px] py-[24px] lg:hidden"
       >
         <OrganiserAvatar name={organiser.displayName} logoUrl={organiser.logoUrl} size="rail" />
         <button
@@ -161,9 +164,9 @@ export function OrganiserRail({ organiser, pathname }: { organiser: Organiser; p
         >
           <ExpandIcon />
         </button>
-        <span aria-hidden="true" className="h-px w-8 shrink-0 bg-surface-border" />
+        <span aria-hidden="true" className="h-px w-[32px] shrink-0 bg-surface-border" />
         <nav aria-label={NAV_LABEL}>
-          <ul className="flex flex-col gap-2">
+          <ul className="flex flex-col gap-[8px]">
             {items.map((item) => {
               const Icon = ICONS[item.icon];
               const current = ariaCurrent(item.current);
@@ -178,7 +181,7 @@ export function OrganiserRail({ organiser, pathname }: { organiser: Organiser; p
                     <Icon />
                     <span className={RAIL_LABEL}>{item.label}</span>
                     {current && (
-                      <span aria-hidden="true" className="absolute top-4.5 left-0.5 size-1.5 rounded-full bg-signal" />
+                      <span aria-hidden="true" className="absolute top-[18px] left-[2px] size-[6px] rounded-full bg-signal" />
                     )}
                   </Link>
                 </li>

@@ -50,6 +50,17 @@ async function signedInOrganiser(page: Page) {
       });
     }
     if (path === "/api/organisers/me/events") return route.fulfill({ json: { items: [] } });
+    if (path === "/api/organisers/me/overview") {
+      return route.fulfill({
+        json: {
+          thisWeek: { range: { from: "2026-11-18", to: "2026-11-24" }, ticketsSold: 0, views: 0, viewsUnreliable: false, viewsComplete: true, newFollowers: 0 },
+          highlight: null,
+          upcoming: [],
+          draftsCount: 0,
+          performance: [],
+        },
+      });
+    }
     if (path === "/api/profiles/me") return route.fulfill({ json: { displayName: "Mia T.", suspended: false } });
     if (path === "/api/conversations/unread") return route.fulfill({ json: { count: 0 } });
     if (path.startsWith("/api/favourites")) return route.fulfill({ json: { items: [], ids: [] } });
@@ -66,7 +77,7 @@ test.describe("desktop 1440", () => {
 
   test("the black sidebar beside the page: their name, the places with Events current, Log out; no rail", async ({ page }) => {
     await signedInOrganiser(page);
-    await page.goto("/dashboard");
+    await page.goto("/dashboard/events");
     const sidebar = page.getByRole("complementary", { name: "Organiser account" });
     await expect(sidebar).toBeVisible({ timeout: 30_000 });
     await expect(page.locator("[data-organiser-rail]")).toBeHidden();
@@ -78,7 +89,7 @@ test.describe("desktop 1440", () => {
     await expect(sidebar.getByText("Organiser", { exact: true })).toBeVisible();
 
     const nav = sidebar.getByRole("navigation", { name: "Organiser" });
-    await expect(nav.getByRole("link")).toHaveText(["Events", "Analytics", "Payouts", "Profile"]);
+    await expect(nav.getByRole("link")).toHaveText(["Overview", "Events", "Analytics", "Payouts", "Profile"]);
     await expect(nav.getByRole("link", { name: "Events" })).toHaveAttribute("aria-current", "page");
     for (const link of await nav.getByRole("link").all()) {
       expect((await link.boundingBox())?.height).toBe(48);
@@ -113,18 +124,18 @@ for (const vp of [
 
     test("the 64px rail: each place an icon over its visible label, at least 56px, Events current; no sidebar", async ({ page }) => {
       await signedInOrganiser(page);
-      await page.goto("/dashboard");
+      await page.goto("/dashboard/events");
       const rail = page.locator("[data-organiser-rail]");
       await expect(rail).toBeVisible({ timeout: 30_000 });
       await expect(page.locator("[data-organiser-sidebar]")).toBeHidden();
       expect((await rail.boundingBox())?.width).toBe(64);
-      // Tablet: the panel 24px in, rounded; phone: full-bleed.
+      // Tablet: the panel 32px in at the sides (the organiser frames), rounded; phone: full-bleed.
       const shell = await page.locator("[data-organiser-shell]").boundingBox();
-      expect(shell?.x).toBe(vp.width === 768 ? 24 : 0);
+      expect(shell?.x).toBe(vp.width === 768 ? 32 : 0);
 
       const nav = rail.getByRole("navigation", { name: "Organiser" });
-      await expect(nav.getByRole("link")).toHaveCount(4);
-      for (const name of ["Events", "Analytics", "Payouts", "Profile"]) {
+      await expect(nav.getByRole("link")).toHaveCount(5);
+      for (const name of ["Overview", "Events", "Analytics", "Payouts", "Profile"]) {
         const link = nav.getByRole("link", { name, exact: true });
         await expect(link).toBeVisible();
         // The label is on screen, inside the rail.
@@ -156,9 +167,9 @@ for (const vp of [
       await expect(drawer.getByRole("button", { name: "Hide organiser menu" })).toBeFocused();
       await expect(drawer.getByRole("link", { name: "Payouts" })).toHaveAttribute("aria-current", "page");
 
-      // Tab goes round inside it: « , the four places, Log out, and back to «.
+      // Tab goes round inside it: « , the five places, Log out, and back to «.
       const seen: string[] = [];
-      for (let i = 0; i < 7; i += 1) {
+      for (let i = 0; i < 8; i += 1) {
         await page.keyboard.press("Tab");
         seen.push(
           await page.evaluate(() => {
@@ -168,7 +179,7 @@ for (const vp of [
           }),
         );
       }
-      expect(seen).toEqual(["Events", "Analytics", "Payouts", "Profile", "→Log out", "Hide organiser menu", "Events"]);
+      expect(seen).toEqual(["Overview", "Events", "Analytics", "Payouts", "Profile", "→Log out", "Hide organiser menu", "Overview"]);
       await page.keyboard.press("Shift+Tab");
       await page.keyboard.press("Shift+Tab");
       await expect(drawer.getByRole("button", { name: "Log out" })).toBeFocused();
@@ -241,7 +252,7 @@ test("the skip link goes past the sidebar, to the page", async ({ page }) => {
 test("320px: the rail and the page fit with no sideways scroll", async ({ page }) => {
   await page.setViewportSize({ width: 320, height: 640 });
   await signedInOrganiser(page);
-  await page.goto("/dashboard");
+  await page.goto("/dashboard/events");
   await expect(page.locator("[data-organiser-rail]")).toBeVisible({ timeout: 30_000 });
   await expect(page.getByRole("link", { name: "Create your first event" })).toBeVisible({ timeout: 30_000 });
   await noSidewaysScroll(page);

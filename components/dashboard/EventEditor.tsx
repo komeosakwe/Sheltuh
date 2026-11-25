@@ -1258,11 +1258,11 @@ export default function EventEditor(props: Props) {
         {outcome ? (
           <PublishOutcomeView outcome={outcome} ref={outcomeRef} />
         ) : (
-          // The same words as the dashboard's status badge (lib/organiser-events.ts).
+          // The same words as the dashboard's status badge (lib/organiser-events.ts) and the Events tab's pill.
           <div className="rounded-card border border-foreground bg-card p-4 text-foreground sm:p-5">
-            <h2 className="font-heading text-xl">{published ? "Published" : "Waiting for review"}</h2>
+            <h2 className="font-heading text-xl">{published ? "Published" : "In review"}</h2>
             <p className="mt-2 text-sm text-muted">
-              This event can&rsquo;t be edited while it&rsquo;s {published ? "published" : "waiting for review"}.
+              This event can&rsquo;t be edited while it&rsquo;s {published ? "published" : "in review"}.
             </p>
           </div>
         )}

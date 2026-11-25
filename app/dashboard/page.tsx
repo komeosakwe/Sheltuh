@@ -1,14 +1,18 @@
 import type { Metadata } from "next";
-import DashboardContent from "@/components/dashboard/DashboardContent";
+import OverviewContent from "@/components/dashboard/overview/OverviewContent";
 import { Page } from "@/components/ui/Section";
 
-export const metadata: Metadata = { title: "Your events — Sheltüh" };
+export const metadata: Metadata = { title: "Overview — Sheltüh" };
 
-/** The organiser's events. DashboardContent has the heading, so New event sits beside it once they can create events. */
+/**
+ * The organiser dashboard's home, the Overview (Latte's frame 430:7340). The events list is the
+ * Events tab, /dashboard/events. The page fills the frame's column (flex-1), so the Performance
+ * column reaches the panel's foot.
+ */
 export default function DashboardPage() {
   return (
-    <Page padding="subNav">
-      <DashboardContent />
+    <Page padding="subNav" className="flex flex-1 flex-col">
+      <OverviewContent />
     </Page>
   );
 }
