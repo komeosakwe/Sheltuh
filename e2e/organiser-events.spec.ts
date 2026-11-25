@@ -139,12 +139,16 @@ for (const vp of [
       await expect(
         page.getByRole("navigation", { name: "Organiser" }).getByRole("link", { name: "Events", exact: true }),
       ).toHaveAttribute("aria-current", "page");
-      await expect(main.getByRole("group", { name: "Show" }).getByRole("button")).toHaveText(["All · 6", "Live · 3", "Drafts · 2", "Past · 1"]);
+      await expect(main.getByRole("group", { name: "Filter events" }).getByRole("button")).toHaveText(["All · 6", "Live · 3", "Drafts · 2", "Past · 1"]);
       await expect(main.getByRole("link", { name: "Create event" })).toHaveAttribute("href", "/dashboard/new");
       await expect(main.locator('[data-org-event-card="evt-zine"]')).toContainText("Sold out");
       await expect(main.locator('[data-org-event-card="evt-zine"]')).toContainText("140 / 140 sold · A$3,080");
       await expect(main.locator('[data-org-event-card="evt-late"]')).toContainText("0 / 80 sold · —");
       await expect(main.getByRole("link", { name: "Continue Late Night Listening" })).toHaveAttribute("href", "/dashboard/evt-late");
+      // A published event says it's live and how to change it, as the list always did.
+      const here = main.locator('[data-org-event-card="evt-here"]');
+      await expect(here).toContainText("Live on Sheltüh. Contact Sheltüh to change it.");
+      await expect(here.getByRole("link", { name: "Contact Sheltüh" })).toHaveAttribute("href", "mailto:support@sheltuh.com.au");
 
       // Columns: three from 1280 (col-lg inside the frame), two from 640, one below.
       const lefts = new Set<number>();
@@ -183,6 +187,11 @@ test("a chip shows its events and keeps the filter in the address; the Overview'
   await expect(main.getByRole("button", { name: "Drafts 2" })).toHaveAttribute("aria-pressed", "true", { timeout: 30_000 });
   await expect(main.locator("[data-org-event-card]")).toHaveCount(2);
   await expect(main.locator("[data-org-event-card]").first()).toContainText("Continue");
+  // The nav's Events link (no filter) is All again, without a reload.
+  await page.getByRole("navigation", { name: "Organiser" }).getByRole("link", { name: "Events", exact: true }).click();
+  await expect(page).toHaveURL(/\/dashboard\/events$/, { timeout: 30_000 });
+  await expect(main.getByRole("button", { name: "All 6" })).toHaveAttribute("aria-pressed", "true");
+  await expect(main.locator("[data-org-event-card]")).toHaveCount(6);
 });
 
 test("a touch screen: chips, ··· and Create event are 44px tall", async ({ browser }) => {
@@ -215,6 +224,9 @@ test("keyboard: Create event, the chips, then each card's ··· and Manage; ·�
     await page.keyboard.press("Tab");
     await expect(main.getByRole("button", { name })).toBeFocused();
   }
+  // The first card: its line's Contact Sheltüh, its ···, then Manage (which rings the whole card).
+  await page.keyboard.press("Tab");
+  await expect(main.locator('[data-org-event-card="evt-here"]').getByRole("link", { name: "Contact Sheltüh" })).toBeFocused();
   await page.keyboard.press("Tab");
   const more = main.getByRole("button", { name: "More for Here & Now" });
   await expect(more).toBeFocused();
@@ -222,7 +234,7 @@ test("keyboard: Create event, the chips, then each card's ··· and Manage; ·�
   await page.keyboard.press("Tab");
   const manage = main.getByRole("link", { name: "Manage Here & Now" });
   await expect(manage).toBeFocused();
-  expect(await manage.evaluate((el) => getComputedStyle(el).outlineStyle)).not.toBe("none");
+  expect(await manage.evaluate((el) => getComputedStyle(el.closest("article") ?? el).outlineStyle)).not.toBe("none");
   await page.keyboard.press("Shift+Tab");
   await page.keyboard.press("Enter");
   const menu = page.getByRole("menu", { name: "More for Here & Now" });
@@ -273,7 +285,7 @@ test("no events yet: Create your first event", async ({ page }) => {
 });
 
 // Enlarged text: the browser's default font size doubled (32px), so rem sizes and breakpoints grow together.
-for (const width of [390, 768, 1440]) {
+for (const width of [320, 390, 768, 1440]) {
   test(`200% text at ${width}: everything stays inside the Events tab`, async ({ page }) => {
     await page.setViewportSize({ width, height: 1100 });
     const cdp = await page.context().newCDPSession(page);
@@ -283,7 +295,14 @@ for (const width of [390, 768, 1440]) {
     await page.goto("/dashboard/events");
     await expect(page.locator("[data-org-event-card]")).toHaveCount(6, { timeout: 30_000 });
     await page.evaluate(() => document.fonts.ready);
-    await noSidewaysScroll(page);
+    // Nothing outside the site footer reaches past the screen's edge. (The footer's theme switch does at 320px with
+    // 200% text: site-wide, outside this page.)
+    const wide = await page.evaluate(() =>
+      [...document.querySelectorAll("body *")]
+        .filter((el) => !el.closest("footer") && !el.closest(".sr-only") && el.getBoundingClientRect().right > window.innerWidth + 1)
+        .map((el) => `${el.tagName} ${(el.textContent ?? "").slice(0, 30)}`),
+    );
+    expect(wide).toEqual([]);
     const spills = await page.evaluate(() => {
       const root = document.querySelector("[data-events-tab]");
       if (!root) return ["no events tab"];

@@ -49,7 +49,6 @@ async function signedInOrganiser(page: Page) {
         },
       });
     }
-    if (path === "/api/organisers/me/events") return route.fulfill({ json: { items: [] } });
     if (path === "/api/organisers/me/events/summary") {
       return route.fulfill({
         json: {

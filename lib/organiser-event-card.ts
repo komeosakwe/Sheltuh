@@ -1,4 +1,4 @@
-import type { EventStatus, OrganiserEventStage, OrganiserEventSummary } from "./api/types";
+import { ORGANISER_EVENT_FILTERS, type EventStatus, type OrganiserEventFilter, type OrganiserEventStage, type OrganiserEventSummary } from "./api/types";
 import { organiserEventActions, type OrganiserEventAction } from "./organiser-events";
 
 /**
@@ -24,22 +24,42 @@ export function stageStatus(stage: OrganiserEventStage): EventStatus {
   }
 }
 
+/** A card's next-step line, as the dashboard has always said it (lib/organiser-events.ts). */
+export interface StageHint {
+  text: string;
+  /** The line goes on with "Contact Sheltüh to change it.", the first two words a link to Sheltüh's support email. */
+  contactToChange?: boolean;
+}
+
 /**
- * The stages that aren't drawn get the line on what to do next they've always had on the dashboard.
- * Drawn ones (Live, Sold out, Draft, Ended) say nothing more, as drawn: their pill and "Manage →" /
- * "Continue →" say it.
+ * The line on what happens next, as the events list always said it: a published event (Live, Sold
+ * out, Ended) is "Live on Sheltüh." with how to change it (Contact Sheltüh); the undrawn stages say
+ * what to do. A draft says nothing more: its pill and "Continue →" say it.
  */
-export function stageHint(stage: OrganiserEventStage): string | null {
+export function stageHint(stage: OrganiserEventStage): StageHint | null {
   switch (stage) {
+    case "live":
+    case "sold_out":
+    case "ended":
+      return { text: "Live on Sheltüh.", contactToChange: true };
     case "in_review":
-      return "Sheltüh is checking it before it goes live. You can’t edit it until then.";
+      return { text: "Sheltüh is checking it before it goes live. You can’t edit it until then." };
     case "changes_needed":
-      return "Make the changes Sheltüh asked for, then send it for review again.";
+      return { text: "Make the changes Sheltüh asked for, then send it for review again." };
     case "unpublished":
-      return "Taken off Sheltüh. Edit it, then send it for review.";
-    default:
+      return { text: "Taken off Sheltüh. Edit it, then send it for review." };
+    case "draft":
       return null;
   }
+}
+
+/**
+ * The Events tab's filter from the address (`?filter=`): `live`, `drafts` or `past`; anything else,
+ * none, or more than one (the first counts) is All.
+ */
+export function eventsFilterFrom(value: string | readonly string[] | null | undefined): OrganiserEventFilter {
+  const first = typeof value === "string" ? value : value?.[0];
+  return (ORGANISER_EVENT_FILTERS as readonly string[]).includes(first ?? "") ? (first as OrganiserEventFilter) : "all";
 }
 
 /**

@@ -421,7 +421,9 @@ sections slot in above it at full width.
 | Views untracked for part of the range | Views and Conversion show "—", with the footnote "Views were first counted on {date}." |
 
 **5.20 Entry points (existing files that change).**
-- **`components/dashboard/DashboardContent.tsx`:**
+- **`components/dashboard/DashboardContent.tsx`** (*superseded, Nov 2026:* the events list is now the Events tab,
+  `components/dashboard/events/EventsContent.tsx`; Analytics is in the organiser nav, and each event's Analytics is in
+  its card's "···" menu):
   - Add `Link href="/dashboard/analytics" className="btn btn-outline w-fit"` "Analytics" after Payouts.
   - Each row becomes `li.flex.items-stretch.bg-surface`. The existing link moves inside as
     `flex flex-1 items-center justify-between p-4`, followed by a sibling link (not nested):

@@ -2,6 +2,8 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import EventsContent from "@/components/dashboard/events/EventsContent";
+import DashboardEventsPage from "@/app/dashboard/events/page";
+import { eventsFilterFrom } from "@/lib/organiser-event-card";
 import type {
   OrganiserEventCounts,
   OrganiserEventFilter,
@@ -19,6 +21,10 @@ import { fakeAuthValue, FakeAuthProvider } from "./test-utils/fakeAuth";
  * said kept on the card (Sheltüh's note, next steps, payouts), the card's other actions, and the undrawn
  * states (no events, an empty filter, loading, error, more than a page).
  */
+
+// The address is the filter's source: useSearchParams reads the jsdom address, as Next keeps it in step
+// with history.replaceState.
+vi.mock("next/navigation", () => ({ useSearchParams: () => new URLSearchParams(window.location.search) }));
 
 const getOrganiserEventsSummary = vi.fn();
 vi.mock("@/lib/api/organiser-summary", () => ({
@@ -102,12 +108,18 @@ afterEach(() => {
   window.history.replaceState(null, "", "/");
 });
 
-function renderEvents(filter: OrganiserEventFilter = "all", auth: AuthContextValue = fakeAuthValue()) {
-  render(
+function tree(auth: AuthContextValue) {
+  return (
     <FakeAuthProvider value={auth}>
-      <EventsContent initialFilter={filter} />
-    </FakeAuthProvider>,
+      <EventsContent />
+    </FakeAuthProvider>
   );
+}
+
+/** The Events tab at /dashboard/events, or at ?filter= for another filter. */
+function renderEvents(filter: OrganiserEventFilter = "all", auth: AuthContextValue = fakeAuthValue()) {
+  window.history.replaceState(null, "", filter === "all" ? "/dashboard/events" : `/dashboard/events?filter=${filter}`);
+  return render(tree(auth));
 }
 
 function card(title: string): HTMLElement {
@@ -137,9 +149,11 @@ describe("Events tab — the drawn page", () => {
     getOrganiserEventsSummary.mockResolvedValue(page(LATTE));
     renderEvents();
     await loaded();
-    const group = screen.getByRole("group", { name: "Show" });
+    const group = screen.getByRole("group", { name: "Filter events" });
     const chips = within(group).getAllByRole("button");
     expect(chips.map((chip) => chip.textContent)).toEqual(["All · 6", "Live · 3", "Drafts · 2", "Past · 1"]);
+    // One span inside, so the chip's gap doesn't widen the spaces round the dot.
+    expect(chips.every((chip) => chip.children.length === 1)).toBe(true);
     expect(chips.map((chip) => chip.getAttribute("aria-pressed"))).toEqual(["true", "false", "false", "false"]);
     // The dot isn't read: "Live 3".
     expect(chips[1]).toHaveAccessibleName("Live 3");
@@ -149,7 +163,6 @@ describe("Events tab — the drawn page", () => {
     getOrganiserEventsSummary.mockResolvedValue(page(LATTE));
     getOrganiserEventsSummary.mockResolvedValueOnce(page(LATTE));
     getOrganiserEventsSummary.mockResolvedValueOnce(page(LATTE.filter((e) => e.stage === "draft")));
-    window.history.replaceState(null, "", "/dashboard/events");
     renderEvents();
     await loaded();
     fireEvent.click(screen.getByRole("button", { name: "Drafts 2" }));
@@ -168,6 +181,49 @@ describe("Events tab — the drawn page", () => {
     await loaded();
     expect(getOrganiserEventsSummary).toHaveBeenCalledWith(expect.any(Function), expect.objectContaining({ filter: "drafts" }));
     expect(screen.getByRole("button", { name: "Drafts 2" })).toHaveAttribute("aria-pressed", "true");
+  });
+
+  it("follows the address when it changes without a reload (the nav's Events link back to All)", async () => {
+    getOrganiserEventsSummary.mockImplementation((_token: unknown, options: { filter?: OrganiserEventFilter }) =>
+      Promise.resolve(page(options.filter === "drafts" ? LATTE.filter((e) => e.stage === "draft") : LATTE)),
+    );
+    const view = renderEvents("drafts");
+    await waitFor(() => expect(document.querySelectorAll("[data-org-event-card]")).toHaveLength(2));
+    // A soft navigation to /dashboard/events: the address changes, the component stays.
+    window.history.replaceState(null, "", "/dashboard/events");
+    view.rerender(tree(fakeAuthValue()));
+    expect(screen.getByRole("button", { name: "All 6" })).toHaveAttribute("aria-pressed", "true");
+    await waitFor(() => expect(document.querySelectorAll("[data-org-event-card]")).toHaveLength(6));
+    expect(getOrganiserEventsSummary).toHaveBeenLastCalledWith(expect.any(Function), expect.objectContaining({ filter: "all" }));
+  });
+
+  it("reads the filter from the address: an unknown one is All, and of two the first counts", async () => {
+    expect(eventsFilterFrom("drafts")).toBe("drafts");
+    expect(eventsFilterFrom("everything")).toBe("all");
+    expect(eventsFilterFrom("")).toBe("all");
+    expect(eventsFilterFrom(null)).toBe("all");
+    expect(eventsFilterFrom(undefined)).toBe("all");
+    expect(eventsFilterFrom(["past", "live"])).toBe("past");
+    expect(eventsFilterFrom([])).toBe("all");
+    getOrganiserEventsSummary.mockResolvedValue(page(LATTE));
+    window.history.replaceState(null, "", "/dashboard/events?filter=nope");
+    render(tree(fakeAuthValue()));
+    await loaded();
+    expect(getOrganiserEventsSummary).toHaveBeenLastCalledWith(expect.any(Function), expect.objectContaining({ filter: "all" }));
+    cleanup();
+    window.history.replaceState(null, "", "/dashboard/events?filter=live&filter=past");
+    render(tree(fakeAuthValue()));
+    await loaded();
+    expect(getOrganiserEventsSummary).toHaveBeenLastCalledWith(expect.any(Function), expect.objectContaining({ filter: "live" }));
+  });
+
+  it("the page (in its Suspense boundary) shows the tab at the address's filter", async () => {
+    getOrganiserEventsSummary.mockResolvedValue(page(LATTE.filter((e) => e.stage === "ended")));
+    window.history.replaceState(null, "", "/dashboard/events?filter=past");
+    render(<FakeAuthProvider value={fakeAuthValue()}>{DashboardEventsPage()}</FakeAuthProvider>);
+    await loaded();
+    expect(document.querySelector("[data-page]")).toContainElement(screen.getByRole("heading", { level: 1, name: "Your events" }));
+    expect(screen.getByRole("button", { name: "Past 1" })).toHaveAttribute("aria-pressed", "true");
   });
 
   it("each card: pill, date and place, sales, and Manage → (Continue → for drafts)", async () => {
@@ -195,8 +251,15 @@ describe("Events tab — the drawn page", () => {
     expect(card("Summer Sessions")).toHaveTextContent("Sun 18 Oct · Coburg");
     // A draft without a photo: the cream block.
     expect(card("Print Club").querySelector("[data-card-image]")).toHaveAttribute("data-card-image", "none");
-    // The drawn states add no lines.
-    expect(document.querySelectorAll("[data-card-details]")).toHaveLength(0);
+    // A published event (Live, Sold out, Ended) says it's live and how to change it, as the list did; a draft adds nothing.
+    for (const title of ["Here & Now", "Open Studio", "Zine Fair", "Summer Sessions"]) {
+      expect(card(title)).toHaveTextContent("Live on Sheltüh. Contact Sheltüh to change it.");
+      expect(within(card(title)).getByRole("link", { name: "Contact Sheltüh" })).toHaveAttribute("href", "mailto:support@sheltuh.com.au");
+    }
+    for (const title of ["Late Night Listening", "Print Club"]) expect(card(title).querySelector("[data-card-details]")).toBeNull();
+    // Its "—" is read as words.
+    expect(within(card("Print Club")).getByText("—")).toHaveAttribute("aria-hidden", "true");
+    expect(within(card("Print Club")).getByText("nothing sold yet")).toHaveClass("sr-only");
   });
 });
 
@@ -310,14 +373,14 @@ describe("Events tab — undrawn states", () => {
     expect(await screen.findByRole("heading", { level: 2, name: "No events yet" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Create your first event" })).toHaveAttribute("href", "/dashboard/new");
     expect(screen.queryByRole("link", { name: "Create event" })).toBeNull();
-    expect(screen.queryByRole("group", { name: "Show" })).toBeNull();
+    expect(screen.queryByRole("group", { name: "Filter events" })).toBeNull();
   });
 
   it("an empty filter says so in its own words", async () => {
     getOrganiserEventsSummary.mockResolvedValue(page([], { counts: { ...COUNTS, past: 0 } }));
     renderEvents("past");
     expect(await screen.findByText("No past events yet.")).toBeInTheDocument();
-    expect(screen.getByRole("group", { name: "Show" })).toBeInTheDocument();
+    expect(screen.getByRole("group", { name: "Filter events" })).toBeInTheDocument();
   });
 
   it("loading: the loader in place of the grid", () => {
@@ -326,16 +389,23 @@ describe("Events tab — undrawn states", () => {
     expect(screen.getByRole("progressbar", { name: "Loading your events" })).toBeInTheDocument();
   });
 
-  it("an error is shown (never swallowed), with Try again", async () => {
+  it("an error is shown (never swallowed), with Try again, which stays (busy) while it loads, then focus goes to the heading", async () => {
+    let answer: (value: OrganiserEventSummaryPage) => void = () => {};
     getOrganiserEventsSummary.mockRejectedValueOnce(new Error("Too many requests. Try again in a minute."));
-    getOrganiserEventsSummary.mockResolvedValueOnce(page(LATTE));
+    getOrganiserEventsSummary.mockReturnValueOnce(new Promise<OrganiserEventSummaryPage>((resolve) => (answer = resolve)));
     renderEvents();
     const alert = await screen.findByRole("alert");
     expect(alert).toHaveTextContent("Your events couldn’t load.");
     expect(alert).toHaveTextContent("Too many requests. Try again in a minute.");
-    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+    const again = screen.getByRole("button", { name: "Try again" });
+    again.focus();
+    fireEvent.click(again);
+    expect(screen.getByRole("button", { name: "Try again" })).toHaveAttribute("aria-disabled", "true");
+    expect(screen.getByRole("button", { name: "Try again" })).toHaveFocus();
+    answer(page(LATTE));
     await loaded();
     expect(screen.queryByRole("alert")).toBeNull();
+    expect(screen.getByRole("heading", { level: 1, name: "Your events" })).toHaveFocus();
   });
 
   it("more than a page: Load more adds the next (once each), and a failure is shown", async () => {
@@ -348,6 +418,9 @@ describe("Events tab — undrawn states", () => {
     fireEvent.click(screen.getByRole("button", { name: "Load more" }));
     await waitFor(() => expect(document.querySelectorAll("[data-org-event-card]")).toHaveLength(5));
     expect(getOrganiserEventsSummary).toHaveBeenLastCalledWith(expect.any(Function), expect.objectContaining({ filter: "all", cursor: "c1" }));
+    // Focus goes to the first new card's link, and how far through is said.
+    await waitFor(() => expect(screen.getByRole("link", { name: "Continue Late Night Listening" })).toHaveFocus());
+    expect(screen.getByRole("status")).toHaveTextContent("Showing 5 of 6 events.");
     fireEvent.click(screen.getByRole("button", { name: "Load more" }));
     expect(await screen.findByRole("alert")).toHaveTextContent("Network down.");
   });

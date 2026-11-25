@@ -191,7 +191,18 @@ for (const vp of [
         if (path === "/api/organisers/me") {
           return joined ? route.fulfill({ json: organiser }) : route.fulfill({ status: 404, json: { error: "No organiser." } });
         }
-        if (path === "/api/organisers/me/events") return route.fulfill({ json: { items: [] } });
+        // Joining lands on the dashboard's Overview.
+        if (path === "/api/organisers/me/overview") {
+          return route.fulfill({
+            json: {
+              thisWeek: { range: { from: "2026-11-18", to: "2026-11-24" }, ticketsSold: 0, views: 0, viewsUnreliable: false, viewsComplete: true, newFollowers: 0 },
+              highlight: null,
+              upcoming: [],
+              draftsCount: 0,
+              performance: [],
+            },
+          });
+        }
         return route.fulfill({ status: 404, json: { error: "not mocked in e2e" } });
       });
 

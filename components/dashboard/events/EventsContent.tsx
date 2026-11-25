@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import AccountPageHead from "@/components/account/AccountPageHead";
 import OrganiserGate from "@/components/dashboard/OrganiserGate";
@@ -9,39 +10,56 @@ import { DashButton, DashButtonLink } from "@/components/dashboard/ui/DashButton
 import { DashChip } from "@/components/dashboard/ui/DashChip";
 import DashMenu from "@/components/dashboard/ui/DashMenu";
 import { MoreIcon } from "@/components/dashboard/ui/icons";
+import { useToday } from "@/components/dashboard/useToday";
 import { LoadingState } from "@/components/ui/ProgressLoader";
 import { formatCount } from "@/lib/analytics-format";
 import { getOrganiserEventsSummary } from "@/lib/api/organiser-summary";
 import type { OrganiserEventCounts, OrganiserEventFilter, OrganiserEventSummary, OrganiserRecord } from "@/lib/api/types";
 import { useAuth } from "@/lib/auth/AuthContext";
+import { cardMenuActions, eventsFilterFrom } from "@/lib/organiser-event-card";
 import { NEW_EVENT_HREF } from "@/lib/organiser-nav";
-import { cardMenuActions } from "@/lib/organiser-event-card";
 import { ADD_LOGO_HREF } from "@/lib/organiser-profile";
 import EventCardDetails from "./EventCardDetails";
 
+/** What a filter's events are called: "6 events", "3 live events", "2 drafts", "1 past event". */
+function eventsWord(filter: OrganiserEventFilter, n: number): string {
+  const one = n === 1;
+  switch (filter) {
+    case "all":
+      return one ? "event" : "events";
+    case "live":
+      return one ? "live event" : "live events";
+    case "drafts":
+      return one ? "draft" : "drafts";
+    case "past":
+      return one ? "past event" : "past events";
+  }
+}
 
 /** The chips, in the frame's order, with their words. */
-const FILTERS: { filter: OrganiserEventFilter; label: string; empty: string; shown: (n: number) => string }[] = [
-  { filter: "all", label: "All", empty: "No events yet", shown: (n) => `${formatCount(n)} ${n === 1 ? "event" : "events"}` },
-  { filter: "live", label: "Live", empty: "No live events right now.", shown: (n) => `${formatCount(n)} live ${n === 1 ? "event" : "events"}` },
-  { filter: "drafts", label: "Drafts", empty: "No drafts.", shown: (n) => `${formatCount(n)} ${n === 1 ? "draft" : "drafts"}` },
-  { filter: "past", label: "Past", empty: "No past events yet.", shown: (n) => `${formatCount(n)} past ${n === 1 ? "event" : "events"}` },
+const FILTERS: { filter: OrganiserEventFilter; label: string; empty: string }[] = [
+  { filter: "all", label: "All", empty: "No events yet" },
+  { filter: "live", label: "Live", empty: "No live events right now." },
+  { filter: "drafts", label: "Drafts", empty: "No drafts." },
+  { filter: "past", label: "Past", empty: "No past events yet." },
 ];
 
 /** A note in the frames' own note style (Attendees' privacy note): cream, a 1px border/subtle edge, radius 16, Body/S. */
 const NOTE = "body-s flex flex-wrap items-center justify-between gap-3 rounded-card border border-surface-border bg-hover px-4 py-3 text-foreground";
 
+/** A page of the filter it was asked for (so a page for another filter is never shown as this one's). */
 type Load =
   | { status: "loading" }
-  | { status: "error"; message: string }
-  | { status: "ready"; items: OrganiserEventSummary[]; nextCursor?: string; counts: OrganiserEventCounts };
+  | { status: "error"; filter: OrganiserEventFilter; message: string }
+  | { status: "ready"; filter: OrganiserEventFilter; items: OrganiserEventSummary[]; nextCursor?: string; counts: OrganiserEventCounts };
 
 /** The address bar says which filter is showing (`?filter=drafts`; none for All), so a reload or a link keeps it. */
 function showFilterInAddress(filter: OrganiserEventFilter) {
   const url = new URL(window.location.href);
   if (filter === "all") url.searchParams.delete("filter");
   else url.searchParams.set("filter", filter);
-  window.history.replaceState(window.history.state, "", `${url.pathname}${url.search}${url.hash}`);
+  // null, as Next documents: Next keeps its own state, and then updates useSearchParams to match.
+  window.history.replaceState(null, "", `${url.pathname}${url.search}${url.hash}`);
 }
 
 /**
@@ -51,33 +69,45 @@ function showFilterInAddress(filter: OrganiserEventFilter) {
  * desktop (from col-lg), two from 640px, one on phones. Each card is Latte's event card: its status
  * (Live, Sold out, Draft, Ended, and the undrawn In review, Changes needed, Unpublished in the same
  * pill), date and place, sales, and Manage → (Continue → while it's being made). What the list always
- * said stays on the card: Sheltüh's note and the next step for the undrawn states, and the paid-draft
- * payouts line; its other actions (View public page, Orders, Analytics, Check-in) are in the card's
- * "···" menu until the Manage tabs (plan OD-13) hold them.
+ * said stays on the card: "Live on Sheltüh. Contact Sheltüh to change it." for a published event,
+ * Sheltüh's note and the next step for the undrawn states, and the paid-draft payouts line; its other
+ * actions (View public page, Orders, Analytics, Check-in) are in the card's "···" menu until the
+ * Manage tabs (plan OD-13) hold them.
  *
- * Not drawn, in the same pieces: loading, an error with Try again, no events at all (Create your
- * first event), an empty filter, and more than a page (Load more). The no-logo and payouts prompts
- * the list has had sit above the chips as notes.
+ * The address is the filter's source (`?filter=`, read with useSearchParams): a chip writes it, and
+ * any other way of changing it (the nav's Events link back to All, the browser's back) shows what it
+ * says.
+ *
+ * Not drawn, in the same pieces: loading, an error with Try again (it stays, busy, while it loads,
+ * then focus goes to the heading), no events at all (Create your first event), an empty filter, and
+ * more than a page (Load more: focus goes to the first new card, and "Showing 20 of 45 events" is
+ * said). The no-logo and payouts prompts the list has had sit above the chips as notes.
  */
-export default function EventsContent({ initialFilter }: { initialFilter: OrganiserEventFilter }) {
+export default function EventsContent() {
   return (
     <OrganiserGate title="Your events" signInText="Sign in to see your events.">
-      {(organiser) => <Events organiser={organiser} initialFilter={initialFilter} />}
+      {(organiser) => <Events organiser={organiser} />}
     </OrganiserGate>
   );
 }
 
-function Events({ organiser, initialFilter }: { organiser: OrganiserRecord; initialFilter: OrganiserEventFilter }) {
+function Events({ organiser }: { organiser: OrganiserRecord }) {
   const auth = useAuth();
   const getToken = auth.getAccessToken;
-  const [filter, setFilter] = useState<OrganiserEventFilter>(initialFilter);
+  const params = useSearchParams();
+  const filter = eventsFilterFrom(params.getAll("filter"));
   const [attempt, setAttempt] = useState(0);
+  const [retrying, setRetrying] = useState(false);
   const [load, setLoad] = useState<Load>({ status: "loading" });
   const [counts, setCounts] = useState<OrganiserEventCounts | null>(null);
   const [more, setMore] = useState<{ loading: boolean; error: string | null }>({ loading: false, error: null });
-  const [now] = useState(() => new Date());
-  /** A chip was pressed: what it shows is said once it's loaded (not on arrival: the page's heading says where you are). */
-  const [chose, setChose] = useState(false);
+  const now = useToday();
+  /** What the status line says: nothing on arrival (the heading says where you are), then after a chip or Load more. */
+  const [said, setSaid] = useState<"none" | "chose" | "more">("none");
+  /** After Load more: the first new card, whose link takes focus once it's there. */
+  const [focusCard, setFocusCard] = useState<string | null>(null);
+  const titleRef = useRef<HTMLHeadingElement>(null);
+  const focusTitleOnLoad = useRef(false);
   // The newest request: a page that lands after the filter changed again is dropped.
   const requestRef = useRef(0);
 
@@ -87,49 +117,67 @@ function Events({ organiser, initialFilter }: { organiser: OrganiserRecord; init
     getOrganiserEventsSummary(getToken, { filter, signal: controller.signal })
       .then((page) => {
         if (request !== requestRef.current) return;
-        setLoad({ status: "ready", items: page.items, nextCursor: page.nextCursor, counts: page.counts });
+        setLoad({ status: "ready", filter, items: page.items, nextCursor: page.nextCursor, counts: page.counts });
         setCounts(page.counts);
+        setMore({ loading: false, error: null });
+        setRetrying(false);
       })
       .catch((err: unknown) => {
         if (controller.signal.aborted || request !== requestRef.current) return;
-        setLoad({ status: "error", message: err instanceof Error ? err.message : "Something went wrong." });
+        setLoad({ status: "error", filter, message: err instanceof Error ? err.message : "Something went wrong." });
+        setRetrying(false);
       });
     return () => controller.abort();
   }, [getToken, filter, attempt]);
 
+  // The page as it stands for the filter the address shows: the last answer if it's this filter's, else loading.
+  const shown: Load = load.status !== "loading" && load.filter !== filter ? { status: "loading" } : load;
+
+  useEffect(() => {
+    if (shown.status !== "ready" || !focusTitleOnLoad.current) return;
+    focusTitleOnLoad.current = false;
+    titleRef.current?.focus();
+  }, [shown.status]);
+
+  useEffect(() => {
+    if (!focusCard) return;
+    const link = document.querySelector<HTMLElement>(`[data-org-event-card="${CSS.escape(focusCard)}"] a[data-card-link]`);
+    if (!link) return;
+    link.focus();
+    queueMicrotask(() => setFocusCard(null));
+  }, [focusCard, load]);
+
   function choose(next: OrganiserEventFilter) {
     if (next === filter) return;
-    setLoad({ status: "loading" });
-    setMore({ loading: false, error: null });
-    setFilter(next);
-    setChose(true);
+    setSaid("chose");
     showFilterInAddress(next);
   }
 
   function retry() {
-    setLoad({ status: "loading" });
+    focusTitleOnLoad.current = true;
+    setRetrying(true);
     setAttempt((n) => n + 1);
   }
 
   function loadMore() {
-    if (load.status !== "ready" || !load.nextCursor) return;
+    if (shown.status !== "ready" || !shown.nextCursor) return;
     const request = requestRef.current;
+    const loadedFilter = shown.filter;
+    const seen = new Set(shown.items.map((item) => item.eventId));
     setMore({ loading: true, error: null });
-    getOrganiserEventsSummary(getToken, { filter, cursor: load.nextCursor })
+    getOrganiserEventsSummary(getToken, { filter: loadedFilter, cursor: shown.nextCursor })
       .then((page) => {
         if (request !== requestRef.current) return;
-        setLoad((current) => {
-          if (current.status !== "ready") return current;
-          const seen = new Set(current.items.map((item) => item.eventId));
-          return {
-            status: "ready",
-            items: [...current.items, ...page.items.filter((item) => !seen.has(item.eventId))],
-            nextCursor: page.nextCursor,
-            counts: page.counts,
-          };
-        });
+        const added = page.items.filter((item) => !seen.has(item.eventId));
+        setLoad((current) =>
+          current.status !== "ready" || current.filter !== loadedFilter
+            ? current
+            : { ...current, items: [...current.items, ...added], nextCursor: page.nextCursor, counts: page.counts },
+        );
         setCounts(page.counts);
         setMore({ loading: false, error: null });
+        setSaid("more");
+        setFocusCard(added[0]?.eventId ?? null);
       })
       .catch((err: unknown) => {
         if (request !== requestRef.current) return;
@@ -140,15 +188,25 @@ function Events({ organiser, initialFilter }: { organiser: OrganiserRecord; init
   const payoutsEnabled = organiser.payoutsEnabled === true;
   const chosen = FILTERS.find((item) => item.filter === filter) ?? FILTERS[0];
   const noEventsAtAll = counts !== null && counts.all === 0;
+  let status = "";
+  if (shown.status === "ready" && !noEventsAtAll && said !== "none") {
+    const total = shown.counts[filter];
+    status =
+      said === "more"
+        ? `Showing ${formatCount(shown.items.length)} of ${formatCount(total)} ${eventsWord(filter, total)}.`
+        : `Showing ${formatCount(total)} ${eventsWord(filter, total)}.`;
+  }
 
   return (
     <div data-events-tab="" className="flex flex-col gap-6">
       <AccountPageHead
         title="Your events"
         intro="Drafts, live and past events."
+        tightOnPhone
+        titleRef={titleRef}
         action={
           noEventsAtAll ? undefined : (
-            <DashButtonLink href={NEW_EVENT_HREF} variant="primary" className="pointer-coarse:min-h-11">
+            <DashButtonLink href={NEW_EVENT_HREF} variant="primary" className="max-w-full text-center pointer-coarse:min-h-11">
               Create event
             </DashButtonLink>
           )
@@ -156,15 +214,15 @@ function Events({ organiser, initialFilter }: { organiser: OrganiserRecord; init
       />
       {!organiser.logoUrl && (
         <div data-logo-prompt="" className={NOTE}>
-          <p className="font-semibold">Add your logo</p>
-          <DashButtonLink href={ADD_LOGO_HREF} variant="outline" className="pointer-coarse:min-h-11">
+          <p className="min-w-0 font-semibold break-words">Add your logo</p>
+          <DashButtonLink href={ADD_LOGO_HREF} variant="outline" className="max-w-full text-center pointer-coarse:min-h-11">
             Add logo
           </DashButtonLink>
         </div>
       )}
       {!payoutsEnabled && (
         <p data-payouts-note="" className={NOTE}>
-          <span>
+          <span className="min-w-0 break-words">
             <Link href="/dashboard/payouts" className="font-semibold underline underline-offset-4 hover:decoration-2">
               Set up payouts
             </Link>{" "}
@@ -173,61 +231,64 @@ function Events({ organiser, initialFilter }: { organiser: OrganiserRecord; init
         </p>
       )}
       {!noEventsAtAll && (
-        <div role="group" aria-label="Show" className="flex flex-wrap gap-2">
+        <div role="group" aria-label="Filter events" className="flex flex-wrap gap-2">
           {FILTERS.map((item) => (
             <DashChip
               key={item.filter}
               pressed={item.filter === filter}
               onClick={() => choose(item.filter)}
               data-events-filter={item.filter}
-              className="pointer-coarse:min-h-11"
+              className="max-w-full pointer-coarse:min-h-11"
             >
-              {item.label}
-              {counts && (
-                <>
-                  {" "}
-                  <span aria-hidden="true">·</span> {formatCount(counts[item.filter])}
-                </>
-              )}
+              {/* One span, so the chip's gap doesn't add space around the dot: "All · 6". */}
+              <span className="whitespace-normal">
+                {item.label}
+                {counts && (
+                  <>
+                    {" "}
+                    <span aria-hidden="true">·</span> {formatCount(counts[item.filter])}
+                  </>
+                )}
+              </span>
             </DashChip>
           ))}
         </div>
       )}
-      {/* What the chips now show, said once it's loaded (the grid changing isn't announced on its own). */}
+      {/* What the chips or Load more now show, said once it's loaded (the grid changing isn't announced on its own). */}
       <p role="status" className="sr-only">
-        {chose && load.status === "ready" && !noEventsAtAll ? `Showing ${chosen.shown(load.counts[filter])}.` : ""}
+        {status}
       </p>
-      {load.status === "loading" && <LoadingState text="Loading your events…" />}
-      {load.status === "error" && (
+      {shown.status === "loading" && <LoadingState text="Loading your events…" />}
+      {shown.status === "error" && (
         <div data-events-error="" className="flex flex-col items-start gap-4 rounded-card border border-surface-border p-6">
           <div role="alert" className="flex flex-col gap-1">
             <p className="label-button">Your events couldn’t load.</p>
-            <p className="body-s text-muted">{load.message}</p>
+            <p className="body-s text-muted">{shown.message}</p>
           </div>
-          <DashButton variant="outline" onClick={retry} className="pointer-coarse:min-h-11">
+          <DashButton variant="outline" onClick={retry} busy={retrying} className="pointer-coarse:min-h-11">
             Try again
           </DashButton>
         </div>
       )}
-      {load.status === "ready" &&
+      {shown.status === "ready" &&
         (noEventsAtAll ? (
           <div data-events-empty="all" className="flex flex-col items-start gap-4 rounded-card border border-surface-border bg-card p-6">
             <div className="flex flex-col gap-1">
               <h2 className="label-button">No events yet</h2>
               <p className="body-s text-muted">Create your first event: it’s saved as a draft until you publish it.</p>
             </div>
-            <DashButtonLink href={NEW_EVENT_HREF} variant="primary" className="pointer-coarse:min-h-11">
+            <DashButtonLink href={NEW_EVENT_HREF} variant="primary" className="max-w-full text-center pointer-coarse:min-h-11">
               Create your first event
             </DashButtonLink>
           </div>
-        ) : load.items.length === 0 ? (
+        ) : shown.items.length === 0 ? (
           <p data-events-empty={filter} className="body-m rounded-card border border-surface-border p-6 text-muted">
             {chosen.empty}
           </p>
         ) : (
           <>
             <ul className="grid grid-cols-1 gap-6 sm:grid-cols-2 col-lg:grid-cols-3">
-              {load.items.map((event) => (
+              {shown.items.map((event) => (
                 <li key={event.eventId} className="flex min-w-0">
                   <OrgEventCard
                     event={event}
@@ -239,7 +300,7 @@ function Events({ organiser, initialFilter }: { organiser: OrganiserRecord; init
                 </li>
               ))}
             </ul>
-            {load.nextCursor && (
+            {shown.nextCursor && (
               <div className="flex flex-col items-center gap-2">
                 <DashButton variant="outline" onClick={loadMore} busy={more.loading} className="pointer-coarse:min-h-11">
                   {more.loading ? "Loading…" : "Load more"}
