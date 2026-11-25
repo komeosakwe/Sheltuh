@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from "react";
 import DotsMark from "@/components/brand/DotsMark";
 import DemoNotice from "@/components/DemoNotice";
 import { AttendeeMessageAction } from "@/components/messages/ComposeRequest";
+import { PROFILE_HREF } from "@/components/nav/useNavAccount";
 import { Button, ButtonLink } from "@/components/ui/Button";
 import { Notice, Panel } from "@/components/ui/Section";
 import { ApiError } from "@/lib/api/client";
@@ -493,7 +494,7 @@ export default function WhosGoing() {
             {busy === "leave" ? "Removing…" : "Stop showing me"}
           </Button>
           <p className="flex flex-wrap gap-x-4 text-xs text-muted">
-            <Link href="/account" className={tallInlineLinkClass}>
+            <Link href={PROFILE_HREF} className={tallInlineLinkClass}>
               Edit name
             </Link>
             <Link href="/messages" className={tallInlineLinkClass}>
@@ -517,7 +518,7 @@ export default function WhosGoing() {
         <>
           <p className="text-sm">
             Show up as {endSentence(profile.displayName)}{" "}
-            <Link href="/account" className={inlineLinkClass}>
+            <Link href={PROFILE_HREF} className={inlineLinkClass}>
               Edit name
             </Link>
           </p>
@@ -576,7 +577,7 @@ export default function WhosGoing() {
         {namesNeedProfile && (
           <p className="text-sm">
             Names are for members with a profile.{" "}
-            <Link href="/account" className={tallInlineLinkClass}>
+            <Link href={PROFILE_HREF} className={tallInlineLinkClass}>
               Set up your profile
             </Link>
           </p>

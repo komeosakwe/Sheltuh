@@ -132,7 +132,7 @@ describe("phone drawer, signed in", () => {
     const first = renderNav();
     expect(within(first.drawer).getByRole("link", { name: "Latte, view profile", hidden: true })).toHaveAttribute(
       "href",
-      "/account#member-profile",
+      "/profile",
     );
     cleanup();
     profileState = { status: "loading" };
@@ -281,7 +281,48 @@ describe("avatar menu (from lg)", () => {
     profileState = { status: "ready", profile: null };
     const bare = requirePanel(renderNav().panel);
     expect(within(bare).getByText("latte@example.com")).toHaveClass("body-m");
-    expect(within(bare).getByRole("link", { name: "Profile", hidden: true })).toHaveAttribute("href", "/account#member-profile");
+    expect(within(bare).getByRole("link", { name: "Profile", hidden: true })).toHaveAttribute("href", "/profile");
+  });
+
+  it("sends a suspended member to /profile, not their member page (it's a 404 while they're suspended)", () => {
+    profileState = { status: "ready", profile: { ...LATTE, suspended: true } };
+    const { drawer, panel } = renderNav();
+    expect(within(requirePanel(panel)).getByRole("link", { name: "Profile", hidden: true })).toHaveAttribute("href", "/profile");
+    expect(within(drawer).getByRole("link", { name: "Latte, view profile", hidden: true })).toHaveAttribute("href", "/profile");
+  });
+
+  it("on /profile with a visible profile (Profile goes to the member page): Profile and the identity are the location", () => {
+    pathname = "/profile";
+    const { drawer, panel } = renderNav();
+    const row = within(requirePanel(panel)).getByRole("link", { name: "Profile", hidden: true });
+    expect(row).toHaveAttribute("href", "/members/p-latte");
+    expect(row).toHaveAttribute("aria-current", "location");
+    expect(row.querySelector(".umlaut")).toHaveAttribute("data-current", "");
+    expect(screen.getByRole("button", { name: "Account" })).toHaveAttribute("data-current", "");
+    const identity = within(drawer).getByRole("link", { name: "Latte, view profile", hidden: true });
+    expect(identity).toHaveAttribute("href", "/members/p-latte");
+    expect(identity).toHaveAttribute("aria-current", "location");
+  });
+
+  it("on the member page itself, Profile is the page", () => {
+    pathname = "/members/p-latte";
+    const { drawer, panel } = renderNav();
+    expect(within(requirePanel(panel)).getByRole("link", { name: "Profile", hidden: true })).toHaveAttribute("aria-current", "page");
+    expect(within(drawer).getByRole("link", { name: "Latte, view profile", hidden: true })).toHaveAttribute("aria-current", "page");
+  });
+
+  it("marks Profile and the avatar current on /profile", () => {
+    pathname = "/profile";
+    profileState = { status: "ready", profile: null };
+    const { drawer, panel } = renderNav();
+    const row = within(requirePanel(panel)).getByRole("link", { name: "Profile", hidden: true });
+    expect(row).toHaveAttribute("aria-current", "page");
+    expect(row.querySelector(".umlaut")).toHaveAttribute("data-current", "");
+    expect(screen.getByRole("button", { name: "Account" })).toHaveAttribute("data-current", "");
+    expect(within(drawer).getByRole("link", { name: "latte@example.com, view profile", hidden: true })).toHaveAttribute(
+      "aria-current",
+      "page",
+    );
   });
 
   it("is a disclosure: the avatar's aria-expanded follows the panel, and it keeps the page's theme inside the ink header, 8px under it", () => {

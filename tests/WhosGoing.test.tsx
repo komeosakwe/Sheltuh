@@ -381,7 +381,7 @@ describe("Who's Going — signed in", () => {
     expect(within(region).queryByRole("list", { name: "People going" })).toBeNull();
     expect(within(region).getByText("4").closest("p")).toHaveTextContent("4 going");
     expect(region).toHaveTextContent("Names are for members with a profile.");
-    expect(within(region).getByRole("link", { name: "Set up your profile" })).toHaveAttribute("href", "/account");
+    expect(within(region).getByRole("link", { name: "Set up your profile" })).toHaveAttribute("href", "/profile");
     expect(within(region).getByRole("link", { name: "Get a ticket" })).toBeInTheDocument();
     expect(region).not.toHaveTextContent("Verify your email");
   });
@@ -621,7 +621,7 @@ describe("Who's Going — signed in", () => {
 
     expect(region).toHaveTextContent("Show up as Mia T. Edit name");
     expect(region).not.toHaveTextContent("Mia T..");
-    expect(within(region).getByRole("link", { name: "Edit name" })).toHaveAttribute("href", "/account");
+    expect(within(region).getByRole("link", { name: "Edit name" })).toHaveAttribute("href", "/profile");
     const button = within(region).getByRole("button", { name: "Show me as going" });
     button.focus();
     fireEvent.click(button);

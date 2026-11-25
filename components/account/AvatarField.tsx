@@ -15,7 +15,6 @@ import { SessionExpiredError } from "@/lib/auth/AuthContext";
 /** What the API takes (docs/architecture.md, "Member profiles": sniffed from the bytes, at most 5 MB). */
 export const AVATAR_TYPES = ["image/jpeg", "image/png", "image/webp"] as const;
 export const MAX_AVATAR_BYTES = 5 * 1024 * 1024;
-const RETURN_TO = "/account#member-profile";
 
 /** Checked before anything is sent; the server checks again (and decides by the bytes, not the name). */
 export function avatarFileError(file: File): string | null {
@@ -50,11 +49,14 @@ export default function AvatarField({
   getToken,
   onSaved,
   onMissing,
+  returnTo,
 }: {
   profile: ProfileRecord;
   getToken: GetToken;
   onSaved: (profile: ProfileRecord) => void;
   onMissing: () => void;
+  /** Where a "Sign in" after an expired session comes back to. */
+  returnTo: string;
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState<Busy>(null);
@@ -183,7 +185,7 @@ export default function AvatarField({
       <p id="member-photo-hint" className="text-xs text-muted">
         JPEG, PNG or WebP, up to 5 MB. Camera and location data removed.
       </p>
-      {error && <ActionErrorNotice message={error} returnTo={RETURN_TO} />}
+      {error && <ActionErrorNotice message={error} returnTo={returnTo} />}
       <p role="status" className="sr-only">
         {status}
       </p>

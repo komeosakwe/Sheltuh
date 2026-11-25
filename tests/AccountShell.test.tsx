@@ -145,17 +145,18 @@ describe("AccountShell", () => {
     expect(pills[0]).toHaveClass("bg-surface");
   });
 
-  it("goes to the pages, and to the interim Profile and My tickets pages", async () => {
+  it("goes to the pages (Profile to /profile while the profile is hidden), and to the interim My tickets page", async () => {
     const { tabs, sidebar } = await renderShell();
     for (const nav of [tabs, sidebar]) {
       const hrefs = within(nav)
         .getAllByRole("link")
         .map((link) => link.getAttribute("href"));
-      expect(hrefs).toEqual(["/account#member-profile", "/help#where-are-my-tickets", "/saved", "/messages", "/account"]);
+      expect(hrefs).toEqual(["/profile", "/help#where-are-my-tickets", "/saved", "/messages", "/account"]);
     }
   });
 
   it.each([
+    ["/profile", "profile"],
     ["/saved", "saved"],
     ["/messages", "messages"],
     ["/messages/c-1", "messages"],
@@ -185,6 +186,25 @@ describe("AccountShell", () => {
       expect(sidebar.querySelector('[aria-current="page"]')).toBeNull();
     },
   );
+
+  it("goes to the member page once other members can open it, and on /profile marks Profile as the location", async () => {
+    profileState = { status: "ready", profile: { ...LATTE, profileVisible: true } };
+    pathname = "/profile";
+    const { tabs, sidebar } = await renderShell();
+    expect(within(tabs).getByRole("link", { name: "Profile" })).toHaveAttribute("href", "/members/p-latte");
+    expect(tabs.querySelectorAll("[aria-current]")).toHaveLength(1);
+    expect(tabs.querySelector('[aria-current="location"]')).toHaveAttribute("data-account-tab", "profile");
+    expect(sidebar.querySelector('[aria-current="location"]')).toHaveAttribute("data-account-nav", "profile");
+    expect(sidebar.querySelector('[aria-current="page"]')).toBeNull();
+  });
+
+  it("keeps a suspended member's Profile on /profile (their member page is a 404 while suspended)", async () => {
+    profileState = { status: "ready", profile: { ...LATTE, profileVisible: true, suspended: true } };
+    const { tabs, sidebar } = await renderShell();
+    for (const nav of [tabs, sidebar]) {
+      expect(within(nav).getByRole("link", { name: "Profile" })).toHaveAttribute("href", "/profile");
+    }
+  });
 
   it("shows no pill for a count that's unknown or zero", async () => {
     unread = 0;

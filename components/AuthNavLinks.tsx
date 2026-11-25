@@ -102,7 +102,7 @@ export function HeaderAccount({ account }: { account: NavAccount }) {
  * what's waiting), then For organisers. Settings and signing out are on /account.
  */
 export function MenuAccount({ account }: { account: NavAccount }) {
-  const { auth, current, adminWaiting, profile, profileHref, name, showEvents } = account;
+  const { auth, current, adminWaiting, profile, profileHref, profileCurrent, name, showEvents } = account;
 
   const organisersButton = (
     <Link href={ORGANISERS_HREF} aria-current={current(ORGANISERS_HREF)} className="btn btn-outline btn-lg w-full">
@@ -157,7 +157,7 @@ export function MenuAccount({ account }: { account: NavAccount }) {
       <Link
         href={profileHref}
         aria-label={`${shownName}, view profile`}
-        aria-current={profileHref.startsWith("/members/") ? current(profileHref) : undefined}
+        aria-current={profileCurrent}
         className="flex min-h-16 items-center gap-4 pb-4"
       >
         <AccountAvatar account={account} size="card" />

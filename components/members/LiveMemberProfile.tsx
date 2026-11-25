@@ -12,6 +12,7 @@ import { adaptPublicEvent } from "@/lib/live/adapt";
 import type { MemberProfile } from "@/lib/api/types";
 import { useAuth } from "@/lib/auth/AuthContext";
 import { isSessionExpired } from "@/components/messages/shared";
+import { PROFILE_HREF } from "@/components/nav/useNavAccount";
 import { useProfile } from "@/lib/auth/useProfile";
 import { withNext } from "@/lib/safe-next-path";
 import MemberPageShell from "./MemberPageShell";
@@ -139,7 +140,7 @@ export default function LiveMemberProfile({ profileId }: { profileId: string }) 
         title="Create a profile to see member profiles"
         headingLevel={1}
         action={
-          <ButtonLink size="lg" href="/account">
+          <ButtonLink size="lg" href={PROFILE_HREF}>
             Create your profile
           </ButtonLink>
         }
