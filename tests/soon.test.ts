@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { soonFields, soonLabel, type SoonFields } from "@/lib/soon";
+import { daysUntilStart, soonFields, soonLabel, type SoonFields } from "@/lib/soon";
 
 /**
  * The "soon" tag's label (lib/soon.ts): time only, in the event's own zone's wall clock. Melbourne is
@@ -93,5 +93,38 @@ describe("soonLabel", () => {
   it("soonFields keeps only the times", () => {
     const fields = soonFields({ startsAt: "a", endsAt: "b", timeZone: "Australia/Perth", ...{ title: "x" } } as SoonFields);
     expect(fields).toEqual({ startsAt: "a", endsAt: "b", timeZone: "Australia/Perth" });
+  });
+});
+
+describe("daysUntilStart", () => {
+  it("counts calendar days in the event's zone: 0 today, 1 tomorrow, then N", () => {
+    const now = at("2026-11-11T01:00:00.000Z"); // Wed 11 Nov, noon Melbourne
+    expect(daysUntilStart(melbourne("2026-11-11T12:59:00.000Z"), now)).toBe(0); // Wed 11:59 pm
+    expect(daysUntilStart(melbourne("2026-11-11T13:00:00.000Z"), now)).toBe(1); // Thu 12:00 am
+    expect(daysUntilStart(melbourne("2026-11-14T06:00:00.000Z"), now)).toBe(3); // Sat 5:00 pm
+    expect(daysUntilStart(melbourne("2026-12-25T06:00:00.000Z"), now)).toBe(44);
+    expect(daysUntilStart(melbourne("2026-11-09T06:00:00.000Z"), now)).toBe(-2); // already past
+  });
+
+  it("is never a multiple of 24 hours: a day of 23 or 25 hours across daylight saving still counts once", () => {
+    // Spring forward (2:00 am Sun 4 Oct 2026): Fri 2 Oct 10:00 pm AEST to Sun 4 Oct 10:00 pm AEDT is 47 hours, 2 days.
+    expect(daysUntilStart(melbourne("2026-10-04T11:00:00.000Z"), at("2026-10-02T12:00:00.000Z"))).toBe(2);
+    // Fall back (3:00 am Sun 4 Apr 2027): Fri 2 Apr 11:00 pm AEDT to Sun 4 Apr 9:00 pm AEST is 47 hours, 2 days.
+    expect(daysUntilStart(melbourne("2027-04-04T11:00:00.000Z"), at("2027-04-02T12:00:00.000Z"))).toBe(2);
+    // Sat 3 Oct 12:30 am AEST to Sun 4 Oct 11:00 pm AEDT: 45.5 hours, 1 day.
+    expect(daysUntilStart(melbourne("2026-10-04T12:00:00.000Z"), at("2026-10-02T14:30:00.000Z"))).toBe(1);
+  });
+
+  it("is the event's own calendar, whatever Melbourne's date", () => {
+    // Sat 14 Nov, 12:30 am in Melbourne is Fri 13 Nov 9:30 pm in Perth and 11:30 pm in Brisbane.
+    const now = at("2026-11-13T13:30:00.000Z");
+    expect(daysUntilStart({ startsAt: "2026-11-15T12:00:00.000Z", timeZone: "Australia/Perth" }, now)).toBe(2); // Sun 8 pm Perth
+    expect(daysUntilStart({ startsAt: "2026-11-16T09:00:00.000Z", timeZone: "Australia/Brisbane" }, now)).toBe(3); // Mon 7 pm Brisbane
+    expect(daysUntilStart(melbourne("2026-11-16T09:00:00.000Z"), now)).toBe(2); // the same instant in Melbourne
+  });
+
+  it("null for a time it can't read", () => {
+    expect(daysUntilStart(melbourne("not a date"), at("2026-11-13T12:00:00.000Z"))).toBeNull();
+    expect(daysUntilStart(melbourne("2026-11-14T06:00:00.000Z"), new Date(NaN))).toBeNull();
   });
 });
