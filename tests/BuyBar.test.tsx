@@ -503,7 +503,7 @@ describe("the on-screen keyboard", () => {
   });
 });
 
-describe("Choose tickets' visible feedback (UX review: a tap's focus shows no ring)", () => {
+describe("Choose tickets' visible feedback (owner, 25 Nov 2026: no outline, the tickets scrolled to)", () => {
   /** The first release sold out, the second and third on sale. */
   function released(): SheltuhEvent {
     const event = live("cinder-warehouse-sessions");
@@ -518,7 +518,7 @@ describe("Choose tickets' visible feedback (UX review: a tap's focus shows no ri
     };
   }
 
-  it("shows a hint over the rows and rings the first one on sale, until a quantity changes", () => {
+  it("shows a hint over the rows, with no outline round a row, until a quantity changes", () => {
     render(<EventDetailsView event={released()} demo={false} />);
     expect(document.querySelector("[data-choose-hint]")).toBeNull();
     fireEvent.click(within(bar()).getByRole("link", { name: "Choose tickets" }));
@@ -527,14 +527,44 @@ describe("Choose tickets' visible feedback (UX review: a tap's focus shows no ri
     // Seen, not a second live region (the selector's status says "Choose a ticket first." where needed).
     expect(hint).not.toHaveAttribute("role");
     expect(hint?.className).not.toMatch(/sr-only/);
-    const ringed = document.querySelectorAll("[data-choose-target]");
-    expect(ringed).toHaveLength(1);
-    expect(ringed[0]).toHaveTextContent("Second release");
-    expect(ringed[0]).toHaveClass("outline-2", "outline-foreground");
+    for (const row of document.querySelectorAll("[data-ticket-card]")) expect(row.className).not.toMatch(/outline/);
     expect(more("Second release")).toHaveFocus();
     fireEvent.click(more("Final release"));
     expect(document.querySelector("[data-choose-hint]")).toBeNull();
-    expect(document.querySelector("[data-choose-target]")).toBeNull();
+  });
+
+  it("scrolls the tickets heading to the top and focuses the + without focus()'s own scroll (iOS Safari makes none)", () => {
+    render(<EventDetailsView event={live("neon-static")} demo={false} />);
+    const heading = screen.getByRole("heading", { level: 2, name: "Choose your tickets" });
+    const scrollIntoView = vi.fn();
+    heading.scrollIntoView = scrollIntoView;
+    const plus = more("General admission");
+    const focus = vi.spyOn(plus, "focus");
+    fireEvent.click(within(bar()).getByRole("link", { name: "Choose tickets" }));
+    expect(focus).toHaveBeenCalledWith({ preventScroll: true });
+    expect(scrollIntoView).toHaveBeenCalledWith({ block: "start" });
+    // Focus first, then the scroll: a scroll the focus sets off (keepFocusClear) is replaced by this one.
+    expect(focus.mock.invocationCallOrder[0]).toBeLessThan(scrollIntoView.mock.invocationCallOrder[0]);
+    // The hint was already rendered when the scroll was measured.
+    expect(document.querySelector("[data-choose-hint]")).not.toBeNull();
+    expect(plus).toHaveFocus();
+  });
+
+  it("scrolls the + to just above the bar instead where the heading at the top would leave it under the bar", () => {
+    render(<EventDetailsView event={live("neon-static")} demo={false} />);
+    const heading = screen.getByRole("heading", { level: 2, name: "Choose your tickets" });
+    const headingScroll = vi.fn();
+    heading.scrollIntoView = headingScroll;
+    const plus = more("General admission");
+    const plusScroll = vi.fn();
+    plus.scrollIntoView = plusScroll;
+    // jsdom has no layout: the + ends further below the heading's top than the screen has room for.
+    vi.spyOn(heading, "getBoundingClientRect").mockReturnValue({ top: 2000, bottom: 2030 } as DOMRect);
+    vi.spyOn(plus, "getBoundingClientRect").mockReturnValue({ top: 2000 + window.innerHeight, bottom: 2044 + window.innerHeight } as DOMRect);
+    fireEvent.click(within(bar()).getByRole("link", { name: "Choose tickets" }));
+    expect(headingScroll).not.toHaveBeenCalled();
+    expect(plusScroll).toHaveBeenCalledWith({ block: "end" });
+    expect(plus).toHaveFocus();
   });
 });
 

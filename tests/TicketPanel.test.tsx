@@ -58,17 +58,24 @@ function panel(): HTMLElement {
 }
 
 describe("the desktop ticket panel", () => {
-  it("before a choice: Buy tickets → takes focus to the tickets heading, with a ring, and says how many releases", () => {
+  it("before a choice: Buy tickets → takes focus to the tickets heading, scrolled to the top with no ring, and says how many releases", () => {
     const event = live("neon-static");
     render(<EventDetailsView event={event} demo={false} />);
     const heading = screen.getByRole("heading", { level: 2, name: "Choose your tickets" });
     expect(heading).toHaveAttribute("tabindex", "-1");
-    expect(heading).toHaveClass("focus:outline-2");
+    // Not a control: no focus ring (owner, 25 Nov 2026), important so the global :focus-visible ring can't win.
+    expect(heading).toHaveClass("focus:outline-none!");
+    // An explicit scroll to the top, and a focus that doesn't scroll on its own (so the two never fight).
+    const scrollIntoView = vi.fn();
+    heading.scrollIntoView = scrollIntoView;
+    const focus = vi.spyOn(heading, "focus");
     const buy = within(panel()).getByRole("link", { name: "Buy tickets" });
     expect(buy).toHaveClass("btn-signal");
     expect(buy.querySelector("svg")).toHaveAttribute("aria-hidden", "true");
     fireEvent.click(buy);
     expect(heading).toHaveFocus();
+    expect(focus).toHaveBeenCalledWith({ preventScroll: true });
+    expect(scrollIntoView).toHaveBeenCalledWith({ block: "start" });
     const releases = event.ticketTypes.filter((t) => !t.seated).length;
     expect(releases).toBeGreaterThan(1);
     expect(within(panel()).getByRole("status")).toHaveTextContent(releasesHint(releases));

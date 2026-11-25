@@ -23,3 +23,18 @@ export async function pressFocusLikeWebKit(page: Page) {
     );
   });
 }
+
+/**
+ * Safari on an iPhone doesn't scroll the page to a button that script focuses (WebKit leaves the scroll to a focused
+ * form control to UIKit, whose keyboard a button never brings up): focus moves, the page stays where it is. Chromium
+ * scrolls to it, so this does what the iPhone does: every focus() on a button keeps the page where it is. It stands
+ * in for that rule only: it isn't Safari or a real device.
+ */
+export async function focusWithoutScrollLikeIOS(page: Page) {
+  await page.addInitScript(() => {
+    const focus = HTMLButtonElement.prototype.focus;
+    HTMLButtonElement.prototype.focus = function (this: HTMLButtonElement, options?: FocusOptions) {
+      focus.call(this, { ...options, preventScroll: true });
+    };
+  });
+}

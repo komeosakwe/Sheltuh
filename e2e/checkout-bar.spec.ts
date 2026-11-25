@@ -273,8 +273,14 @@ test.describe("desktop keeps the panel's Checkout and has no buy bar", () => {
     const heading = page.locator("#tickets").getByRole("heading", { level: 2, name: "Choose your tickets" });
     await expect(heading).toBeFocused();
     await expect(heading).toBeInViewport();
-    // A visible ring, though a pointer pressed the link.
-    expect(await heading.evaluate((el) => getComputedStyle(el).outlineStyle)).toBe("solid");
+    // Scrolled to the top, under the header, and no ring (owner, 25 Nov 2026: the heading isn't a control).
+    await expect
+      .poll(() => heading.evaluate((el) => el.getBoundingClientRect().top - document.querySelector("header")!.getBoundingClientRect().bottom))
+      .toBeGreaterThanOrEqual(0);
+    await expect
+      .poll(() => heading.evaluate((el) => el.getBoundingClientRect().top - document.querySelector("header")!.getBoundingClientRect().bottom))
+      .toBeLessThanOrEqual(24);
+    expect(await heading.evaluate((el) => getComputedStyle(el).outlineStyle)).toBe("none");
     // One ticket type on sale (the first sold out, the third waiting for the second): no choice to explain.
     await expect(panel.getByRole("status")).toBeEmpty();
 

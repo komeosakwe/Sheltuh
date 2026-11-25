@@ -122,12 +122,13 @@ function TicketsSection({
       {/* The heading, and beside it (under it where there's no room) the soon tag, outside the heading so its name
           stays "Choose your tickets". */}
       <div data-tickets-head="" className="flex flex-wrap items-center gap-x-3 gap-y-2">
-        {/* Focusable from script (the desktop panel's action lands here), with a ring when it does, whatever the
-            pointer did before; never a Tab stop. */}
+        {/* Focusable from script (the desktop panel's action lands here, scrolled to the top); never a Tab stop. It's
+            not a control, so no focus ring (owner, 25 Nov 2026), as with the other headings focused by script.
+            Important (`!`): the global :focus-visible ring in globals.css is unlayered, so it beats any utility otherwise. */}
         <h2
           id={TICKETS_HEADING_ID}
           tabIndex={-1}
-          className="heading-section min-w-0 rounded-control break-words focus:outline-2 focus:outline-offset-4 focus:outline-foreground"
+          className="heading-section min-w-0 rounded-control break-words focus:outline-none!"
         >
           {selects ? "Choose your tickets" : "Tickets"}
         </h2>

@@ -312,15 +312,36 @@ export const CHOOSE_LABEL = "Choose tickets";
 export const TICKETS_HEADING_ID = "tickets-title";
 
 /**
- * Moves focus to the tickets section's heading (focusable, with a visible ring), scrolling it into view: the
- * desktop panel's way to the tickets. Returns whether there was one.
+ * Takes the buyer to the tickets: focus moves to `target` (the first ticket's "+"; by default the section's heading),
+ * and the heading is scrolled to the top of the screen, under the sticky header (the page's scroll-padding). Where
+ * that would leave `target` under the phone bar (a short screen, very large text), `target` is scrolled to just
+ * above the bar instead. Returns whether there was a target.
+ *
+ * The scroll is always this explicit one, never focus()'s own: Safari on an iPhone doesn't scroll to a button that
+ * script focuses (only UIKit's keyboard would, for a text field), so a focus() alone left the page where it was
+ * (owner, 25 Nov 2026). Focus goes first, without scrolling, so this scroll replaces any the focus sets off (the
+ * bar's keepFocusClear, for a focus under it). Smooth unless the buyer asks for reduced motion (globals.css).
  */
-export function focusTicketsHeading(): boolean {
+export function revealTickets(target?: HTMLElement | null): boolean {
   const heading = document.getElementById(TICKETS_HEADING_ID);
-  if (!heading) return false;
-  heading.focus();
-  heading.scrollIntoView?.({ block: "start" });
+  const focused = target ?? heading;
+  if (!focused) return false;
+  focused.focus({ preventScroll: true });
+  if (!heading) {
+    focused.scrollIntoView?.({ block: "nearest" });
+    return true;
+  }
+  const root = getComputedStyle(document.documentElement);
+  const room = window.innerHeight - (parseFloat(root.scrollPaddingTop) || 0) - (parseFloat(root.scrollPaddingBottom) || 0);
+  const reach = focused.getBoundingClientRect().bottom - heading.getBoundingClientRect().top;
+  if (reach <= room) heading.scrollIntoView?.({ block: "start" });
+  else focused.scrollIntoView?.({ block: "end" });
   return true;
+}
+
+/** The desktop panel's way to the tickets: focus to the section's heading, scrolled to the top. Returns whether there was one. */
+export function focusTicketsHeading(): boolean {
+  return revealTickets();
 }
 
 /** "3 ticket types. Set a quantity for each one you want.": said as focus lands on the tickets, where there's a choice. */
