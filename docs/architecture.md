@@ -3071,7 +3071,10 @@ checkout and the privacy policy says so (`app/privacy`, to be approved by the
 owner). `supabase/migrations/20261122000000_order_buyer_details.sql`,
 `lib/server/handlers/event-orders.ts`, `lib/server/orders-report.ts`,
 `lib/server/order-input.ts` (`parseBuyerName`), `lib/api/types.ts`
-(`EventOrders`, `EventOrderRow`, `CheckoutBuyerDetails`).
+(`EventOrders`, `EventOrderRow`, `EventOrderHolder`, `CheckoutBuyerDetails`).
+The same goes for the people tickets were sent to ("Tickets sent on", below;
+the owner's decision for ticket transfers: the organiser sees the new holder's
+name and email under the buyers' rules).
 
 - **What is collected.** The checkout asks for "Your name" (`buyerName`, every
   checkout, paid or free, general admission or seated) and shows the notice
@@ -3113,14 +3116,40 @@ owner). `supabase/migrations/20261122000000_order_buyer_details.sql`,
   refund stays `paid` with `refundedCents` above 0), `buyerName`,
   `buyerEmail`, `tickets` (`{ticketTypeName, quantity}` from the order's priced
   snapshot), `paidCents` (what the buyer paid less Support Sheltüh, which is
-  the platform's; 0 for a free order) and `refundedCents`.
+  the platform's; 0 for a free order), `refundedCents` and `holders` (below).
+- **Tickets sent on** (`holders`, `EventOrderHolder`; "Ticket transfers"):
+  one entry per ticket of the order that someone accepted, for its *current*
+  holding (`status = 'accepted'` and not `superseded_at`), in ticket number
+  order: `ticketNumber` (the ticket's place in its order by type then code,
+  the number on the buyer's ticket page and email), `ticketTypeName`,
+  `holderName` (the name they confirmed), `holderEmail` (the verified email of
+  the account that accepted: `accepted_email`, never the address the sender
+  typed) and `transferredAt`. Name and email are shown only when the holder
+  was shown the organiser notice at accept (`holder_notice_at`, which the
+  database stamps), support hasn't withdrawn them (`holder_details_withdrawn_at`,
+  `docs/supabase-setup.md`), and within the same 12 months as the buyer's;
+  otherwise both are null and the entry stays (so the order still says a
+  ticket was sent). The holder's own notice is what counts: on an order made
+  before buyer names the buyer stays hidden and the holder is shown. Pending,
+  declined, cancelled and expired offers are never shown, nor anything the
+  sender typed, nor a ticket code (the original or the holder's). Refunded
+  orders keep their holders (a refund voids them: the organiser and support
+  see who had them). Read per listed order through `ticket_transfers_order_idx`
+  (the ticket's number by `tickets_order_idx`); no new index. The page shows
+  them under the order's tickets as plain lines ("1 ticket sent to Sam Lee ·
+  sam@… · Sent Thu 5 Nov"; hidden ones "1 ticket sent to someone else
+  (details not shared) · Sent Thu 5 Nov"; the dots are hidden from screen
+  readers, which hear commas), an interim line until the dashboard redesign draws its own
+  "Transferred" pattern; `holders` is the shape it builds on. Check-in stays
+  name-free.
 - **Search.** `POST …/orders/search` with the JSON body `{q, cursor, limit}`
   (at most 2 KB): the text searched for is a buyer's name or email, so it is
   never in a URL (request logs, browser history); `GET …/orders?q=` is a 400.
   `q` (control characters removed, trimmed, at most 100
   characters) matches the shown name or email, case- and accent-insensitively
   (the same fold as the admin searches: NFKD, combining marks removed, lower
-  case), or the short reference (with or without `#`). `%`, `_` and `\` match
+  case), a shown holder's name or email (the same fold; a hidden holder is
+  never found by what is hidden), or the short reference (with or without `#`). `%`, `_` and `\` match
   literally. It scans one event's orders through `orders_event_idx` (no index
   can serve a substring of a folded expression); an event's orders are bounded
   by its sales.
@@ -3131,7 +3160,10 @@ owner). `supabase/migrations/20261122000000_order_buyer_details.sql`,
   rows of buyer details per account per event per UTC day**, shared by the
   list, the search and the export (`EVENT_ORDERS_LIMITS.dailyRows`; sized so
   one full 20,000-row export fits with 5,000 rows of paging to spare): each
-  page adds the rows it returns, each export its row count, to
+  page adds the rows it returns plus the holders it shows (hidden ones don't
+  count; a search at least 1, even with an empty page, since its `total`
+  says how many orders match), each export its orders plus their shown
+  holders, to
   `private.order_detail_views` in one atomic upsert
   (`take_order_detail_budget`) before anything is returned. Past it: 429
   `code: "daily_limit"` and nothing served. If the count can't be recorded the
@@ -3141,15 +3173,21 @@ owner). `supabase/migrations/20261122000000_order_buyer_details.sql`,
   round the export's limits.
 - **The CSV** (`orders.csv`): every listed order (no search), newest
   first: Reference, Placed (in the event's zone), Name, Email, Tickets, Paid
-  (A$), Refunded (A$), Status. Built with `toCsv` (every cell quoted; text
+  (A$), Refunded (A$), Status, Transferred to (the order's holders in one
+  cell, "Sam Lee <sam@…> · GA; (hidden) <hidden> · VIP"; still one line per
+  order; the page's note beside "Export CSV" says "Includes people tickets
+  were sent to." once sending is on). Built with `toCsv` (every cell quoted; text
   starting with `= + - @`, a tab or a carriage return gets a leading `'`, so a
   buyer's "=HYPERLINK(…)" or an email starting with `+` is plain text; a BOM for
-  Excel). The order of work: a cheap `count(*)` of the listed orders (no details read);
-  more than 20,000 is a 409 before anything else (nothing logged or counted);
-  then `record_order_export` takes the rate limit and the daily budget and
-  writes the audit row (`private.order_detail_exports`: who, which event, how
-  many rows, when; no buyer data); only then are the rows read (at most as many
-  as were logged) and the file returned: an export that can't be logged is a
+  Excel). The order of work: a cheap `count(*)` of the listed orders and of
+  their shown holders (no details read); more than 20,000 orders is a 409
+  before anything else (nothing logged or counted); then `record_order_export`
+  takes the rate limit and the daily budget and writes the audit row
+  (`private.order_detail_exports`: who, which event, how many rows of
+  details, orders and shown holders together, when; no buyer data); only then
+  are the rows read (at most as many orders, and shown holders, as were
+  logged: a holder accepted between the count and the read is in the file
+  without a name or email) and the file returned: an export that can't be logged is a
   500, not a file, and a refused one a 429 (`rate_limited` or `daily_limit`). The analytics CSVs stay aggregate-only, and
   check-in stays name-free.
 - **After the organiser has them.** The notice tells buyers organisers may use
@@ -3157,15 +3195,23 @@ owner). `supabase/migrations/20261122000000_order_buyer_details.sql`,
   what an organiser does with a file is theirs to answer for (the organiser
   agreement, still to be drafted, and the Spam Act: no marketing email
   without consent). Sheltüh cannot recall an exported file.
-- **Withdrawing someone.** Self-serve withdrawal is not built: the buyer asks
-  support, and an admin clears the name for an address with the SQL in
-  `docs/supabase-setup.md` (the order then reads like a pre-release one).
-  This doesn't recall files already exported.
+- **Withdrawing someone.** Self-serve withdrawal is not built: the person
+  asks support, and an admin runs the one procedure for their address in
+  `docs/supabase-setup.md` ("Withdrawing someone's details"), whose two
+  statements clear the name on every order bought with it (the order then
+  reads like a pre-release one) and stamp every ticket accepted with it
+  (`holder_details_withdrawn_at`, once; the entry stays without details), so a
+  buyer who is also a holder elsewhere is hidden everywhere.
+  `tests/server/event-orders.test.ts` runs the runbook's statements and checks
+  the list, the search and the CSV. This doesn't recall files already
+  exported.
 - **Accepted limits.** The name stays in `orders` after the 12 months (only
   hidden from the API; there is no purge yet, so the privacy policy's
   retention wording should match). An organiser's account that is compromised
-  exposes its events' buyers: exports are rate-limited and logged, not
-  prevented. A buyer's name is checked for links, "@" and invisible
+  exposes its events' buyers (and holders): exports are rate-limited and
+  logged, not prevented. An export with more than 5,000 shown holders on top
+  of 20,000 orders passes the day's 25,000 rows and is refused (429
+  `daily_limit`): far beyond any event's size today. A buyer's name is checked for links, "@" and invisible
   characters but not for rude words.
 
 ## Organiser dashboard summaries
@@ -5064,8 +5110,8 @@ person (`supabase/migrations/20261120000000_group_tickets.sql`,
 sends only; offers already made can be viewed, accepted, declined and
 cancelled, received tickets keep working at the door, and sent tickets stay
 sent. Built in stages: the database, the API, the door, the redaction, the
-UI and the emails (below) are in; the organiser's view, reminders to holders
-and recipients' wallet passes follow.
+UI, the emails, the organiser's view and the admin log (below) are in;
+reminders to holders and recipients' wallet passes follow.
 
 **The emails** (`lib/server/ticket-transfer-email.ts`, on the shared 1120 kit
 `lib/server/email-kit.ts`, to Latte's frames; the full ticket is the ticket
@@ -5191,6 +5237,16 @@ the transfer is accepted (so they can't keep messaging its attendees); a
 recipient can opt in; `upcomingCount` counts held tickets (given-away ones
 out, received ones in).
 
+**The organiser and support.** The event's Orders view lists each order's
+tickets sent on with their current holder's name and email, under the buyers'
+rules and the holder's own notice (`holders`: "Organiser orders"); pending
+offers aren't shown. Support's log is `/admin/ticket-transfers`
+(`components/admin/TicketTransfersAdmin.tsx`, linked from the admin hub and
+from Emails' "Find an order"): every offer newest first, or an order's or a
+transfer's by its reference (`?reference=`), status in words, the sender, the
+recipient's and the accepting address masked only, and "Cancel offer" with a
+reason for one still waiting (an accepted one can't be undone in v1).
+
 **Refunds** (D9): a refund of the buyer's order voids the recipient's ticket
 (the order isn't paid: `not_admissible` at the door, `void` on the received
 page). The recipient isn't emailed in v1.
@@ -5268,8 +5324,8 @@ one, and two sends.
   (a new transfer back to the buyer superseding the holding).
 - **Resale and refund fraud** (D9): sell, send, then get refunded voids the
   recipient's ticket. Recipients can't send on; organisers and support see
-  transfers (the admin list now; the organiser's Orders view next); the ToS
-  covers resale (the owner's wording).
+  transfers (the organiser's Orders view and the admin log); the ToS covers
+  resale (the owner's wording).
 - **Static wallet passes** keep showing the sender's old QR; the door says
   "sent to someone else".
 - **Code collisions**: issued codes and new ticket codes share one space
@@ -5296,8 +5352,8 @@ one, and two sends.
   bounded by one person's tickets.
 - **Privacy**: new personal data: the sender's typed name; a third party's
   typed name and email (deleted 30 days after the event unless accepted); the
-  holder's confirmed name and email (for the organiser, with notice, next
-  release). Support withdraws a holder's details on request
+  holder's confirmed name and email (shown to the organiser, with notice,
+  for 12 months after the event). Support withdraws a holder's details on request
   (`holder_details_withdrawn_at`, `docs/supabase-setup.md`). The Privacy
   Policy wording is the owner's.
 
@@ -5878,7 +5934,7 @@ without one. The UI keeps showing the API's words, which already say when
 | `POST /events/{id}/outbound` | public, no body needed (`{}`). 204 (counted or not); 404 not a published external event |
 | `GET /organisers/me/events/{id}/tracking-links` · `POST …` `{label}` · `DELETE …/tracking-links/{linkId}` | organiser (own events). POST 201; 400 label; 409 label taken or 20 links. DELETE 204, idempotent |
 | `GET /organisers/me/events/{id}/analytics?from&to&compare` · `…/analytics.csv` | organiser (own events). 400 bad range. The JSON has `waitlistCount` (people on the event's waitlist now: a count only) |
-| `GET /organisers/me/events/{id}/orders?cursor&limit` · `POST …/orders/search` `{q, cursor, limit}` · `GET …/orders.csv` | organiser (own events), or admin (platform-managed organisers' events only; anything else 404); 403 suspended or not approved. The event's orders with buyers' names and emails for 12 months after it ends (`EventOrders`); see "Organiser orders". `GET …/orders?q=` is 400 (search is the POST, so the text is never in a URL). 429 `rate_limited` (reads 240 per 10 minutes; exports 10 an hour, each logged) or `daily_limit` (25,000 rows per account per event per day, list and export together); the CSV is 409 over 20,000 orders, decided on a count before anything is logged. `private, no-store` |
+| `GET /organisers/me/events/{id}/orders?cursor&limit` · `POST …/orders/search` `{q, cursor, limit}` · `GET …/orders.csv` | organiser (own events), or admin (platform-managed organisers' events only; anything else 404); 403 suspended or not approved. The event's orders with buyers' names and emails for 12 months after it ends (`EventOrders`), and each order's tickets sent on with their holders (`holders`); see "Organiser orders". `GET …/orders?q=` is 400 (search is the POST, so the text is never in a URL). 429 `rate_limited` (reads 240 per 10 minutes; exports 10 an hour, each logged) or `daily_limit` (25,000 rows per account per event per day, list and export together); the CSV is 409 over 20,000 orders, decided on a count before anything is logged. `private, no-store` |
 | `POST /organisers/me/events/{id}/check-ins` `{code, requestId}` · `GET …/check-ins` · `POST …/check-ins/{checkInId}/undo` `{reason}` | organiser (own events), or admin (platform-managed organisers' events only; anything else 404); see "Check-in". Every ticket outcome is 200; 400 bad body, 404, 409 request id reused for another code, 413, 429. `checkInId`s are uuids |
 | `GET /organisers/me/analytics/overview?from&to&compare` · `…/overview.csv` | organiser: all own events. 400 bad range |
 | `GET /organisers/me/overview` | organiser: own events only. `OrganiserOverview` (this week's tickets, views, new followers; the banner's event; the next two events; drafts count; Performance). `private, no-store`; 60 a minute per account with the other summary read (429 `rate_limited`). See "Organiser dashboard summaries" |

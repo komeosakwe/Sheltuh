@@ -33,6 +33,15 @@ function order(n: number, extra: Partial<EventOrderRow> = {}): EventOrderRow {
   };
 }
 
+/** An element's text as seen (without screen-reader-only text) and as heard (without aria-hidden text). */
+function textWithout(element: Element, selector: string): string {
+  const copy = element.cloneNode(true) as Element;
+  copy.querySelectorAll(selector).forEach((e) => e.remove());
+  return (copy.textContent ?? "").replace(/\s+/g, " ").trim();
+}
+const seen = (element: Element) => textWithout(element, ".sr-only");
+const heard = (element: Element) => textWithout(element, '[aria-hidden="true"]');
+
 function pageOf(items: EventOrderRow[], extra: Partial<EventOrdersData> = {}): EventOrdersData {
   return {
     event: { title: "Night Market", slug: "night-market", timeZone: "Australia/Melbourne", endsAt: "2027-03-06T12:30:00.000Z" },
@@ -200,6 +209,59 @@ describe("EventOrders", () => {
     fireEvent.click(screen.getByRole("button", { name: "Export CSV" }));
     expect(await screen.findByRole("alert")).toHaveTextContent(text);
     expect(saveBlob).not.toHaveBeenCalled();
+  });
+
+  it("says who each order's sent tickets went to, under the order, in the table and the cards", async () => {
+    api.getEventOrders.mockResolvedValue(
+      pageOf([
+        order(1, {
+          holders: [
+            { ticketNumber: 2, ticketTypeName: "General", holderName: "Sam Lee", holderEmail: "sam@example.com", transferredAt: "2026-11-04T09:05:00.000Z" },
+            { ticketNumber: 1, ticketTypeName: "General", holderName: null, holderEmail: null, transferredAt: "2026-11-04T09:05:00.000Z" },
+          ],
+        }),
+        order(2, { holders: [] }),
+      ]),
+    );
+    renderOrders();
+    const table = await screen.findByRole("table", { name: "Orders for Night Market" });
+    const [first, second] = within(table).getAllByRole("row").slice(1);
+    const lines = Array.from(first.querySelectorAll("td p"));
+    // For the eye: dots between the parts. For a screen reader: commas (the dots are hidden from it).
+    expect(lines.map(seen)).toEqual([
+      "1 ticket sent to Sam Lee · sam@example.com · Sent Wed 4 Nov",
+      "1 ticket sent to someone else (details not shared) · Sent Wed 4 Nov",
+    ]);
+    expect(lines.map(heard)).toEqual([
+      "1 ticket sent to Sam Lee, sam@example.com, Sent Wed 4 Nov",
+      "1 ticket sent to someone else (details not shared), Sent Wed 4 Nov",
+    ]);
+    // Inside the Tickets cell, after the tickets, in the muted body text.
+    expect(seen(lines[0].closest("td")!)).toMatch(/^2 × General1 ticket sent to Sam Lee/);
+    expect(lines[0]).toHaveClass("text-sm", "text-muted");
+    expect(second.querySelectorAll("td p")).toHaveLength(0);
+    // The cards say the same, and stay one list item per order.
+    const cards = screen.getByRole("list", { name: "Orders for Night Market" });
+    expect(within(cards).getAllByRole("listitem")).toHaveLength(2);
+    expect(seen(within(cards).getAllByRole("listitem")[0])).toContain("1 ticket sent to Sam Lee · sam@example.com · Sent Wed 4 Nov");
+    // The file includes them, and the note says so.
+    expect(screen.getByText("Includes people tickets were sent to.")).toBeInTheDocument();
+  });
+
+  it("the export note about sent tickets shows once sending is on, and not before (with none sent)", async () => {
+    api.getEventOrders.mockResolvedValue(pageOf([order(1, { holders: [] })]));
+    const first = renderOrders();
+    await screen.findByRole("table");
+    expect(screen.queryByText("Includes people tickets were sent to.")).toBeNull();
+    first.unmount();
+    vi.stubEnv("NEXT_PUBLIC_TICKET_TRANSFERS", "1");
+    try {
+      renderOrders();
+      await screen.findByRole("table");
+      expect(screen.getByText("Includes people tickets were sent to.")).toBeInTheDocument();
+    } finally {
+      vi.unstubAllEnvs();
+    }
   });
 
   it("says a rate-limited list in words, and tries again", async () => {

@@ -83,6 +83,7 @@ describe("Admin hub", () => {
       "/admin/events/new",
       "/admin/invites",
       "/admin/payouts",
+      "/admin/ticket-transfers",
       "/admin/trending",
       "/admin/campaign-links",
       "/admin/events?status=published&view=door",
@@ -90,6 +91,9 @@ describe("Admin hub", () => {
     expect(within(manage).getByRole("link", { name: /^Door check-in/ })).toHaveTextContent("2 events in the next 24 hours");
     expect(within(manage).getByRole("link", { name: "Invite someone" })).toHaveAccessibleDescription(
       "As an organiser or a member.",
+    );
+    expect(within(manage).getByRole("link", { name: "Ticket transfers" })).toHaveAccessibleDescription(
+      "See who a ticket was sent to, or cancel an offer.",
     );
     expect(within(section("Done outside Sheltüh admin")).getByText(/Stripe dashboard/)).toBeInTheDocument();
   });

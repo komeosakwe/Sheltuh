@@ -22,3 +22,37 @@ export function orderPaidText(order: Pick<EventOrderRow, "paidCents">): string {
 export function orderPlacedText(placedAt: string, timeZone: string, now: Date = new Date()): string {
   return `${formatDayWithYear(placedAt, now, timeZone)}, ${formatEventTime(placedAt, timeZone)}${zoneSuffix(timeZone)}`;
 }
+
+/**
+ * The order's tickets sent on (EventOrderRow.holders), one line per holder,
+ * as its parts: ["1 ticket sent to Sam Lee", "sam@example.com", "Sent Thu 5
+ * Dec"]; the same holder's tickets together (dated by the latest). Holders
+ * whose details aren't shown share one line: ["1 ticket sent to someone else
+ * (details not shared)", "Sent Thu 5 Dec"]. Empty when none was sent. Dates in
+ * the event's zone. The page puts a dot between the parts for the eye and a
+ * comma for a screen reader (holderLineText joins them for plain text).
+ */
+export function orderHolderLines(order: Pick<EventOrderRow, "holders">, timeZone: string, now: Date = new Date()): string[][] {
+  const groups = new Map<string, { name: string | null; email: string | null; count: number; latest: string }>();
+  for (const h of order.holders ?? []) {
+    const key = h.holderName === null ? "" : JSON.stringify([h.holderName, h.holderEmail]);
+    const group = groups.get(key);
+    if (group) {
+      group.count += 1;
+      if (Date.parse(h.transferredAt) > Date.parse(group.latest)) group.latest = h.transferredAt;
+    } else {
+      groups.set(key, { name: h.holderName, email: h.holderEmail, count: 1, latest: h.transferredAt });
+    }
+  }
+  return [...groups.values()].map(({ name, email, count, latest }) => {
+    const tickets = `${count} ${count === 1 ? "ticket" : "tickets"}`;
+    const sent = `Sent ${formatDayWithYear(latest, now, timeZone)}`;
+    if (name === null) return [`${tickets} sent to ${count === 1 ? "someone else" : "other people"} (details not shared)`, sent];
+    return [`${tickets} sent to ${name}`, ...(email ? [email] : []), sent];
+  });
+}
+
+/** One line of orderHolderLines as plain text: its parts joined by " · ". */
+export function holderLineText(parts: string[]): string {
+  return parts.join(" · ");
+}
