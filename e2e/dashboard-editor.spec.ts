@@ -71,6 +71,19 @@ async function signedInAsOrganiser(page: Page, extra: ExtraRoute = () => null, o
   });
 }
 
+/** Opens the editor's Preview sheet (the preview's place in the organiser frame at every width). */
+async function openPreview(page: Page) {
+  await page.getByRole("button", { name: "Preview", exact: true }).click();
+  const dialog = page.getByRole("dialog", { name: "Preview" });
+  await expect(dialog).toBeVisible();
+  return dialog;
+}
+
+async function closePreview(page: Page) {
+  await page.getByRole("dialog", { name: "Preview" }).getByRole("button", { name: "Close" }).click();
+  await expect(page.getByRole("dialog", { name: "Preview" })).toBeHidden();
+}
+
 for (const vp of [
   { width: 320, height: 640 },
   { width: 1440, height: 900 },
@@ -875,19 +888,11 @@ for (const vp of [
       await expect(page.getByLabel("Title", { exact: true })).toBeVisible({ timeout: 30_000 });
       const frame = page.frameLocator("iframe[title='Event page preview']");
 
-      if (desktop) {
-        const panel = page.getByRole("complementary", { name: "Event page preview" });
-        await expect(panel).toBeVisible();
-        // Three columns: the rail, the form, the preview (352px).
-        expect(Math.round((await panel.boundingBox())?.width ?? 0)).toBe(352);
-        expect((await page.locator("[data-step-panel='1']").boundingBox())?.width ?? 0).toBeGreaterThanOrEqual(560);
-        expect(Math.round((await page.locator("iframe[title='Event page preview']").boundingBox())?.width ?? 0)).toBe(320);
-      } else {
-        await page.getByRole("button", { name: "Preview", exact: true }).click();
-        const dialog = page.getByRole("dialog", { name: "Preview" });
-        await expect(dialog).toBeVisible();
-        expect((await dialog.locator("iframe").boundingBox())?.width ?? 0).toBeLessThanOrEqual(384);
-      }
+      // In the organiser dashboard's frame the preview is in a sheet at every width (its column is too
+      // narrow for a third one: editor/PreviewPanel.tsx); the admin editor keeps the panel from 1280px.
+      await expect(page.getByRole("complementary", { name: "Event page preview" })).toHaveCount(0);
+      const dialog = await openPreview(page);
+      expect((await dialog.locator("iframe").boundingBox())?.width ?? 0).toBeLessThanOrEqual(384);
 
       // Empty: the page's own placeholders.
       await expect(frame.getByRole("heading", { level: 1, name: "Untitled event" })).toBeVisible({ timeout: 30_000 });
@@ -897,20 +902,16 @@ for (const vp of [
       // The editor's theme classes came with it: the page's own font.
       expect(await frame.locator("h1").evaluate((el) => getComputedStyle(el).fontFamily)).toContain("Instrument");
 
-      if (desktop) {
-        await page.getByLabel("Title", { exact: true }).fill("Neon Static");
-        await expect(frame.getByRole("heading", { level: 1, name: "Neon Static" })).toBeVisible({ timeout: 10_000 });
-        // Nothing in it is a control: inert (no tab stop, no click).
-        await expect(frame.locator("[data-event-preview]")).toHaveJSProperty("inert", true);
-        await page.getByRole("button", { name: "Hide preview" }).click();
-        await expect(page.locator("iframe[title='Event page preview']")).toHaveCount(0);
-        expect((await page.locator("[data-step-panel='1']").boundingBox())?.width ?? 0).toBeGreaterThanOrEqual(700);
-        await page.getByRole("button", { name: "Show preview" }).click();
-        await expect(page.locator("iframe[title='Event page preview']")).toBeVisible();
-      } else {
-        await page.getByRole("dialog", { name: "Preview" }).getByRole("button", { name: "Close" }).click();
-        await expect(page.getByRole("button", { name: "Preview", exact: true })).toBeFocused();
-      }
+      await closePreview(page);
+      await expect(page.getByRole("button", { name: "Preview", exact: true })).toBeFocused();
+
+      // Opened again, it follows the draft.
+      await page.getByLabel("Title", { exact: true }).fill("Neon Static");
+      await openPreview(page);
+      await expect(frame.getByRole("heading", { level: 1, name: "Neon Static" })).toBeVisible({ timeout: 10_000 });
+      // Nothing in it is a control: inert (no tab stop, no click).
+      await expect(frame.locator("[data-event-preview]")).toHaveJSProperty("inert", true);
+      await closePreview(page);
     });
 
     test("a ticket's description is sent with it, and is shown in the preview", async ({ page }) => {
@@ -930,11 +931,11 @@ for (const vp of [
       await expect(page.getByLabel("Title", { exact: true })).toHaveValue("Neon Static", { timeout: 30_000 });
       await showStep(page, "Tickets");
       await page.getByLabel("Description (optional)").fill("Standing room, all four bands.");
-      if (desktop) {
-        await expect(
-          page.frameLocator("iframe[title='Event page preview']").getByText("Standing room, all four bands."),
-        ).toBeVisible({ timeout: 15_000 });
-      }
+      await openPreview(page);
+      await expect(
+        page.frameLocator("iframe[title='Event page preview']").getByText("Standing room, all four bands."),
+      ).toBeVisible({ timeout: 15_000 });
+      await closePreview(page);
       await page.getByRole("button", { name: "Save draft" }).click();
       await expect.poll(() => saved.length, { timeout: 30_000 }).toBe(1);
       expect((saved[0].ticketTypes as { description?: string }[])[0].description).toBe("Standing room, all four bands.");
@@ -996,11 +997,11 @@ for (const vp of [
       await label(2).fill("Age");
       await value(2).fill("18+ event — bring photo ID.");
       await expect(value(2)).not.toHaveAttribute("aria-invalid");
-      if (desktop) {
-        const section = page.frameLocator("iframe[title='Event page preview']").getByRole("region", { name: "The essentials." });
-        await expect(section).toContainText("18+ event — bring photo ID.", { timeout: 15_000 });
-        await expect(section.locator("dt")).toHaveText(["01 / Entry", "02 / Age"], { ignoreCase: true });
-      }
+      await openPreview(page);
+      const section = page.frameLocator("iframe[title='Event page preview']").getByRole("region", { name: "The essentials." });
+      await expect(section).toContainText("18+ event — bring photo ID.", { timeout: 15_000 });
+      await expect(section.locator("dt")).toHaveText(["01 / Entry", "02 / Age"], { ignoreCase: true });
+      await closePreview(page);
       expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)).toBeLessThanOrEqual(0);
       // Row 3 left empty: sent in its place (the API drops it), so the API's "Row N" is the row on screen.
       await page.getByRole("button", { name: "Save draft" }).click();
@@ -1135,5 +1136,34 @@ for (const vp of [
       await expect(box).not.toBeChecked();
       expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)).toBeLessThanOrEqual(0);
     });
+  });
+}
+
+/**
+ * Inside the organiser dashboard's frame (its 264px sidebar beside the page) the editor's rail goes
+ * beside the form only from 1280px (`col-lg`, globals.css), and the preview stays in its sheet, so
+ * the form is never squeezed: one column at 1024 and 1100, the rail beside it from 1280.
+ */
+for (const vp of [
+  { width: 1024, height: 900 },
+  { width: 1100, height: 900 },
+  { width: 1440, height: 900 },
+]) {
+  test(`/dashboard/new in the organiser frame at ${vp.width}px: the form is at least 560px wide`, async ({ page }) => {
+    await page.setViewportSize(vp);
+    await signedInAsOrganiser(page);
+    await page.goto("/dashboard/new");
+    await expect(page.getByLabel("Title", { exact: true })).toBeVisible({ timeout: 30_000 });
+    await expect(page.locator("[data-organiser-sidebar]")).toBeVisible();
+    await expect(page.getByRole("complementary", { name: "Event page preview" })).toHaveCount(0);
+    expect((await page.locator("[data-step-panel='1']").boundingBox())?.width ?? 0).toBeGreaterThanOrEqual(560);
+    const steps = await page
+      .getByRole("navigation", { name: "Event steps" })
+      .getByRole("button")
+      .evaluateAll((els) => els.map((el) => el.getBoundingClientRect().toJSON()));
+    // A row of three below 1280 in the frame; a rail (one under another) from it.
+    if (vp.width >= 1280) expect(steps[1].y).toBeGreaterThan(steps[0].y);
+    else expect(steps[1].x).toBeGreaterThan(steps[0].x);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)).toBeLessThanOrEqual(0);
   });
 }

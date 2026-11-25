@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ApiError } from "@/lib/api/client";
 import type { OrganiserRecord } from "@/lib/api/types";
 import type { AuthContextValue } from "@/lib/auth/AuthContext";
-import { useOrganiser } from "@/lib/auth/useOrganiser";
+import { announceOrganiserChange, useOrganiser } from "@/lib/auth/useOrganiser";
 import { fakeAuthValue, FakeAuthProvider } from "./test-utils/fakeAuth";
 
 vi.mock("@/lib/api/client", async (importOriginal) => ({
@@ -52,6 +52,17 @@ beforeEach(() => {
 });
 
 describe("useOrganiser", () => {
+  it("shows a record saved elsewhere on the page (a new logo) without refetching; another organiser's is ignored", async () => {
+    getMyOrganiser.mockResolvedValueOnce(record("user-a", "approved"));
+    const { result } = hook(A);
+    await waitFor(() => expect(result.current.organiser?.ownerUserId).toBe("user-a"));
+    act(() => announceOrganiserChange({ ...record("user-a", "approved"), logoUrl: "/api/organisers/org-user-a/logo?v=2" }));
+    expect(result.current.organiser?.logoUrl).toBe("/api/organisers/org-user-a/logo?v=2");
+    act(() => announceOrganiserChange({ ...record("user-b", "approved"), logoUrl: "/b.png" }));
+    expect(result.current.organiser?.organiserId).toBe("org-user-a");
+    expect(getMyOrganiser).toHaveBeenCalledTimes(1);
+  });
+
   it("loads the signed-in account's own; after a switch it's loading again, never showing the last account's", async () => {
     getMyOrganiser.mockResolvedValueOnce(record("user-a", "approved"));
     const { result, become } = hook(A);

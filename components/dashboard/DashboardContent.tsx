@@ -26,7 +26,7 @@ function PlusIcon() {
 /**
  * New event: an action beside the "Your events" heading, not a tab. An
  * outlined button with a plus, so it never reads as the current page (the
- * sub-nav's underlined tabs carry that); 44px tall at every width. Not while
+ * organiser nav's filled row carries that); 44px tall at every width. Not while
  * the list is loading or empty: the empty state has "Create your first event".
  */
 function NewEventLink() {

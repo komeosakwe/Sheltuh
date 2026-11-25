@@ -8,6 +8,7 @@ import { SESSION_EXPIRED_MESSAGE } from "@/components/whos-going/shared";
 import { deleteOrganiserLogo, uploadOrganiserLogo } from "@/lib/api/organisers";
 import type { OrganiserRecord } from "@/lib/api/types";
 import { useAccountOwner } from "@/lib/auth/useAccountOwner";
+import { announceOrganiserChange } from "@/lib/auth/useOrganiser";
 import { prepareEventImage } from "@/lib/image";
 import { LOGO_TYPES, logoErrorMessage, logoFileError } from "./organiser-image-upload";
 
@@ -66,6 +67,7 @@ export default function OrganiserLogoField({ organiser }: { organiser: Organiser
       const image = await prepareEventImage(file);
       const updated = await uploadOrganiserLogo(image, getOwnerToken);
       setLogoUrl(updated.logoUrl);
+      announceOrganiserChange(updated);
       setStatus("Logo saved. It’s on your public profile now.");
     } catch (err) {
       setError(logoErrorMessage(err, "Couldn’t upload that logo. Try again."));
@@ -89,6 +91,7 @@ export default function OrganiserLogoField({ organiser }: { organiser: Organiser
     try {
       const updated = await deleteOrganiserLogo(getOwnerToken);
       setLogoUrl(updated.logoUrl);
+      announceOrganiserChange(updated);
       setStatus("Logo removed.");
       // The Remove button has gone: focus goes back to the picker.
       inputRef.current?.focus();

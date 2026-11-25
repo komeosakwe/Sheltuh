@@ -160,6 +160,23 @@
   }
 }
 
+/* `col-lg:` is `lg:` for layouts that split the page's own column (the event editor's rail beside its
+   form, an event report's two columns): from 1024px, except inside the organiser dashboard's frame
+   (DashFrame, [data-organiser-main]), where the 264px sidebar leaves the page only 608px at 1024, so
+   they split from 1280px (`xl`) there instead. */
+@custom-variant col-lg {
+  @media (width >= 64rem) {
+    &:not(:where([data-organiser-main] *)) {
+      @slot;
+    }
+  }
+  @media (width >= 80rem) {
+    &:where([data-organiser-main] *) {
+      @slot;
+    }
+  }
+}
+
 /* Ink and orange are sections, not themes (brand-direction-one.md §2.3): every shared
    component inverts inside them with no class changes. The page theme is Light (:root) or
    Dark ([data-theme="dark"]); paper pins a subtree to Light. */
@@ -861,6 +878,15 @@ h4 {
   @media (width >= 80rem) {
     --page-margin: 4rem;
   }
+}
+
+/* Inside the organiser dashboard's frame (components/dashboard/OrganiserShell.tsx, DashFrame) the
+   frame's main column spaces the page, so the page's own container (ui/Section `Page`) gives up its
+   gutters, padding and width cap. Unlayered, so it wins over the container's utilities. */
+[data-organiser-main] > [data-page] {
+  max-width: none;
+  margin-inline: 0;
+  padding: 0;
 }
 
 /* The active-nav "umlaut" (brand-direction-one.md §5 #2; the rules' Navigation board): two rounded

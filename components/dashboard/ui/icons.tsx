@@ -93,6 +93,23 @@ export const SettingsIcon = icon(
   </>,
   "SettingsIcon",
 );
+/** Analytics in the organiser rail: three bars on a baseline (a report, not a receipt). */
+export const ChartIcon = icon(
+  <>
+    <path d="M4 20h16" />
+    <path d="M7 16v-5M12 16V7M17 16v-8" />
+  </>,
+  "ChartIcon",
+);
+/** The organiser's public profile in the rail: a shopfront (their page on Sheltüh, not the account menu's person). */
+export const StoreIcon = icon(
+  <>
+    <path d="M4 9.5 5.5 4h13L20 9.5" />
+    <path d="M4 9.5a2.67 2.67 0 0 0 5.33 0 2.67 2.67 0 0 0 5.34 0 2.67 2.67 0 0 0 5.33 0" />
+    <path d="M5.5 12.5V20h13v-7.5M10 20v-4.5h4V20" />
+  </>,
+  "StoreIcon",
+);
 export const LogOutIcon = icon(
   <>
     <path d="M10 4H5v16h5" />

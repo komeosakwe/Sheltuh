@@ -95,14 +95,16 @@ html:has([data-edit-bar]) {
 
 ## 3. Grid and layout
 
-Mobile-first. The editor shell is a new wrapper around the existing form; the page header, `BackLink` and `OrganiserSubNav` above it are unchanged.
+Mobile-first. The editor shell is a new wrapper around the existing form; the page header and `BackLink` above it are unchanged.
+
+**Inside the organiser dashboard's frame (Nov 2026).** The organiser editor (`/dashboard/new`, `/dashboard/[eventId]`) sits in the organiser dashboard's frame (`OrganiserShell` → `DashFrame`: the 264px sidebar from 1024px, the 64px rail below it), whose page column is at most 960px (608px at 1024). So there: the rail goes beside the form only from 1280px (the `col-lg:` variant in `app/globals.css`, `lg` outside the frame and `xl` inside it), the preview is never a third column (it stays behind the Preview button, in its sheet, at every width: `usePreviewPlacement` in `editor/PreviewPanel.tsx`), and the save bar reaches the frame's column edges (`DASH_MAIN_BLEED`). The widths below are the admin editor's (`/admin/events/new`, `/admin/events/[eventId]/edit`), which has no frame; `e2e/admin-editor-preview.spec.ts` covers its panel at 1440, `e2e/dashboard-editor.spec.ts` the framed editor's minimum form width at 1024, 1100 and 1440.
 
 | Width | Layout |
 | --- | --- |
 | 320 and 375 (default, to 639) | One column. Order: compact summary row, "Step n of 3" row with the Preview button, phone stepper, notices, the step's title and cards, then the sticky bar. Card inner width 288px (320) / 335px (375). |
 | 640 to 1023 (this includes 768) | Still one column; main column `max-w-2xl` (672px) left-aligned in the page's 704px at 768. Two-column field grids, media rows side by side. Stepper shows each step's description. |
-| 1024 to 1279 | Two columns: rail `w-52` (208px) + main (`min-w-0 flex-1`, `max-w-3xl` = 768px). The Preview button still opens a sheet. |
-| 1280 and up | Three columns: rail `w-52` (208px), main (`min-w-0 flex-1 max-w-3xl`), preview panel `w-88` (352px). At exactly 1280 the main column is 1216 - 208 - 352 - 64 = **592px** (card inner width 552px). With the preview hidden it is 768px max. |
+| 1024 to 1279 | (Admin editor; in the organiser frame still one column.) Two columns: rail `w-52` (208px) + main (`min-w-0 flex-1`, `max-w-3xl` = 768px). The Preview button still opens a sheet. |
+| 1280 and up | (Admin editor; in the organiser frame two columns, rail and form, the preview in its sheet.) Three columns: rail `w-52` (208px), main (`min-w-0 flex-1 max-w-3xl`), preview panel `w-88` (352px). At exactly 1280 the main column is 1216 - 208 - 352 - 64 = **592px** (card inner width 552px). With the preview hidden it is 768px max. |
 
 The shell is `mx-auto max-w-7xl` (1280px). The two pages that host the editor change their wrapper to match: `app/dashboard/new/page.tsx` drops its `max-w-2xl` and uses `<Page width="full" padding="subNav" className="max-w-7xl">`, and the edit page does the same. The header and `BackLink` keep the page's left edge.
 

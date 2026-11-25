@@ -12,6 +12,9 @@ import Strap from "./Strap";
  * - `form`: a centred 448px column that stacks its children with a gap (sign in, sign up,
  *   verify, reset password).
  * - `full`: only the gutters, for a page that sets its own `max-w-*` through `className`.
+ *
+ * Inside the organiser dashboard's frame it gives up its gutters, padding and width (globals.css,
+ * `[data-organiser-main] > [data-page]`): the frame's main column spaces the page there.
  */
 export function Page({
   children,
@@ -21,7 +24,10 @@ export function Page({
 }: {
   children: ReactNode;
   width?: "wide" | "narrow" | "form" | "full";
-  /** `subNav`: less space above and below, for a page under a section sub-nav (the organiser area's). */
+  /**
+   * `subNav`: less space above and below, for a page under a section's own nav (the organiser area's
+   * pages, which inside its frame give up this padding altogether: see above).
+   */
   padding?: "default" | "subNav";
   className?: string;
 }) {
@@ -34,7 +40,7 @@ export function Page({
         ? "mx-auto flex w-full max-w-md flex-col gap-8"
         : null;
   return (
-    <div className={`mx-auto w-full px-5 sm:px-8 ${py} ${max} ${className}`.trim()}>
+    <div data-page="" className={`mx-auto w-full px-5 sm:px-8 ${py} ${max} ${className}`.trim()}>
       {inner ? <div className={inner}>{children}</div> : children}
     </div>
   );
