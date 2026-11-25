@@ -1461,15 +1461,85 @@ from an email.
 
       ```sh
       X=$RANDOM
-      curl -sI -H "if-none-match: \"$LV-f\"" "$SITE/api/organisers/$ORG_ID/logo?v=$LV&x=$X" | head -1
+      curl -s -o /dev/null -w '%{http_code} %{size_download}\n' -H "if-none-match: \"$LV-f\"" "$SITE/api/organisers/$ORG_ID/logo?v=$LV&x=$X"
       curl -s -o /dev/null -w '%{http_code} %{size_download}\n' "$SITE/api/organisers/$ORG_ID/logo?v=$LV&x=$X"
       ```
 
-      The first is a `304`; the second must be `200` with a non-zero size,
-      never `304` or `200 0`. Do the same for an event image (a new `X`,
+      Both are GETs (a `curl -I` would send a HEAD, which a CDN may cache
+      apart from the GET, so it wouldn't test this). The first prints
+      `304 0`; the second must be `200` with a non-zero size, never `304` or
+      `200 0`. Do the same for an event image (a new `X`,
       `-H "if-none-match: \"$V\""` on `/api/events/$EVENT_ID/image?v=$V&x=$X`). If an empty body comes back,
       Vercel stored the 304: purge the CDN cache and report it, since every
       visitor would see a broken image for up to an hour.
+- [ ] **Story card** (`docs/architecture.md`, "Story card"). With `$SLUG` a
+      published event that hasn't ended. Every probe is a GET (a `curl -I`
+      HEAD is a draw of its own and may be cached apart from the GET):
+
+      ```sh
+      CARD="$SITE/events/$SLUG/story-card"
+      curl -s -o /dev/null -w '%{http_code} %{content_type} %{size_download}\n' "$CARD?format=story"
+      curl -s -o /dev/null -D - "$CARD?format=story" | grep -iE '^(cache-control|etag|vary|x-vercel-cache|age):'
+      curl -s -o /dev/null -w '%{http_code}\n' "$CARD?format=story&x=1"
+      ```
+
+      The first is `200 image/jpeg` with a size of a few hundred KB (a 500
+      here usually means the fonts didn't reach the function bundle:
+      `outputFileTracingIncludes` in `next.config.ts`). The second (run it
+      twice) shows `public, max-age=0, s-maxage=` at most `3600`, an `etag`,
+      and `x-vercel-cache: HIT` the second time. The third is `400`.
+      **`Vary`:** the handler sets none, but Next adds one: a local
+      `next start` sends `vary: rsc, next-router-state-tree,
+      next-router-prefetch, next-router-segment-prefetch` on the card
+      (observed 24 Nov 2026). Browsers don't send those headers on an image
+      request, so that's one variant in practice. Check what Vercel sends:
+      a `Vary` on headers that do differ between browsers would split the
+      CDN copy per variant (more draws, still correct); one on `Cookie` or
+      `Authorization` would be a finding to report.
+
+      **Other spellings of the same URL.** Next normalises the query before
+      the handler sees it, so these get the card too, each under its own CDN
+      key. Once the canonical URL above shows `HIT`, request each twice and
+      read `x-vercel-cache`:
+
+      ```sh
+      curl -s -o /dev/null -D - "$CARD?format=story&" | grep -iE '^(x-vercel-cache|age):'
+      curl -s -o /dev/null -D - "$CARD?format=st%6Fry" | grep -iE '^(x-vercel-cache|age):'
+      ```
+
+      A `MISS` then `HIT` on each means Vercel keys them apart from the
+      canonical URL (one extra draw per spelling, within the rate limit:
+      the accepted risk). A `HIT` on the first request means Vercel
+      normalises them itself. Either is fine; note which.
+
+      Then the 304 check, on the **square** card of an event whose square
+      card no one has fetched yet (`$SLUG2`: a fresh cache key; extra
+      parameters are refused, so pick another event if needed):
+
+      ```sh
+      curl -s -o /dev/null -w '%{http_code} %{size_download}\n' -H 'if-none-match: *' "$SITE/events/$SLUG2/story-card?format=square"
+      curl -s -o /dev/null -w '%{http_code} %{size_download}\n' "$SITE/events/$SLUG2/story-card?format=square"
+      ```
+
+      The first prints `304 0`; the second must be `200` with a size above
+      zero. An empty body means Vercel stored the 304: purge the CDN cache
+      and report it (every visitor would get an empty card for up to an
+      hour).
+      On a demo deployment (no Supabase env), `/events/neon-static/story-card?format=story`
+      is a `200 image/jpeg` with the sample photo in it (the demo photos are
+      bundled the same way).
+- [ ] **Optional, later (owner): a Vercel Firewall rule for the story card.**
+      Only if draws from odd spellings or many clients show up in usage.
+      In the project's Firewall, a custom rule: path matches
+      `/events/*/story-card` **and** the raw query string is neither
+      `format=story` nor `format=square` → Deny. Canonical URLs pass;
+      `?format=story&`, `?format=st%6Fry` and every other spelling are
+      refused at the edge before a function runs. **Needs confirming before
+      relying on it:** that the WAF's query condition matches the raw string
+      as sent (not a decoded or re-ordered form). Test it with the two
+      spellings above (expect a 403) and the canonical URL (expect the card),
+      in log-only mode first. The app's own pages only ever link the
+      canonical form (`storyCardPath`, `lib/story-card.ts`).
 - [ ] **Browser reuse of images** (`age`): the image and logo `max-age`
       equals their `s-maxage` (an hour) so a CDN copy with a large `age` is
       still fresh in the browser. On a second `curl -sI` of an image, check

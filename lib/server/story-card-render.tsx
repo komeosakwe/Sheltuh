@@ -478,12 +478,20 @@ export interface StoryCardRequest {
 }
 
 /**
- * A card's JPEG, made in a render slot: the photo prepared (or, if it can't be used, the no-photo
- * card), then drawn. Throws an HttpError 503 when the slots are full, or the drawing's error.
+ * A card's JPEG, outside any slot: the photo prepared (or, if it can't be used, the no-photo
+ * card), then drawn. Only for a caller already holding a render slot (the route takes one before
+ * its database work: lib/server/handlers/story-card.ts); anyone else uses makeStoryCard. Throws
+ * the drawing's error.
  */
-export async function makeStoryCard({ format, text, tag, photo }: StoryCardRequest): Promise<Buffer> {
-  return inStoryCardSlot(async () => {
-    const prepared = photo ? await storyCardPhoto(photo.bytes, photo.focus, format) : null;
-    return renderStoryCard({ format, text, tag, photo: prepared });
-  });
+export async function drawStoryCard({ format, text, tag, photo }: StoryCardRequest): Promise<Buffer> {
+  const prepared = photo ? await storyCardPhoto(photo.bytes, photo.focus, format) : null;
+  return renderStoryCard({ format, text, tag, photo: prepared });
+}
+
+/**
+ * A card's JPEG, made in a render slot (drawStoryCard). Throws an HttpError 503 when the slots
+ * are full, or the drawing's error.
+ */
+export async function makeStoryCard(request: StoryCardRequest): Promise<Buffer> {
+  return inStoryCardSlot(() => drawStoryCard(request));
 }
