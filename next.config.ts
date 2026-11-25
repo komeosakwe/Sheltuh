@@ -80,30 +80,29 @@ export const nextConfig: NextConfig = {
   // indexed read.
   htmlLimitedBots: /.*/,
 
+  // The image optimizer (/_next/image), for the site's own stock photos only (public/events, public/home: next/image and
+  // lib/responsive-image.ts), resized to the box that shows them and served as AVIF or WebP. Only an image file (by its
+  // extension) in those folders, with no query string: anything else is a 400, so the optimizer never fetches an app
+  // route (an event's /events/{slug}/story-card above all). Organisers' event photos (/api/events/{id}/image) stay out
+  // of it on purpose: an optimized copy can't be taken down. Next keeps serving its cached copy after the source starts
+  // failing (a failed revalidation keeps the previous entry, and the image cache keeps every entry for at least
+  // `minimumCacheTTL`), so an unpublished event's photo would outlive its route's hour (EVENT_IMAGE_CACHE) with no end.
+  // Their route serves them as uploaded. The stock photos change only with a deploy. tests/responsive-image.test.ts.
+  images: {
+    localPatterns: [
+      { pathname: "/events/*.{jpg,jpeg,png,webp}", search: "" },
+      { pathname: "/home/**/*.{jpg,jpeg,png,webp}", search: "" },
+    ],
+    formats: ["image/avif", "image/webp"],
+    minimumCacheTTL: 3600,
+  },
+
   // Files a server route reads from disk at a path the build's file tracing can't follow, added
   // to that route's function bundle on Vercel. The story card (lib/server/story-card-render.tsx,
   // lib/server/share-card-data.ts readDemoPhoto) reads its four TTFs and, in demo mode, the
   // sample photo named by the event (a dynamic path). The key is the route path as a picomatch
   // glob (brackets escaped); the files are from the project root. tests/next-config.test.ts pins
   // it; `npm run build` then lists them in the route's .nft.json (docs/architecture.md, "Story card").
-  // The image optimizer (/_next/image): next/image's stock photos (public/events, public/home) and event photos
-  // (lib/responsive-image.ts), resized to the box that shows them and served as AVIF or WebP. Organisers'
-  // photos are stored as uploaded (up to 24 megapixels), so a phone otherwise downloads every one at full size.
-  // Only these paths: anything else is a 400. An event photo is the published one's route at a version
-  // (`?v=`, which changes with the photo; the route itself refuses a draft's to anyone without a token, and
-  // the optimizer never sends one). An optimized copy lasts as long as its source may be cached
-  // (`minimumCacheTTL`, the event photo's hour, EVENT_IMAGE_CACHE): an unpublished event's photo stops being
-  // served within the hour, as it does without the optimizer (Next has no way to purge a copy sooner).
-  images: {
-    localPatterns: [
-      { pathname: "/api/events/*/image" },
-      { pathname: "/events/**", search: "" },
-      { pathname: "/home/**", search: "" },
-    ],
-    formats: ["image/avif", "image/webp"],
-    minimumCacheTTL: 3600,
-  },
-
   outputFileTracingIncludes: {
     "/events/\\[slug\\]/story-card": ["./app/fonts/og/InstrumentSans-*.ttf", "./public/events/*.{jpg,jpeg,png,webp}"],
   },

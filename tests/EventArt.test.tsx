@@ -271,6 +271,15 @@ describe("EventArt fit=contain", () => {
     }
   });
 
+  it("an organiser's event photo stays a plain src even with `sizes`: never through the optimizer (its copy would outlive a takedown)", () => {
+    const src = "/api/events/5b0e1c8a-3f7d-4e2b-9a61-0c8d7e6f5a4b/image?v=1730000000";
+    const { container } = render(<EventArt poster={poster} title="x" imageUrl={src} fit="contain" sizes="100vw" />);
+    const img = container.querySelector("img") as HTMLImageElement;
+    expect(img).toHaveAttribute("src", src);
+    expect(img).not.toHaveAttribute("srcset");
+    expect(img).not.toHaveAttribute("sizes");
+  });
+
   it("without `sizes` (an editor preview, a small mark), uses the photo as it is", () => {
     const { container } = render(<EventArt poster={poster} title="x" imageUrl="/events/wide.jpg" />);
     const img = container.querySelector("img") as HTMLImageElement;

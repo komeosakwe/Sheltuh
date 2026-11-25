@@ -363,7 +363,7 @@ export default function EventDetailsView({
               title={event.title}
               priority
               fit="auto"
-              // Not in the editor's preview, whose draft photo isn't public (the optimizer couldn't read it).
+              // Not in the editor's preview, whose photo is the organiser's draft or upload (used as it is).
               sizes={preview ? undefined : EVENT_PAGE_PHOTO_SIZES}
               className="aspect-[4/3] max-h-[22svh] w-full rounded-card max-sm:[@media(max-height:700px)]:max-h-[calc(22svh-0.5rem)] sm:aspect-video sm:max-h-none md:aspect-[7/2] lg:aspect-[3/2]"
             />

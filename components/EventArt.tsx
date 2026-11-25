@@ -236,9 +236,9 @@ export default function EventArt({
   fit?: "cover" | "auto" | "poster" | "contain";
   /**
    * How wide the box is at each screen width (the `<img>` `sizes` attribute, e.g. "(min-width: 768px) 50vw,
-   * 100vw"): with it, an event photo is served at the size the box needs, in a modern format
-   * (lib/responsive-image.ts), not at its full uploaded size. Must match the box's layout. Without it the
-   * photo is used as it is (editor previews, small marks).
+   * 100vw"): with it, a stock photo (public/events) is served at the size the box needs, in a modern
+   * format (lib/responsive-image.ts), not at its full size. Must match the box's layout. Without it, or for
+   * an organiser's own photo (never optimized: next.config.ts), the photo is used as it is.
    */
   sizes?: string;
 }) {

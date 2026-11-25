@@ -1,12 +1,13 @@
 import { getImageProps } from "next/image";
 
 /**
- * Event photos the image optimizer may resize (`/_next/image`, next.config.ts `images.localPatterns`):
- * a published event's photo route as the API gives it (`/api/events/{id}/image?v=…`) and the
- * sample photos in public/events (the demo's, and the site's own stock photos). Anything else
- * (an object URL for a photo being uploaded, another site's URL) is used as it is.
+ * Event photos the image optimizer may resize (`/_next/image`, next.config.ts `images.localPatterns`): only
+ * the sample photos in public/events (the demo's, and the site's own stock photos). A published event's
+ * photo (`/api/events/{id}/image?v=…`) never goes through it: an optimized copy outlives the photo's
+ * takedown (next.config.ts says why), so it's used as it is, as is anything else (an object URL for a
+ * photo being uploaded, another site's URL).
  */
-const OPTIMIZABLE_PHOTO = /^\/(?:api\/events\/[0-9a-f-]{36}\/image\?v=\d+|events\/[\w-]+\.(?:jpe?g|png|webp))$/i;
+const OPTIMIZABLE_PHOTO = /^\/events\/[\w-]+\.(?:jpe?g|png|webp)$/i;
 
 /** Whether `src` is a photo the optimizer may resize (OPTIMIZABLE_PHOTO). */
 export function isOptimizablePhoto(src: string): boolean {
@@ -36,12 +37,11 @@ export interface ResponsivePhoto {
 }
 
 /**
- * An event photo's `src`, `srcSet` and `sizes` for a plain `<img>` that fills its box: the browser picks
- * the smallest copy that is sharp at the box's width (`sizes`, which must describe the layout) on its
- * screen, in WebP or AVIF where it can show them, rather than the full-size upload. Organisers' photos
- * are stored as uploaded (lib/server/event-image.ts: up to 24 megapixels), so on a phone a card or the
- * home banner otherwise downloads several megabytes it shows at a few hundred pixels. With no `sizes`,
- * or a photo the optimizer doesn't take (isOptimizablePhoto), it's the photo unchanged.
+ * An event photo's `src`, `srcSet` and `sizes` for a plain `<img>` that fills its box: for a stock photo
+ * (isOptimizablePhoto), the browser picks the smallest copy that is sharp at the box's width (`sizes`,
+ * which must describe the layout) on its screen, in WebP or AVIF where it can show them, rather than the
+ * full-size file. With no `sizes`, or any other photo (an organiser's upload above all), it's the photo
+ * unchanged.
  */
 export function responsivePhoto(src: string, sizes: string | undefined): ResponsivePhoto {
   if (!sizes || !isOptimizablePhoto(src)) return { src };
