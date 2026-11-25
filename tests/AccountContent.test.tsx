@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import AccountContent from "@/components/account/AccountContent";
 import { ApiError } from "@/lib/api/client";
 import type { ProfileRecord } from "@/lib/api/types";
+import { resetAccountStores } from "@/lib/auth/account-store";
 import { SessionExpiredError, type AuthContextValue } from "@/lib/auth/AuthContext";
 import { useProfile } from "@/lib/auth/useProfile";
 import { fakeAuthValue, FakeAuthProvider } from "./test-utils/fakeAuth";
@@ -416,7 +417,9 @@ describe("AccountContent", () => {
       ["Organisers you follow", "/following"],
     ]);
     expect(within(links).queryByRole("link", { name: "Your events" })).toBeNull();
+    // A fresh page: nothing of the first one's records kept (lib/auth/account-store.ts).
     cleanup();
+    resetAccountStores();
 
     // Couldn't tell (not a 404): the row stays, and the dashboard explains itself.
     getMyOrganiser.mockReset();
@@ -500,8 +503,8 @@ describe("AccountContent and the header share the profile", () => {
     fireEvent.change(input, { target: { value: "Mia Thompson" } });
     fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
     await waitFor(() => expect(screen.getByTestId("header-profile")).toHaveTextContent("Mia Thompson"));
-    // Each copy loaded once: the header learnt of the change without fetching again.
-    expect(getMyProfile).toHaveBeenCalledTimes(2);
+    // One load for the page, shared by both; the header learnt of the change without fetching again.
+    expect(getMyProfile).toHaveBeenCalledTimes(1);
   });
 
   it("a deleted profile is gone from the header's copy too", async () => {
@@ -516,23 +519,35 @@ describe("AccountContent and the header share the profile", () => {
   });
 
   it("a load still in flight when the change lands doesn't put the old profile back", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
     let resolveLate: (profile: ProfileRecord) => void = () => {};
-    // /account loads first; the header's load is slow and answers with the profile from before the save.
+    // /account loads first; a reader mounted a minute later checks again, slowly, and answers with the
+    // profile from before the save.
     getMyProfile.mockResolvedValueOnce(PROFILE).mockReturnValueOnce(new Promise((resolve) => (resolveLate = resolve)));
-    render(
-      <FakeAuthProvider value={fakeAuthValue({ email: "mia@example.com" })}>
+    const auth = fakeAuthValue({ email: "mia@example.com" });
+    const { rerender } = render(
+      <FakeAuthProvider value={auth}>
+        <AccountContent />
+      </FakeAuthProvider>,
+    );
+    const input = await screen.findByLabelText("Display name");
+    vi.setSystemTime(Date.now() + 60_000);
+    rerender(
+      <FakeAuthProvider value={auth}>
         <AccountContent />
         <HeaderProbe />
       </FakeAuthProvider>,
     );
-    const input = await screen.findByLabelText("Display name");
-    expect(screen.getByTestId("header-profile")).toHaveTextContent("loading");
+    // The known profile at once, while it's checked again.
+    expect(screen.getByTestId("header-profile")).toHaveTextContent("Mia T.");
+    expect(getMyProfile).toHaveBeenCalledTimes(2);
     updateMyProfile.mockResolvedValueOnce({ ...PROFILE, displayName: "Mia Thompson" });
     fireEvent.change(input, { target: { value: "Mia Thompson" } });
     fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
     await waitFor(() => expect(screen.getByTestId("header-profile")).toHaveTextContent("Mia Thompson"));
     await act(async () => resolveLate(PROFILE));
     expect(screen.getByTestId("header-profile")).toHaveTextContent("Mia Thompson");
+    vi.useRealTimers();
   });
 
   it("keeps another account's change out", async () => {
@@ -548,12 +563,13 @@ describe("AccountContent and the header share the profile", () => {
       </>,
     );
     const input = await screen.findByLabelText("Display name");
-    await waitFor(() => expect(screen.getByTestId("header-profile")).toHaveTextContent("Mia T."));
     updateMyProfile.mockResolvedValueOnce({ ...PROFILE, displayName: "Mia Thompson" });
     fireEvent.change(input, { target: { value: "Mia Thompson" } });
     fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
     await waitFor(() => expect(renameStatus()).toHaveTextContent(/Mia Thompson/));
-    expect(screen.getByTestId("header-profile")).toHaveTextContent("Mia T.");
+    // The page keeps one account's profile at a time: the other account's reader never shows Mia's.
+    expect(screen.getByTestId("header-profile")).not.toHaveTextContent("Mia Thompson");
+    expect(screen.getByTestId("header-profile")).not.toHaveTextContent("Mia T.");
   });
   it("a load from a later sign-in isn't held back by a change saved in an earlier session", async () => {
     function Publisher() {

@@ -175,6 +175,11 @@ describe("/organisers/join signed in", () => {
       { token: TOKEN, displayName: "Neon Collective", categories: ["live-music"] },
       expect.any(Function),
     );
+    // The organiser record the header and the dashboard share is fetched again after the join and before
+    // the dashboard opens, so it never opens on the one from before (lib/auth/useOrganiser.ts).
+    const lastRecordFetch = Math.max(...getMyOrganiser.mock.invocationCallOrder);
+    expect(joinWithOrganiserLink.mock.invocationCallOrder[0]).toBeLessThan(lastRecordFetch);
+    expect(lastRecordFetch).toBeLessThan(push.mock.invocationCallOrder[0]);
     expect(await screen.findByRole("heading", { level: 1, name: "You’re in" })).toBeInTheDocument();
     expect(sessionStorage.getItem(STORAGE_KEY)).toBeNull();
   });

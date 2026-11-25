@@ -126,6 +126,28 @@ test.describe("desktop 1440", () => {
     await page.goto("/dashboard/new");
     await expect(nav.getByRole("link", { name: "Events" })).toHaveAttribute("aria-current", "true", { timeout: 30_000 });
   });
+
+  test("switching tabs shows the organiser's record at once: \"Loading…\" only on the first page, never after a tab switch", async ({ page }) => {
+    test.slow();
+    await signedInOrganiser(page);
+    await page.goto("/dashboard");
+    const nav = page.getByRole("complementary", { name: "Organiser account" }).getByRole("navigation", { name: "Organiser" });
+    await expect(page.getByRole("heading", { level: 1, name: /^Welcome back/ })).toBeVisible({ timeout: 30_000 });
+    // From here on, note any moment the page's "Loading…" (OrganiserGate's, waiting for the record) is drawn.
+    await page.evaluate(() => {
+      const seen = () => {
+        if (document.querySelector('[data-organiser-main] [role="progressbar"][aria-label="Loading"]')) document.documentElement.dataset.gateLoading = "seen";
+      };
+      new MutationObserver(seen).observe(document.body, { childList: true, subtree: true });
+    });
+    await nav.getByRole("link", { name: "Events" }).click();
+    await expect(page.getByRole("heading", { level: 1, name: "Your events" })).toBeVisible({ timeout: 30_000 });
+    await nav.getByRole("link", { name: "Payouts" }).click();
+    await expect(page).toHaveURL(/\/dashboard\/payouts$/, { timeout: 30_000 });
+    await nav.getByRole("link", { name: "Overview" }).click();
+    await expect(page.getByRole("heading", { level: 1, name: /^Welcome back/ })).toBeVisible({ timeout: 30_000 });
+    expect(await page.evaluate(() => document.documentElement.dataset.gateLoading ?? "never")).toBe("never");
+  });
 });
 
 for (const vp of [
