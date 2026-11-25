@@ -24,6 +24,21 @@ export const CARD_PHOTO_SIZES = "(min-width: 1280px) 25vw, (min-width: 1024px) 3
 export const BANNER_PHOTO_SIZES =
   "(min-width: 1568px) 1440px, (min-width: 1280px) calc(100vw - 8rem), (min-width: 768px) calc(100vw - 4rem), calc(100vw - 2rem)";
 
+/**
+ * The home banner's slide when its photo fills it (fit "poster", cropped to cover): from 640px the slide (2:1, then
+ * 5:2) is wider than a landscape photo, which spans it (BANNER_PHOTO_SIZES), but a phone's slide is 4:5, so the photo
+ * is cropped to the slide's height and drawn wider than it: 1.875 times for a 3:2 photo (5/4 × 3/2; a camera's shape,
+ * and the stock photos'). A portrait poster drawn whole asks for more than it needs, which costs bytes, not sharpness.
+ */
+export const BANNER_COVER_PHOTO_SIZES =
+  "(min-width: 1568px) 1440px, (min-width: 1280px) calc(100vw - 8rem), (min-width: 768px) calc(100vw - 4rem), (min-width: 640px) calc(100vw - 2rem), calc((100vw - 2rem) * 1.875)";
+
+/**
+ * A swipe screen's photo, cropped to cover the whole screen: on a screen taller than 3:2 (any phone held upright) a
+ * 3:2 photo is cropped to the screen's height and drawn 1.5 times that wide; on a wider screen it spans its width.
+ */
+export const SWIPE_PHOTO_SIZES = "(max-aspect-ratio: 3/2) 150vh, 100vw";
+
 /** The event page's photo: the page column below 1024px, then 7 of 12 columns, 8 of 12 from 1280px. */
 export const EVENT_PAGE_PHOTO_SIZES = "(min-width: 1280px) 66vw, (min-width: 1024px) 58vw, 100vw";
 

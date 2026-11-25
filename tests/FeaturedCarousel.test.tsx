@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import FeaturedCarousel, { CAROUSEL_INTERVAL_MS, CAROUSEL_MAX } from "@/components/home/FeaturedCarousel";
 import { slideFacts } from "@/lib/event-card";
 import { formatCardPriceLabel } from "@/lib/pricing";
+import { BANNER_COVER_PHOTO_SIZES, BANNER_PHOTO_SIZES } from "@/lib/responsive-image";
 import type { SheltuhEvent } from "@/lib/types";
 
 /** The featured banner (the proposal's banner, redesign PR 3; Round 2 §1.1; the WAI carousel pattern). */
@@ -386,6 +387,14 @@ describe("FeaturedCarousel", () => {
     const cropImg = crop.querySelector("img") as HTMLImageElement;
     expect(cropImg).toHaveClass("object-cover", "object-[50%_50%]");
     expect(crop.querySelector("[data-art-backdrop]")).toBeNull();
+  });
+
+  it("asks for a stock photo at its drawn width: wider than a phone's 4:5 slide when it's cropped to fill, the slide's own when it's whole", () => {
+    renderCarousel([event("crop", { imageUrl: "/events/street-market.jpg" }), event("whole", { imageUrl: "/events/street-market.jpg", bannerFit: "whole" })]);
+    const [crop, whole] = slides().map((slide) => slide.querySelector("img") as HTMLImageElement);
+    expect(crop).toHaveAttribute("sizes", BANNER_COVER_PHOTO_SIZES);
+    expect(BANNER_COVER_PHOTO_SIZES).toMatch(/, calc\(\(100vw - 2rem\) \* 1\.875\)$/);
+    expect(whole).toHaveAttribute("sizes", BANNER_PHOTO_SIZES);
   });
 
   it("a touch on it stops it (the visitor has taken over); a mouse press doesn't", async () => {

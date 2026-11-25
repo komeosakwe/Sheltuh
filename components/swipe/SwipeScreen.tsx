@@ -5,6 +5,7 @@ import { ButtonLink } from "@/components/ui/Button";
 import CardPrice from "@/components/ui/CardPrice";
 import PlaceLines from "@/components/ui/PlaceLines";
 import { cardDateLabel, categoryLabel } from "@/lib/event-card";
+import { SWIPE_PHOTO_SIZES } from "@/lib/responsive-image";
 import type { SheltuhEvent } from "@/lib/types";
 import { clearSwipePosition } from "./swipePosition";
 
@@ -61,7 +62,7 @@ export default function SwipeScreen({
           imageFocus={event.imageFocus}
           title={event.title}
           priority={first}
-          sizes="100vw"
+          sizes={SWIPE_PHOTO_SIZES}
           className="h-full w-full"
         />
       </div>
