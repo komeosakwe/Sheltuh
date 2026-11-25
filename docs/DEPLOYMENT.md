@@ -1100,6 +1100,10 @@ live. Details are in [`supabase-setup.md`](supabase-setup.md) and
        OTP-style email templates; password policy; Site URL set to the real
        domain; custom SMTP (built-in email is test-only). If you enable
        "Secure email change", keep it on.
+       - [ ] Paste the branded "Confirm signup" and "Reset password"
+             templates and their subjects from `supabase/templates/`
+             (`supabase-setup.md`, "Auth settings"), then sign up and reset
+             a password on the test project and check both emails arrive.
 4. [ ] Schedule the daily cleanup in **Supabase Cron**:
        `select private.purge_social_data();` (deletes attendance 30 days after
        an event, old messages and reports per the retention rules). Steps are

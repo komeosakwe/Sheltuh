@@ -102,10 +102,12 @@ export interface KitPageInput {
   tone: EmailTone;
   /** More phone rules (no media query around them), e.g. the full ticket's. */
   phoneCss?: string;
+  /** More head markup (trusted), after the colour-scheme metas: e.g. the auth templates' format-detection. */
+  head?: string;
 }
 
 /** The page: a white column of at most 600px (32px padding) on the tone's page colour; on a phone, the column edge to edge with 16px sides. */
-export function kitPage({ title, preheader, siteUrl, body, tone, phoneCss = "" }: KitPageInput): string {
+export function kitPage({ title, preheader, siteUrl, body, tone, phoneCss = "", head = "" }: KitPageInput): string {
   const bg = tone === "customer" ? KIT.cream : KIT.surface;
   return `<!DOCTYPE html>
 <html lang="en-AU" xmlns="http://www.w3.org/1999/xhtml">
@@ -115,7 +117,7 @@ export function kitPage({ title, preheader, siteUrl, body, tone, phoneCss = "" }
 <meta name="x-apple-disable-message-reformatting">
 <meta name="color-scheme" content="light">
 <meta name="supported-color-schemes" content="light">
-<title>${escapeHtml(title)}</title>
+${head ? `${head}\n` : ""}<title>${escapeHtml(title)}</title>
 <style>
 ${ticketFontFace(siteUrl)}:root{color-scheme:light;supported-color-schemes:light}
 body{margin:0;padding:0}table{border-collapse:collapse}img{border:0;outline:none}a{color:${KIT.black}}

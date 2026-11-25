@@ -54,9 +54,41 @@ email, rather than click a link. Supabase sends links by default, so:
   invites depend on it: accepting one needs only a verified email, so with
   confirmation off anyone could sign up with an invited address and accept
   the invite.
-- **Emails → Templates → "Confirm signup":** put `{{ .Token }}` in the body,
-  e.g. `Your Sheltüh verification code is {{ .Token }}`.
-- **Emails → Templates → "Reset password":** the same, with `{{ .Token }}`.
+- **Emails → Templates:** the app uses two of Supabase's emails, both a code
+  (`{{ .Token }}`), never a link. Their branded versions, on the same email
+  kit as every other Sheltüh email, are committed in `supabase/templates/`.
+  For each, paste the subject into "Subject" and the whole file into
+  "Message body" (the Source view), then save:
+
+  | Template | Subject | File |
+  | --- | --- | --- |
+  | Confirm signup | `{{ .Token }} is your Sheltüh code` | `supabase/templates/confirm-signup.html` |
+  | Reset password | `{{ .Token }} is your Sheltüh reset code` | `supabase/templates/reset-password.html` |
+
+  Leave Magic link, Change email address and Reauthentication alone: the app
+  never sends them. Things to know:
+  - Copy `{{ .Token }}` and `{{ .Email }}` exactly. Supabase fills in the
+    subject and the body (Go's `html/template`), so the code can sit in the
+    subject.
+  - Gmail's "Copy code" chip and Apple's code autofill are the mail apps'
+    own choice. We can only make the code easy to find: it's in the subject
+    after the word "code", in the line "Your Sheltüh code is …", and in the
+    box as one run of digits that one tap selects. The code fields on the
+    sign-up and reset pages accept iOS's suggestion (`one-time-code`).
+  - Supabase sends these as HTML only; there's no plain-text version.
+  - The wordmark and fonts load from `https://sheltuh.com.au`, so they show
+    once the app is live there (before that, the alt text "Sheltüh" and
+    Arial). Outlook for Windows shows the column full width: Supabase
+    removes the HTML comments Outlook's fixed width relies on.
+  - The emails say "This code expires soon" rather than a time, because
+    the expiry isn't set here. If you want a time in them, check "Email OTP
+    Expiration" (Sign In / Providers → Email) and change the copy in
+    `lib/server/auth-email-templates.ts`.
+  - The code is as long as "Email OTP Length" says (8 today); the box fits
+    6 to 10 digits.
+  - To change them, edit `lib/server/auth-email-templates.ts`, run
+    `node --import tsx scripts/render-auth-email-templates.ts`, commit, and
+    paste again. `scripts/preview-auth-email-templates.ts` screenshots them.
 - **Don't use Users → "Invite user"** (or change the "Invite user"
   template). Its link goes to Supabase's own verify page, which this app
   doesn't pick up (sign-in uses PKCE), so the person would land nowhere.
