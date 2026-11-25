@@ -83,6 +83,12 @@ export function createAccountStore<T>({ isFailure = () => false }: AccountStoreO
       };
     },
     load(account, fetcher, { force = false, recheck = false } = {}) {
+      if (inFlight && inFlight.account !== account) {
+        // Another account's request, overtaken (the page has moved on, back to this account perhaps,
+        // whose answer may still be fresh): its answer never lands.
+        generation += 1;
+        inFlight = null;
+      }
       if (!force && inFlight?.account === account) return inFlight.done;
       if (!force && !recheck && settled?.account === account && Date.now() - settled.at < FRESH_MS) return Promise.resolve();
       const id = ++generation;

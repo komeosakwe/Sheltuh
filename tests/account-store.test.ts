@@ -127,6 +127,24 @@ describe("createAccountStore", () => {
     expect(store.snapshot()).toMatchObject({ account: "a", value: "a's" });
   });
 
+  it("A, then B, then back to A within FRESH_MS: B's answer never lands, and A's fresh record stays", async () => {
+    const store = createAccountStore<string>();
+    await store.load("a", () => Promise.resolve("a's"));
+    const bAnswer = deferred<string>();
+    const forB = store.load("b", () => bAnswer.promise);
+    const again = vi.fn(() => Promise.resolve("a's again"));
+    await store.load("a", again);
+    // Still fresh: nothing asked again.
+    expect(again).not.toHaveBeenCalled();
+    bAnswer.resolve("b's");
+    await forB;
+    expect(store.snapshot()).toMatchObject({ account: "a", value: "a's" });
+    // And B's next load asks again rather than joining the overtaken request.
+    const bAgain = vi.fn(() => Promise.resolve("b's again"));
+    await store.load("b", bAgain);
+    expect(bAgain).toHaveBeenCalledTimes(1);
+  });
+
   it("clear (a Sign out) forgets it and drops anything in flight; resetAccountStores clears every store", async () => {
     const store = createAccountStore<string>();
     const other = createAccountStore<number>();
