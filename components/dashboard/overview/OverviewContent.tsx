@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useId, useRef, useState } from "react";
+import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import JoinedWelcome, { useJoinedWelcome } from "@/components/dashboard/JoinedWelcome";
 import OrganiserGate from "@/components/dashboard/OrganiserGate";
 import OrgEventCard from "@/components/dashboard/OrgEventCard";
@@ -84,9 +84,10 @@ function Overview({ organiser }: { organiser: OrganiserRecord }) {
   const now = useToday();
   const data = load.status === "ready" ? load.data : null;
   const headingRef = useRef<HTMLHeadingElement>(null);
-  // After Try again loads the page, focus goes to its heading (Try again itself is gone).
+  // After Try again loads the page, focus goes to its heading (Try again itself is gone). In the same
+  // commit that removes Try again, so focus is never left on the body.
   const focusOnLoad = useRef(false);
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (load.status !== "ready" || !focusOnLoad.current) return;
     focusOnLoad.current = false;
     headingRef.current?.focus();
