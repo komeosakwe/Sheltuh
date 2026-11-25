@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import Footer from "@/components/Footer";
 import Nav from "@/components/Nav";
 import { NavAccountProvider } from "@/components/nav/useNavAccount";
 import type { ProfileRecord } from "@/lib/api/types";
@@ -16,9 +17,10 @@ import { fakeAuthValue, FakeAuthProvider } from "./test-utils/fakeAuth";
 
 let pathname = "/events";
 const push = vi.fn();
+const prefetch = vi.fn();
 vi.mock("next/navigation", () => ({
   usePathname: () => pathname,
-  useRouter: () => ({ push }),
+  useRouter: () => ({ push, prefetch }),
 }));
 
 let profileState: ProfileState = { status: "loading" };
@@ -63,10 +65,12 @@ beforeEach(() => {
   unread = 3;
   saved = { status: "ready", count: 12 };
   push.mockReset();
+  prefetch.mockReset();
 });
 
 afterEach(() => {
   cleanup();
+  localStorage.clear();
 });
 
 function renderNav(auth: AuthContextValue = fakeAuthValue({ email: "latte@example.com" })) {
@@ -426,5 +430,111 @@ describe("avatar menu (from lg)", () => {
       expect(screen.queryByRole("button", { name: "Account" })).toBeNull();
       cleanup();
     }
+  });
+});
+
+describe("For organisers (the header's button and the drawer's)", () => {
+  const LATTE_ID = "user-latte";
+  const signedIn = () => fakeAuthValue({ email: "latte@example.com", userId: LATTE_ID });
+  /** The header's For organisers (the desktop row) and the drawer's. */
+  function organisersLinks(drawer: HTMLElement) {
+    const [desktopNav] = screen.getAllByRole("navigation", { name: "Primary" });
+    return [
+      within(desktopNav).getByRole("link", { name: "For organisers" }),
+      within(drawer).getByRole("link", { name: "For organisers", hidden: true }),
+    ];
+  }
+
+  it("goes straight to the dashboard for an approved organiser, prefetched, keeping its label", () => {
+    organiser = { loading: false, organiser: { status: "approved" }, error: null };
+    const { drawer } = renderNav(signedIn());
+    for (const link of organisersLinks(drawer)) {
+      expect(link).toHaveAttribute("href", "/dashboard");
+      expect(link).toHaveTextContent(/^For organisers$/);
+      expect(link).not.toHaveAttribute("aria-current");
+    }
+    expect(prefetch).toHaveBeenCalledWith("/dashboard");
+  });
+
+  it("goes to the dashboard while the record loads when this browser last showed them the organiser frame", () => {
+    localStorage.setItem("sheltuh:organiser-frame", LATTE_ID);
+    organiser = { loading: true, organiser: null, error: null };
+    const { drawer } = renderNav(signedIn());
+    for (const link of organisersLinks(drawer)) expect(link).toHaveAttribute("href", "/dashboard");
+    expect(prefetch).toHaveBeenCalledWith("/dashboard");
+  });
+
+  it("a hint for another account, or none, leaves it on the For organisers page while the record loads", () => {
+    localStorage.setItem("sheltuh:organiser-frame", "user-someone-else");
+    organiser = { loading: true, organiser: null, error: null };
+    const { drawer } = renderNav(signedIn());
+    for (const link of organisersLinks(drawer)) expect(link).toHaveAttribute("href", "/organisers/apply");
+    expect(prefetch).not.toHaveBeenCalled();
+  });
+
+  it("the record overrules the hint: a pending or rejected applicant, or a member, gets the For organisers page", () => {
+    localStorage.setItem("sheltuh:organiser-frame", LATTE_ID);
+    for (const record of [{ status: "pending" }, { status: "rejected" }, null]) {
+      organiser = { loading: false, organiser: record, error: null };
+      const { drawer } = renderNav(signedIn());
+      for (const link of organisersLinks(drawer)) expect(link).toHaveAttribute("href", "/organisers/apply");
+      cleanup();
+    }
+    expect(prefetch).not.toHaveBeenCalled();
+  });
+
+  it("signed out and in the demo it's the For organisers page, whatever the hint", () => {
+    localStorage.setItem("sheltuh:organiser-frame", LATTE_ID);
+    organiser = { loading: false, organiser: { status: "approved" }, error: null };
+    for (const auth of [
+      fakeAuthValue({ status: "signed-out", email: undefined, userId: LATTE_ID }),
+      fakeAuthValue({ configured: false, userId: LATTE_ID }),
+    ]) {
+      const { drawer } = renderNav(auth);
+      for (const link of organisersLinks(drawer)) expect(link).toHaveAttribute("href", "/organisers/apply");
+      cleanup();
+    }
+    expect(prefetch).not.toHaveBeenCalled();
+  });
+
+  it("is the current page on the dashboard's pages once it goes there, and on the apply page when it goes there", () => {
+    organiser = { loading: false, organiser: { status: "approved" }, error: null };
+    for (const path of ["/dashboard", "/dashboard/events"]) {
+      pathname = path;
+      const { drawer } = renderNav(signedIn());
+      for (const link of organisersLinks(drawer)) expect(link).toHaveAttribute("aria-current", "page");
+      cleanup();
+    }
+    pathname = "/organisers/apply";
+    organiser = { loading: false, organiser: { status: "pending" }, error: null };
+    const { drawer } = renderNav(signedIn());
+    for (const link of organisersLinks(drawer)) expect(link).toHaveAttribute("aria-current", "page");
+  });
+
+  it("the footer's For organisers follows the same rule; without the layout's provider it's the For organisers page", () => {
+    organiser = { loading: false, organiser: { status: "approved" }, error: null };
+    const footerLink = () =>
+      within(screen.getByRole("navigation", { name: "Explore" })).getByRole("link", { name: "For organisers" });
+    render(
+      <FakeAuthProvider value={signedIn()}>
+        <NavAccountProvider>
+          <Footer />
+        </NavAccountProvider>
+      </FakeAuthProvider>,
+    );
+    expect(footerLink()).toHaveAttribute("href", "/dashboard");
+    cleanup();
+    organiser = { loading: false, organiser: { status: "pending" }, error: null };
+    render(
+      <FakeAuthProvider value={signedIn()}>
+        <NavAccountProvider>
+          <Footer />
+        </NavAccountProvider>
+      </FakeAuthProvider>,
+    );
+    expect(footerLink()).toHaveAttribute("href", "/organisers/apply");
+    cleanup();
+    render(<Footer />);
+    expect(footerLink()).toHaveAttribute("href", "/organisers/apply");
   });
 });
