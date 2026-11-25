@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import AccountPageHead from "@/components/account/AccountPageHead";
 import OrganiserGate from "@/components/dashboard/OrganiserGate";
 import OrgEventCard from "@/components/dashboard/OrgEventCard";
@@ -133,13 +133,14 @@ function Events({ organiser }: { organiser: OrganiserRecord }) {
   // The page as it stands for the filter the address shows: the last answer if it's this filter's, else loading.
   const shown: Load = load.status !== "loading" && load.filter !== filter ? { status: "loading" } : load;
 
-  useEffect(() => {
+  // Focus moves in the same commit that removes Try again or Load more, so it's never left on the body.
+  useLayoutEffect(() => {
     if (shown.status !== "ready" || !focusTitleOnLoad.current) return;
     focusTitleOnLoad.current = false;
     titleRef.current?.focus();
   }, [shown.status]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!focusCard) return;
     const link = document.querySelector<HTMLElement>(`[data-org-event-card="${CSS.escape(focusCard)}"] a[data-card-link]`);
     if (!link) return;
