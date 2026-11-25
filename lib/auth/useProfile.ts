@@ -7,7 +7,7 @@ import type { ProfileRecord } from "@/lib/api/types";
 import { accountKey } from "./account";
 import { createAccountStore } from "./account-store";
 import { isTransientFailure } from "./transient-failure";
-import { AccountMismatchError, useAuth } from "./AuthContext";
+import { useAuth } from "./AuthContext";
 import { useAccountToken } from "./useAccountToken";
 
 /** The caller's Who's Going profile, or null if they haven't created one (the API's 404). */
@@ -40,8 +40,6 @@ async function loadProfile(getToken: GetToken): Promise<StoredProfile> {
   try {
     return { shown: { status: "ready", profile: await fetchMyProfile(getToken) }, transient: false };
   } catch (err) {
-    // The session is someone else's by now: no answer for this account (lib/auth/account-store.ts).
-    if (err instanceof AccountMismatchError) throw err;
     return {
       shown: { status: "error", message: err instanceof Error ? err.message : "Couldn't load your profile." },
       transient: isTransientFailure(err),
@@ -61,7 +59,7 @@ const noSnapshot = () => null;
  * fails for a passing reason (offline, a 5xx, a 429) keeps the profile it was checking, so a form open
  * on it stays; any other answer (a 401 for an account that's gone) replaces it, and a first load that
  * fails shows its error. Every request is made as the account its answer is kept for
- * (useAccountToken): one made as someone else's session is refused and keeps nothing.
+ * (useAccountToken, loadWithToken): if the session is someone else's by then, none is made and nothing changes.
  */
 export function useProfile() {
   const auth = useAuth();
@@ -79,7 +77,7 @@ export function useProfile() {
     const signedIn = lastAccount.current === null;
     lastAccount.current = account;
     if (account === null) return;
-    void profileStore.load(account, () => loadProfile(getToken), { recheck: signedIn });
+    void profileStore.loadWithToken(account, getToken, loadProfile, { recheck: signedIn });
   }, [account, getToken]);
 
   useEffect(() => {
@@ -101,7 +99,7 @@ export function useProfile() {
     if (account === null) return;
     const retry = ++retries.current;
     setRetrying(account);
-    void profileStore.load(account, () => loadProfile(getToken), { force: true }).then(() => {
+    void profileStore.loadWithToken(account, getToken, loadProfile, { force: true }).then(() => {
       if (retries.current === retry) setRetrying(null);
     });
   }, [account, getToken]);

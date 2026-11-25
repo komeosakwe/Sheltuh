@@ -177,6 +177,82 @@ describe("createAccountStore", () => {
   });
 });
 
+describe("createAccountStore loadWithToken (a request made with the account's own token)", () => {
+  const token = (value: string) => vi.fn(() => Promise.resolve(value));
+  const someoneElses = () => vi.fn(() => Promise.reject(new AccountMismatchError()));
+  /** A fetcher that answers with the token it was given, once `release` is called. */
+  function held() {
+    const gate = deferred<void>();
+    const fetcher = vi.fn(async (getToken: () => Promise<string>) => {
+      const t = await getToken();
+      await gate.promise;
+      return `${t}'s`;
+    });
+    return { fetcher, release: () => gate.resolve() };
+  }
+
+  it("a stale refetch refused by the token check doesn't overtake the signed-in account's request in flight", async () => {
+    const store = createAccountStore<string>();
+    const b = held();
+    const forB = store.loadWithToken("b", token("b"), b.fetcher);
+    await vi.waitFor(() => expect(b.fetcher).toHaveBeenCalled());
+    // A reader still showing a: its forced refetch, while the session is b's.
+    const stale = vi.fn(() => Promise.resolve("never"));
+    await store.loadWithToken("a", someoneElses(), stale, { force: true });
+    // And a plain load for a, refused the same way, doesn't drop b's either.
+    await store.loadWithToken("a", someoneElses(), stale);
+    expect(stale).not.toHaveBeenCalled();
+    b.release();
+    await forB;
+    expect(store.snapshot()).toMatchObject({ account: "b", value: "b's" });
+  });
+
+  it("a genuine load for another account (its token checks out) still overtakes the last one's", async () => {
+    const store = createAccountStore<string>();
+    const b = held();
+    const forB = store.loadWithToken("b", token("b"), b.fetcher);
+    await vi.waitFor(() => expect(b.fetcher).toHaveBeenCalled());
+    await store.loadWithToken("a", token("a"), async (getToken) => `${await getToken()}'s`);
+    b.release();
+    await forB;
+    expect(store.snapshot()).toMatchObject({ account: "a", value: "a's" });
+  });
+
+  it("asks for no token to join a request in flight or for a fresh answer", async () => {
+    const store = createAccountStore<string>();
+    const first = token("a");
+    const b = held();
+    const loading = store.loadWithToken("a", first, b.fetcher);
+    await vi.waitFor(() => expect(b.fetcher).toHaveBeenCalled());
+    const joining = token("a");
+    const joined = store.loadWithToken("a", joining, b.fetcher);
+    b.release();
+    await Promise.all([loading, joined]);
+    const fresh = token("a");
+    await store.loadWithToken("a", fresh, b.fetcher);
+    expect(joining).not.toHaveBeenCalled();
+    expect(fresh).not.toHaveBeenCalled();
+    expect(b.fetcher).toHaveBeenCalledTimes(1);
+  });
+
+  it("with no session at all the request still goes ahead, so the fetcher reports it; unless a Sign out ran meanwhile", async () => {
+    const store = createAccountStore<string>();
+    const reports = async (getToken: () => Promise<string>) => getToken().catch((err: Error) => `error: ${err.name}`);
+    await store.loadWithToken("a", vi.fn(() => Promise.reject(new SessionExpiredError())), reports);
+    expect(store.snapshot()).toMatchObject({ account: "a", value: "error: SessionExpiredError" });
+
+    store.clear();
+    const pending = deferred<string>();
+    const fetcher = vi.fn(reports);
+    const loading = store.loadWithToken("a", () => pending.promise, fetcher);
+    store.clear();
+    pending.resolve("a");
+    await loading;
+    expect(fetcher).not.toHaveBeenCalled();
+    expect(store.snapshot()).toBeNull();
+  });
+});
+
 describe("createAccountStore with isFailure (a failed check)", () => {
   type Answer = { record: string | null } | { error: string };
   const failed = (value: Answer) => "error" in value;

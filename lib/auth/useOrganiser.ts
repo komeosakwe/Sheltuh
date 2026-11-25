@@ -8,7 +8,7 @@ import { accountKey } from "./account";
 import { createAccountStore } from "./account-store";
 import { isTransientFailure } from "./transient-failure";
 import { useAccountToken } from "./useAccountToken";
-import { AccountMismatchError, useAuth } from "./AuthContext";
+import { useAuth } from "./AuthContext";
 
 interface OrganiserResult {
   /** null = signed in but no application on file yet. */
@@ -23,8 +23,6 @@ async function fetchOrganiser(getToken: GetToken): Promise<OrganiserResult> {
     const organiser = await getMyOrganiser(getToken);
     return { organiser, error: null, transient: false };
   } catch (err) {
-    // The session is someone else's by now: no answer for this account (lib/auth/account-store.ts).
-    if (err instanceof AccountMismatchError) throw err;
     if (err instanceof ApiError && err.status === 404) {
       return { organiser: null, error: null, transient: false };
     }
@@ -70,7 +68,7 @@ const noSnapshot = () => null;
  * A quiet check that fails for a passing reason (offline, a 5xx, a 429) keeps the record it was
  * checking rather than show the error; any other answer (a 401 for an account that's gone) replaces
  * it, and a first load that fails shows its error. Every request is made as the account its answer is kept
- * for (useAccountToken): one made as someone else's session is refused and keeps nothing.
+ * for (useAccountToken, loadWithToken): if the session is someone else's by then, none is made and nothing changes.
  */
 export function useOrganiser() {
   const auth = useAuth();
@@ -85,7 +83,7 @@ export function useOrganiser() {
   const refetch = useCallback(async () => {
     if (!isApiConfigured || account === null) return;
     setRefreshing(true);
-    await organiserStore.load(account, () => fetchOrganiser(getToken), { force: true });
+    await organiserStore.loadWithToken(account, getToken, fetchOrganiser, { force: true });
     setRefreshing(false);
   }, [account, getToken]);
 
@@ -96,7 +94,7 @@ export function useOrganiser() {
     const signedIn = lastAccount.current === null;
     lastAccount.current = account;
     if (!isApiConfigured || account === null) return;
-    void organiserStore.load(account, () => fetchOrganiser(getToken), { recheck: signedIn });
+    void organiserStore.loadWithToken(account, getToken, fetchOrganiser, { recheck: signedIn });
   }, [account, getToken]);
 
   // Their own Sign out: nothing of theirs is kept for whoever uses this browser next.

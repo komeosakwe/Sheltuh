@@ -76,6 +76,8 @@ describe("useOrganiser", () => {
     getMyOrganiser.mockImplementationOnce(() => new Promise((resolve) => (resolveB = resolve)));
     become(B);
     expect(result.current).toMatchObject({ loading: true, organiser: null });
+    // B's request starts once B's token is in hand (lib/auth/account-store.ts loadWithToken).
+    await waitFor(() => expect(getMyOrganiser).toHaveBeenCalledTimes(2));
     await act(async () => resolveB(record("user-b", "pending")));
     expect(result.current).toMatchObject({ loading: false, organiser: { ownerUserId: "user-b", status: "pending" } });
   });
@@ -101,6 +103,7 @@ describe("useOrganiser", () => {
       done = result.current.refetch();
     });
     expect(result.current).toMatchObject({ loading: false, refreshing: true, organiser: { status: "pending" } });
+    await waitFor(() => expect(getMyOrganiser).toHaveBeenCalledTimes(2));
     await act(async () => {
       resolve(record("user-a", "approved"));
       await done;
@@ -139,7 +142,7 @@ describe("useOrganiser", () => {
       getMyOrganiser.mockImplementationOnce(() => new Promise((r) => (resolve = r)));
       const later = hook(A);
       expect(later.result.current).toMatchObject({ loading: false, organiser: { status: "pending" } });
-      expect(getMyOrganiser).toHaveBeenCalledTimes(2);
+      await waitFor(() => expect(getMyOrganiser).toHaveBeenCalledTimes(2));
       await act(async () => resolve(record("user-a", "approved")));
       // Every reader gets the fresher answer.
       expect(later.result.current.organiser?.status).toBe("approved");
@@ -171,11 +174,13 @@ describe("useOrganiser", () => {
     become({ status: "signed-out", signedOutBy: "session", userId: undefined, email: undefined, accessToken: undefined });
     become(A);
     expect(result.current).toMatchObject({ loading: false, organiser: { status: "approved" } });
+    await waitFor(() => expect(getMyOrganiser).toHaveBeenCalledTimes(2));
     await act(async () => resolve(record("user-a", "approved")));
 
     become({ status: "signed-out", signedOutBy: "user", userId: undefined, email: undefined, accessToken: undefined });
     become(A);
     expect(result.current).toMatchObject({ loading: true, organiser: null });
+    await waitFor(() => expect(getMyOrganiser).toHaveBeenCalledTimes(3));
     await act(async () => resolve(record("user-a", "approved")));
     expect(result.current).toMatchObject({ loading: false, organiser: { status: "approved" } });
   });
@@ -244,8 +249,8 @@ describe("useOrganiser", () => {
     await act(async () => {
       await view.result.current.refetch();
     });
-    // B's token was never used for A's record, and A's own record wasn't cleared.
-    expect(getMyOrganiser).toHaveBeenCalledTimes(2);
+    // No request at all was made with B's session for A's record, and A's own record wasn't cleared.
+    expect(getMyOrganiser).toHaveBeenCalledTimes(1);
     expect(view.result.current).toMatchObject({ loading: false, organiser: { ownerUserId: "user-a" }, error: null });
 
     // The page catches up: B's own is asked for (as B), and A's is never shown for B.
@@ -254,5 +259,28 @@ describe("useOrganiser", () => {
     expect(view.result.current).toMatchObject({ loading: true, organiser: null });
     await waitFor(() => expect(view.result.current.organiser?.ownerUserId).toBe("user-b"));
     expect(session.auth.getAccessTokenFor).toHaveBeenLastCalledWith({ userId: "user-b", email: "b@example.com" });
+  });
+
+  it("a stale reader's refetch, refused by the token check, doesn't drop the signed-in account's request in flight", async () => {
+    const session = switchableSession({ userId: "user-b" });
+    let answerB: (value: OrganiserRecord) => void = () => {};
+    getMyOrganiser.mockImplementation(async (getToken: () => Promise<string>) => {
+      await getToken();
+      return new Promise<OrganiserRecord>((resolve) => (answerB = resolve));
+    });
+    const reader = (auth: Partial<AuthContextValue>) =>
+      renderHook(() => useOrganiser(), {
+        wrapper: ({ children }) => <FakeAuthProvider value={fakeAuthValue({ ...auth, ...session.auth })}>{children}</FakeAuthProvider>,
+      });
+    const forB = reader(B);
+    await waitFor(() => expect(getMyOrganiser).toHaveBeenCalledTimes(1));
+    // A part of the page that still shows A (it hasn't re-rendered yet) asks again after a user action.
+    const stale = reader(A);
+    await act(async () => {
+      await stale.result.current.refetch();
+    });
+    expect(getMyOrganiser).toHaveBeenCalledTimes(1);
+    await act(async () => answerB(record("user-b", "approved")));
+    expect(forB.result.current).toMatchObject({ loading: false, organiser: { ownerUserId: "user-b", status: "approved" } });
   });
 });

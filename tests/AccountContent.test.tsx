@@ -540,7 +540,8 @@ describe("AccountContent and the header share the profile", () => {
     );
     // The known profile at once, while it's checked again.
     expect(screen.getByTestId("header-profile")).toHaveTextContent("Mia T.");
-    expect(getMyProfile).toHaveBeenCalledTimes(2);
+    // The check starts once the account's token is in hand (lib/auth/account-store.ts loadWithToken).
+    await waitFor(() => expect(getMyProfile).toHaveBeenCalledTimes(2));
     updateMyProfile.mockResolvedValueOnce({ ...PROFILE, displayName: "Mia Thompson" });
     fireEvent.change(input, { target: { value: "Mia Thompson" } });
     fireEvent.click(screen.getByRole("button", { name: "Save changes" }));

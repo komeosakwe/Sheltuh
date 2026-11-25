@@ -102,10 +102,11 @@ describe("useProfile", () => {
     // B signs in in another tab; this page still says A when its Try again asks for a token.
     session.become({ userId: "user-b" });
     act(() => view.result.current.reload());
-    await waitFor(() => expect(getMyProfile).toHaveBeenCalledTimes(2));
-    await act(async () => {});
-    // B's token never fetched a profile kept as A's, and A's wasn't cleared.
-    expect(view.result.current.state).toEqual({ status: "ready", profile: profile("user-a-token") });
+    await waitFor(() => expect(session.auth.getAccessTokenFor).toHaveBeenCalledTimes(2));
+    // Try again's own "loading" ends without a request: none was made with B's session for A's profile,
+    // and A's wasn't cleared.
+    await waitFor(() => expect(view.result.current.state).toEqual({ status: "ready", profile: profile("user-a-token") }));
+    expect(getMyProfile).toHaveBeenCalledTimes(1);
 
     auth = B;
     view.rerender();
