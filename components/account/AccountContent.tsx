@@ -1,54 +1,23 @@
 "use client";
 
-import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useRef, useState, type FormEvent } from "react";
+import { useState } from "react";
 import DemoNotice from "@/components/DemoNotice";
 import { Button, ButtonLink } from "@/components/ui/Button";
-import { EmptyState, Notice } from "@/components/ui/Section";
-import InitialsAvatar from "@/components/ui/InitialsAvatar";
-import ActionErrorNotice from "@/components/whos-going/ActionErrorNotice";
-import AdultCheckbox, { ADULT_ERROR } from "@/components/whos-going/AdultCheckbox";
-import DisplayNameField from "@/components/whos-going/DisplayNameField";
-import { SESSION_EXPIRED_MESSAGE } from "@/components/whos-going/shared";
-import SuspendedNotice from "@/components/whos-going/SuspendedNotice";
-import { ApiError } from "@/lib/api/client";
-import { saveMyProfile } from "@/lib/api/profiles";
-import type { ProfileRecord } from "@/lib/api/types";
-import { SessionExpiredError, useAuth } from "@/lib/auth/AuthContext";
+import { EmptyState } from "@/components/ui/Section";
+import { useAuth } from "@/lib/auth/AuthContext";
 import { signInMethodsLabel } from "@/lib/auth/oauth";
 import { useOrganiser } from "@/lib/auth/useOrganiser";
 import { useProfile } from "@/lib/auth/useProfile";
-import { endSentence, validateDisplayName } from "@/lib/display-name";
 import { withNext } from "@/lib/safe-next-path";
 import { LoadingState } from "@/components/ui/ProgressLoader";
 import { SUPPORT_EMAIL } from "@/lib/contact";
 import AccountLinks, { EVENTS_ROWS, type AccountEventsRow } from "./AccountLinks";
 import DeleteProfile from "./DeleteProfile";
-import MemberProfileSettings from "./MemberProfileSettings";
+import ProfileCard, { cardHeadingClass, DemoProfileCard, settingsCardClass } from "./ProfileCard";
 
-const pillClass = "w-full sm:w-auto";
 const linkClass = "underline underline-offset-4 hover:decoration-2";
-/** A Settings card (Latte's 1120 Settings frames): a 1px border/subtle outline, radius 16, 24px in, 16px between its parts. */
-const settingsCardClass = "flex min-w-0 flex-col gap-4 rounded-card border border-surface-border bg-card p-6";
-/** A card's title: Heading/H4, 20/28 at every width. */
-const headingClass = "heading-h4 max-md:text-xl max-md:leading-7";
 const RETURN_TO = "/account";
-
-function errorMessage(err: unknown, fallback: string) {
-  if (err instanceof SessionExpiredError) return SESSION_EXPIRED_MESSAGE;
-  if (err instanceof ApiError && err.status >= 400 && err.status < 500) return err.message;
-  return fallback;
-}
-
-/** The profile card's title. */
-function ProfileHeading() {
-  return (
-    <h2 id="member-profile-title" className={headingClass}>
-      Your profile
-    </h2>
-  );
-}
 
 /**
  * /account (Settings), as Latte's 1120 Settings frames lay it out: two columns of cards from
@@ -101,33 +70,17 @@ export default function AccountContent() {
   return (
     <div className="grid gap-6 md:grid-cols-2 md:items-start">
       <div className="flex min-w-0 flex-col gap-6">
-        {state.status === "loading" && (
-          <section className={settingsCardClass} aria-labelledby="member-profile-title">
-            <ProfileHeading />
-            <LoadingState text="Loading your profile…" />
-          </section>
-        )}
-
-        {state.status === "error" && (
-          <section className={settingsCardClass} aria-labelledby="member-profile-title">
-            <ProfileHeading />
-            <div className="flex flex-col items-start gap-3">
-              <Notice tone="danger" role="alert">
-                Couldn&rsquo;t load your profile.
-              </Notice>
-              <Button variant="outline" size="sm" className="min-h-11" onClick={reload}>
-                Try again
-              </Button>
-            </div>
-          </section>
-        )}
-
-        {state.status === "ready" && (
-          <ProfileSection profile={state.profile} deleted={deleted} onSaved={setProfile} getToken={auth.getAccessToken} />
-        )}
+        <ProfileCard
+          state={state}
+          reload={reload}
+          onSaved={setProfile}
+          getToken={auth.getAccessToken}
+          returnTo={RETURN_TO}
+          deleted={deleted}
+        />
 
         <section className={settingsCardClass} aria-labelledby="privacy-title">
-          <h2 id="privacy-title" className={headingClass}>
+          <h2 id="privacy-title" className={cardHeadingClass}>
             Privacy
           </h2>
           <AccountLinks
@@ -151,7 +104,7 @@ export default function AccountContent() {
 
       <div className="flex min-w-0 flex-col gap-6">
         <section className={settingsCardClass} aria-labelledby="sign-in-title">
-          <h2 id="sign-in-title" className={headingClass}>
+          <h2 id="sign-in-title" className={cardHeadingClass}>
             Sign-in
           </h2>
           <p className="body-s min-w-0 text-muted">
@@ -171,7 +124,7 @@ export default function AccountContent() {
 
         {eventsRow && (
           <section className={settingsCardClass} aria-labelledby="events-title">
-            <h2 id="events-title" className={headingClass}>
+            <h2 id="events-title" className={cardHeadingClass}>
               Events
             </h2>
             <AccountLinks
@@ -199,187 +152,7 @@ function DemoAccount() {
       <div className="md:col-span-2">
         <DemoNotice>Accounts aren&rsquo;t available in this demo.</DemoNotice>
       </div>
-      <section className={settingsCardClass} aria-labelledby="member-profile-title">
-        <ProfileHeading />
-        <form className="flex flex-col gap-5" aria-label="Your profile" onSubmit={(e) => e.preventDefault()}>
-          <div className="flex items-center gap-4">
-            <InitialsAvatar name="Mia T." size="field" />
-            <p className="text-sm text-muted">Photo (optional)</p>
-          </div>
-          <DisplayNameField id="account-name" value="Mia T." onChange={() => {}} disabled />
-          <Button type="submit" variant="solid" size="sm" disabled className="min-h-11 self-start">
-            Save changes
-          </Button>
-        </form>
-      </section>
+      <DemoProfileCard />
     </div>
-  );
-}
-
-type ProfileNotice = { kind: "created"; name: string } | { kind: "missing" };
-
-/**
- * The profile card: set one up, edit it, or (once deleted) say so. Creating a
- * profile, deleting it, or finding it gone mid-save (deleted in another tab)
- * swaps the card's content out from under the person, so focus goes to the
- * message that explains the new state.
- */
-function ProfileSection({
-  profile,
-  deleted,
-  onSaved,
-  getToken,
-}: {
-  profile: ProfileRecord | null;
-  deleted: boolean;
-  onSaved: (profile: ProfileRecord | null) => void;
-  getToken: () => Promise<string>;
-}) {
-  const deletedRef = useRef<HTMLDivElement>(null);
-  const [notice, setNotice] = useState<ProfileNotice | null>(null);
-  const noticeRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (deleted) deletedRef.current?.focus();
-  }, [deleted]);
-  useEffect(() => {
-    if (notice) noticeRef.current?.focus();
-  }, [notice]);
-
-  if (deleted) {
-    return (
-      <div ref={deletedRef} tabIndex={-1} className="outline-offset-2">
-        <Notice role="status">
-          Profile deleted.
-        </Notice>
-      </div>
-    );
-  }
-
-  const onMissing = () => {
-    onSaved(null);
-    setNotice({ kind: "missing" });
-  };
-
-  return (
-    // #member-profile: where "Edit your profile" on a member page lands.
-    <section
-      id="member-profile"
-      tabIndex={-1}
-      aria-labelledby="member-profile-title"
-      className={`${settingsCardClass} scroll-mt-24 outline-offset-2`}
-    >
-      <ProfileHeading />
-      {profile ? (
-        <>
-          {notice?.kind === "created" && (
-            <div ref={noticeRef} tabIndex={-1} className="mb-4 outline-offset-2">
-              <Notice role="status">You&rsquo;ll be shown as {endSentence(notice.name)}</Notice>
-            </div>
-          )}
-          {profile.suspended && (
-            <div className="mb-4">
-              <Notice>
-                <SuspendedNotice />
-              </Notice>
-            </div>
-          )}
-          <MemberProfileSettings profile={profile} getToken={getToken} onSaved={onSaved} onMissing={onMissing} />
-        </>
-      ) : (
-        <>
-          <div ref={notice?.kind === "missing" ? noticeRef : undefined} tabIndex={-1} className="outline-offset-2">
-            <p className="text-sm">No profile yet.</p>
-          </div>
-          <div className="mt-4">
-            <CreateProfileForm
-              getToken={getToken}
-              onCreated={(created) => {
-                onSaved(created);
-                setNotice({ kind: "created", name: created.displayName });
-              }}
-            />
-          </div>
-        </>
-      )}
-    </section>
-  );
-}
-
-/** First-time setup from /account: a display name and the 18+ confirmation. Joins no event. */
-function CreateProfileForm({
-  getToken,
-  onCreated,
-}: {
-  getToken: () => Promise<string>;
-  onCreated: (profile: ProfileRecord) => void;
-}) {
-  const [name, setName] = useState("");
-  const [adult, setAdult] = useState(false);
-  const [nameError, setNameError] = useState<string | null>(null);
-  const [adultError, setAdultError] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [saving, setSaving] = useState(false);
-  const nameRef = useRef<HTMLInputElement>(null);
-  const adultRef = useRef<HTMLInputElement>(null);
-
-  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (saving) return;
-    setError(null);
-    const nextNameError = validateDisplayName(name);
-    const nextAdultError = adult ? null : ADULT_ERROR;
-    setNameError(nextNameError);
-    setAdultError(nextAdultError);
-    if (nextNameError || nextAdultError) {
-      (nextNameError ? nameRef : adultRef).current?.focus();
-      return;
-    }
-    setSaving(true);
-    try {
-      onCreated(await saveMyProfile({ displayName: name.trim(), adultConfirmed: true }, getToken));
-    } catch (err) {
-      const fieldErrors = err instanceof ApiError ? err.fieldErrors : undefined;
-      if (fieldErrors?.displayName || fieldErrors?.adultConfirmed) {
-        setNameError(fieldErrors.displayName ?? null);
-        setAdultError(fieldErrors.adultConfirmed ? ADULT_ERROR : null);
-        (fieldErrors.displayName ? nameRef : adultRef).current?.focus();
-      } else {
-        setError(errorMessage(err, "Couldn't create your profile. Try again."));
-      }
-      setSaving(false);
-    }
-  }
-
-  return (
-    <form
-      noValidate
-      aria-label="Create your Who's Going profile"
-      aria-busy={saving}
-      onSubmit={handleSubmit}
-      className="flex flex-col gap-5"
-    >
-      <DisplayNameField id="account-name" value={name} onChange={setName} error={nameError} inputRef={nameRef} />
-      <AdultCheckbox id="account-adult" checked={adult} onChange={setAdult} error={adultError} inputRef={adultRef} />
-      <p id="account-create-consent" className="text-sm leading-5">
-        Shown only on events you join, to signed-in members, with the same name on each.{" "}
-        <Link href="/privacy#whos-going" className={linkClass}>
-          How we handle your information
-        </Link>
-      </p>
-      <div className="flex flex-col items-start gap-3">
-        <Button
-          type="submit"
-          variant="solid"
-          size="lg"
-          busy={saving}
-          aria-describedby="account-create-consent"
-          className={pillClass}
-        >
-          {saving ? "Creating…" : "Create profile"}
-        </Button>
-        {error && <ActionErrorNotice message={error} returnTo={RETURN_TO} />}
-      </div>
-    </form>
   );
 }

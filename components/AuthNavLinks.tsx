@@ -157,7 +157,7 @@ export function MenuAccount({ account }: { account: NavAccount }) {
       <Link
         href={profileHref}
         aria-label={`${shownName}, view profile`}
-        aria-current={profileHref.startsWith("/members/") ? current(profileHref) : undefined}
+        aria-current={current(profileHref)}
         className="flex min-h-16 items-center gap-4 pb-4"
       >
         <AccountAvatar account={account} size="card" />

@@ -18,7 +18,6 @@ import AvatarField from "./AvatarField";
 
 /** The server's limit (profiles.bio), counted in code points like the database. */
 export const MAX_MEMBER_BIO_LENGTH = 200;
-const RETURN_TO = "/account";
 type Field = "displayName" | "bio" | "instagramHandle" | "profileVisible";
 /** In the form's order, so the first error focused is the first one on screen. */
 const FIELD_ORDER: readonly Field[] = ["displayName", "bio", "instagramHandle", "profileVisible"];
@@ -69,12 +68,15 @@ export default function MemberProfileSettings({
   getToken,
   onSaved,
   onMissing,
+  returnTo,
 }: {
   profile: ProfileRecord;
   getToken: GetToken;
   onSaved: (profile: ProfileRecord) => void;
   /** The profile has gone (404, e.g. deleted in another tab). */
   onMissing: () => void;
+  /** Where a "Sign in" after an expired session comes back to: the page showing the card (/account or /profile). */
+  returnTo: string;
 }) {
   const [name, setName] = useState(profile.displayName);
   const [visible, setVisible] = useState(profile.profileVisible ?? false);
@@ -167,7 +169,14 @@ export default function MemberProfileSettings({
 
   return (
     <div className="flex flex-col gap-5">
-      <AvatarField profile={profile} getToken={getToken} onSaved={onSaved} onMissing={onMissing} />
+      {/* The photo's sign-in comes back to the card itself (ProfileCard's #member-profile). */}
+      <AvatarField
+        profile={profile}
+        getToken={getToken}
+        onSaved={onSaved}
+        onMissing={onMissing}
+        returnTo={`${returnTo}#member-profile`}
+      />
 
       <form
         noValidate
@@ -279,7 +288,7 @@ export default function MemberProfileSettings({
           <Button type="submit" variant="solid" size="sm" busy={saving} className="min-h-11">
             {saving ? "Saving…" : "Save changes"}
           </Button>
-          {error && <ActionErrorNotice message={error} returnTo={RETURN_TO} />}
+          {error && <ActionErrorNotice message={error} returnTo={returnTo} />}
           {/* Always mounted so the result is announced when it appears. */}
           <div role="status">{saved && <Notice>{saved}</Notice>}</div>
           {profile.profileVisible && profile.profileId && (

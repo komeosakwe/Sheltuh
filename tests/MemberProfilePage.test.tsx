@@ -206,7 +206,7 @@ describe("/members/[profileId] profile", () => {
     getMemberProfile.mockResolvedValue({ ...MEMBER, isYou: true, canMessage: false });
     renderPage();
     expect(await screen.findByText(/This is how members see you/)).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Edit your profile" })).toHaveAttribute("href", "/account#member-profile");
+    expect(screen.getByRole("link", { name: "Edit your profile" })).toHaveAttribute("href", "/profile");
     expect(screen.queryByRole("button", { name: "Block" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Message" })).toBeNull();
   });

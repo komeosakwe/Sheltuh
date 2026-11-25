@@ -204,7 +204,7 @@ Each subsection compares what's in the repo now with the board, then says what c
 | --- | --- | --- |
 | Identity | avatar (40px round, §4.1), name, line 2 | `flex items-center gap-3 px-2 py-3`. Name: `body-m font-semibold truncate`, from `displayName`, else the email. Line 2: `meta text-muted truncate`. The board's "@latte · 2 upcoming" can't be built: **there's no @handle in the data** (only an optional Instagram handle, which is a different identity and isn't shown). So line 2 is the email when a display name exists, otherwise nothing. Once B1 lands, it becomes "{n} upcoming" (n ≥ 1; nothing at 0). This row isn't a link. |
 | divider | | `my-2 h-px bg-surface-border` |
-| Profile | → `/members/{profileId}` when `profileVisible`, else `/account#member-profile` | row (below) |
+| Profile | → `/members/{profileId}` when `profileVisible` and not suspended (a suspended member's page is a 404), else `/profile` (the account area's Profile page, where it's edited) | row (below); `aria-current` on its own page |
 | My tickets | count on the right | **Owner Q2 (18 Nov):** shown now, linking to today's tickets page (Help's "Where are my tickets?", `/help#where-are-my-tickets`, as /login's "Find my tickets") until the My tickets list (B1) lands. No count until B1. |
 | Saved | → `/saved`. Count: `useFavourites().count`, when `status === "ready"` and above 0 | count `meta text-muted tabular-nums`, a plain number (as drawn), with sr-only ", {n} saved" |
 | Messages | → `/messages`, `CountBadge tone="signal"` from `useUnread()` | as on the header chip; sr ", {n} unread" |

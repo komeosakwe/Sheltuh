@@ -162,7 +162,6 @@ export default function AccountMenu({ account, initial }: { account: NavAccount;
   }
 
   const line2 = profile?.displayName ? auth.email : undefined;
-  const ownPage = profileHref.startsWith("/members/") ? current(profileHref) : undefined;
 
   return (
     <>
@@ -220,7 +219,7 @@ export default function AccountMenu({ account, initial }: { account: NavAccount;
           </div>
           <div aria-hidden="true" className={`mb-2 ${dividerClass}`} />
           <ul className="flex flex-col">
-            {row(profileHref, "Profile", undefined, ownPage)}
+            {row(profileHref, "Profile", undefined, current(profileHref))}
             {row(MY_TICKETS_HREF, "My tickets")}
             {row("/saved", "Saved", <MenuCount count={savedCount} srText={`, ${savedCount} saved`} />, current("/saved"))}
             {row(

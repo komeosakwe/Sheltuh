@@ -56,7 +56,7 @@ const PROFILE: ProfileRecord = {
 
 function renderSettings(profile: ProfileRecord = PROFILE, onSaved = vi.fn(), onMissing = vi.fn()) {
   const getToken = vi.fn().mockResolvedValue("t");
-  render(<MemberProfileSettings profile={profile} getToken={getToken} onSaved={onSaved} onMissing={onMissing} />);
+  render(<MemberProfileSettings profile={profile} getToken={getToken} onSaved={onSaved} onMissing={onMissing} returnTo="/account" />);
   return { onSaved, onMissing, getToken };
 }
 
