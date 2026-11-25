@@ -9,6 +9,7 @@ import {
   authEmailTemplatesReadme,
   buildAuthEmailTemplates,
   EMAIL,
+  FORGOT_PASSWORD_PATH,
   TOKEN,
 } from "@/lib/server/auth-email-templates";
 import { KIT } from "@/lib/server/email-kit";
@@ -23,6 +24,8 @@ const dir = path.join(process.cwd(), AUTH_EMAIL_TEMPLATE_DIR);
 const templates = buildAuthEmailTemplates();
 const committed = (file: string) => readFileSync(path.join(dir, file), "utf8");
 const count = (haystack: string, needle: string) => haystack.split(needle).length - 1;
+const codeTemplates = templates.filter((t) => t.kind === "code");
+const noticeTemplates = templates.filter((t) => t.kind === "notice");
 
 describe("supabase/templates", () => {
   it("matches a fresh render (run scripts/render-auth-email-templates.ts and commit the output)", () => {
@@ -34,10 +37,11 @@ describe("supabase/templates", () => {
     expect(readdirSync(dir).sort()).toEqual([...templates.map((t) => t.file), "README.md"].sort());
   });
 
-  it("covers the two templates the app's code flows use", () => {
-    expect(templates.map((t) => [t.supabaseTemplate, t.file])).toEqual([
-      ["Confirm signup", "confirm-signup.html"],
-      ["Reset password", "reset-password.html"],
+  it("covers the two code templates the app's flows use, and the password-changed security notice", () => {
+    expect(templates.map((t) => [t.section, t.supabaseTemplate, t.kind, t.file])).toEqual([
+      ["Templates", "Confirm signup", "code", "confirm-signup.html"],
+      ["Templates", "Reset password", "code", "reset-password.html"],
+      ["Security", "Password changed", "notice", "password-changed.html"],
     ]);
     const auth = readFileSync(path.join(process.cwd(), "lib/auth/AuthContext.tsx"), "utf8");
     // Codes, typed by the person: signup (with resend) and recovery.
@@ -46,10 +50,18 @@ describe("supabase/templates", () => {
     expect(auth).toContain("resetPasswordForEmail");
     // No flow that would send another Supabase template.
     for (const call of ["signInWithOtp", "reauthenticate", "inviteUserByEmail", "updateUser({ email"]) expect(auth).not.toContain(call);
+    // A password update (the reset, an invitee's first password) is what sends "Password changed".
+    expect(auth).toContain("updateUser({ password");
+  });
+
+  it("lists every template with its subject in the README", () => {
+    const readme = authEmailTemplatesReadme(templates);
+    for (const t of templates) expect(readme).toContain(`\`${t.subject}\` | \`${t.file}\``);
+    expect(readme).toContain("| Security → Password changed |");
   });
 });
 
-describe.each(templates)("$supabaseTemplate", (t) => {
+describe.each(codeTemplates)("$supabaseTemplate (code)", (t) => {
   it("puts the code first in the subject, next to the word code, with nothing html/template would escape", () => {
     expect(t.subject.startsWith(`${TOKEN} is your Sheltüh `)).toBe(true);
     expect(t.subject).toMatch(/ code$/);
@@ -71,10 +83,50 @@ describe.each(templates)("$supabaseTemplate", (t) => {
     expect(t.html).toContain("EXPIRES SOON");
   });
 
-  it("uses only Supabase's Token and Email placeholders, in text, never in a tag", () => {
-    const actions = t.html.match(/\{\{[^}]*\}\}/g) ?? [];
-    expect(new Set(actions)).toEqual(new Set([TOKEN, EMAIL]));
+  it("uses Supabase's Token and Email placeholders only", () => {
+    expect(new Set(t.html.match(/\{\{[^}]*\}\}/g))).toEqual(new Set([TOKEN, EMAIL]));
     expect(count(t.html, EMAIL)).toBe(1);
+  });
+
+  it("says why it came, what to do if it wasn’t them, and that the code expires", () => {
+    expect(t.html).toContain("You’re getting this because someone ");
+    expect(t.html).toContain("If this wasn’t you, ignore this email.");
+    expect(t.html).toContain("This code expires soon.");
+    // Apple Mail would link an 8-digit code as a phone number.
+    expect(t.html).toContain('<meta name="format-detection" content="telephone=no,date=no,address=no">');
+  });
+});
+
+describe.each(noticeTemplates)("$supabaseTemplate (notice)", (t) => {
+  it("has the subject the owner set, and no code anywhere (Supabase gives this template none)", () => {
+    expect(t.subject).toBe("Your Sheltüh password was changed");
+    expect(t.subject).not.toContain("{{");
+    expect(t.html).not.toContain(TOKEN);
+    expect(t.html).not.toContain("EXPIRES SOON");
+    expect(t.html).not.toContain("user-select:all");
+  });
+
+  it("uses only {{ .Email }}, which Supabase's password_changed_notification provides (with SiteURL and Data)", () => {
+    expect(new Set(t.html.match(/\{\{[^}]*\}\}/g))).toEqual(new Set([EMAIL]));
+    expect(t.html).toContain(`The password for your Sheltüh account, ${EMAIL}, was just changed.`);
+  });
+
+  it("tells them what to do if it wasn’t them: reset now, on the app's forgot-password page", () => {
+    expect(existsSync(path.join(process.cwd(), "app", FORGOT_PASSWORD_PATH, "page.tsx"))).toBe(true);
+    const reset = `${AUTH_EMAIL_SITE_URL}${FORGOT_PASSWORD_PATH}`;
+    expect(reset).toBe("https://sheltuh.com.au/forgot-password");
+    expect(t.html).toContain("If this wasn’t you,");
+    expect(t.html).toMatch(new RegExp(`<a href="${reset}"[^>]*>reset your password now</a>`));
+    expect(t.html).toMatch(new RegExp(`<a[^>]* href="${reset}"[^>]*>Reset your password`));
+    expect(t.html).toContain("If you reset it or set it up from an invite, there’s nothing to do.");
+    expect(t.html).toContain("You’re getting this security notice because the password on your Sheltüh account changed.");
+  });
+});
+
+describe.each(templates)("$supabaseTemplate", (t) => {
+  it("puts placeholders in text only, never in a tag, with no other template delimiters", () => {
+    const actions = t.html.match(/\{\{[^}]*\}\}/g) ?? [];
+    expect(actions.length).toBeGreaterThan(0);
     // No other Go template delimiters anywhere (a stray one is a parse error, or worse, an action).
     expect(count(t.html, "{{")).toBe(actions.length);
     expect(count(t.html, "}}")).toBe(actions.length);
@@ -101,16 +153,12 @@ describe.each(templates)("$supabaseTemplate", (t) => {
     expect(readFileSync(path.join(process.cwd(), "public", AUTH_EMAIL_WORDMARK_PATH)).toString("base64")).toBe(TICKET_EMAIL_WORDMARK.pngBase64);
   });
 
-  it("says why it came, what to do if it wasn’t them, that the code expires, and where help is", () => {
-    expect(t.html).toContain("You’re getting this because someone ");
-    expect(t.html).toContain(`${EMAIL}`);
-    expect(t.html).toContain("If this wasn’t you, ignore this email.");
-    expect(t.html).toContain("This code expires soon.");
+  it("has the kit's help line, footer links, language and light-only scheme", () => {
+    expect(t.subject).not.toMatch(/['"<>&+]/);
+    expect(t.html).toContain("You’re getting this ");
     expect(t.html).toContain(`mailto:${SUPPORT_EMAIL}`);
     expect(t.html).toContain(`${AUTH_EMAIL_SITE_URL}/privacy`);
     expect(t.html).toContain('<html lang="en-AU"');
     expect(t.html).toContain('<meta name="color-scheme" content="light">');
-    // Apple Mail would link an 8-digit code as a phone number.
-    expect(t.html).toContain('<meta name="format-detection" content="telephone=no,date=no,address=no">');
   });
 });

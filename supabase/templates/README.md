@@ -6,15 +6,18 @@ hand: change the copy or the kit, run `node --import tsx
 scripts/render-auth-email-templates.ts`, and commit the output
 (`tests/server/auth-email-templates.test.ts` fails while a file is stale).
 
-Paste each into Supabase → Authentication → Emails → Templates: the subject
-into "Subject", the whole file into "Message body" (Source). Keep
-`{{ .Token }}` and `{{ .Email }}` exactly as they are.
+Paste each into Supabase → Authentication → Emails → Templates (the
+"Security" ones under its Security notifications): the subject into
+"Subject", the whole file into "Message body" (Source). Keep `{{ .Token }}`
+and `{{ .Email }}` exactly as they are.
 
 | Supabase template | Subject | File |
 | --- | --- | --- |
 | Confirm signup | `{{ .Token }} is your Sheltüh code` | `confirm-signup.html` |
 | Reset password | `{{ .Token }} is your Sheltüh reset code` | `reset-password.html` |
+| Security → Password changed | `Your Sheltüh password was changed` | `password-changed.html` |
 
 The app sends no other Supabase Auth email (no magic link, email change,
 reauthentication or Supabase invite), so the other templates stay as they
-are. Steps and caveats: `docs/supabase-setup.md`, "Auth settings".
+are. "Email address changed" (Security) can't fire: there's no account
+email change. Steps and caveats: `docs/supabase-setup.md`, "Auth settings".

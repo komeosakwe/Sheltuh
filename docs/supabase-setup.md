@@ -55,8 +55,9 @@ email, rather than click a link. Supabase sends links by default, so:
   confirmation off anyone could sign up with an invited address and accept
   the invite.
 - **Emails → Templates:** the app uses two of Supabase's emails, both a code
-  (`{{ .Token }}`), never a link. Their branded versions, on the same email
-  kit as every other Sheltüh email, are committed in `supabase/templates/`.
+  (`{{ .Token }}`), never a link, and one of its Security notifications,
+  "Password changed". Their branded versions, on the same email kit as every
+  other Sheltüh email, are committed in `supabase/templates/`.
   For each, paste the subject into "Subject" and the whole file into
   "Message body" (the Source view), then save:
 
@@ -64,9 +65,20 @@ email, rather than click a link. Supabase sends links by default, so:
   | --- | --- | --- |
   | Confirm signup | `{{ .Token }} is your Sheltüh code` | `supabase/templates/confirm-signup.html` |
   | Reset password | `{{ .Token }} is your Sheltüh reset code` | `supabase/templates/reset-password.html` |
+  | Security → Password changed | `Your Sheltüh password was changed` | `supabase/templates/password-changed.html` |
 
   Leave Magic link, Change email address and Reauthentication alone: the app
   never sends them. Things to know:
+  - **Security notifications:** "Password changed" goes out after every
+    password update while it's switched on: after a reset, and also when
+    someone accepting an invite sets their first password (its copy covers
+    both). Supabase gives it no time, so it says "was just changed" and the
+    email's own time shows when. Its "If this wasn't you" link and button go
+    to `https://sheltuh.com.au/forgot-password`. "Email address changed" can
+    stay on or off: it can't fire, because the app has no way to change an
+    account's email (nothing calls `updateUser` with an email), so there's no
+    branded version of it. If an email change is ever added, it needs one
+    (and the "Change email address" template).
   - Copy `{{ .Token }}` and `{{ .Email }}` exactly. Supabase fills in the
     subject and the body (Go's `html/template`), so the code can sit in the
     subject.

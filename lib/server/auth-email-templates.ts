@@ -1,4 +1,4 @@
-import { kitFooter, kitHeader, kitHelp, kitIntro, KIT, kitPage, kitStack, kitText, kitType } from "./email-kit";
+import { kitButtons, kitFooter, kitHeader, kitHelp, kitIntro, KIT, kitLink, kitPage, kitStack, kitText, kitType } from "./email-kit";
 import { escapeHtml, WORDMARK_CID } from "./email-layout";
 
 /**
@@ -9,15 +9,18 @@ import { escapeHtml, WORDMARK_CID } from "./email-layout";
  * supabase/templates/; tests/server/auth-email-templates.test.ts fails when
  * a committed file is stale.
  *
- * The app uses two: "Confirm signup" (signUp and "Resend code") and "Reset
- * password" (resetPasswordForEmail), each a code the person types
- * (verifyOtp), so each body carries `{{ .Token }}`, never a link. Nothing
- * here sends Magic link, Change email address, Reauthentication or Invite
- * user (lib/auth/AuthContext.tsx; invites are our own email).
+ * The app uses two code emails: "Confirm signup" (signUp and "Resend code")
+ * and "Reset password" (resetPasswordForEmail), each a code the person types
+ * (verifyOtp), so each body carries `{{ .Token }}`, never a link. And one
+ * Security notification, "Password changed", which follows any password
+ * update (a reset, or an invitee's first password). Nothing here sends Magic
+ * link, Change email address, Reauthentication or Invite user, and with no
+ * account email change the "Email address changed" notification can't fire
+ * (lib/auth/AuthContext.tsx; invites are our own email).
  *
  * Supabase renders the subject and body with Go's html/template, which
  * changes what can go in them:
- * - The only actions are `{{ .Token }}` and `{{ .Email }}`, in text only
+ * - The only actions are `{{ .Token }}` (code emails) and `{{ .Email }}`, in text only
  *   (never an attribute), so its escaping can't change a URL or a style.
  *   Plain text passes through `escapeHtml`, which leaves them alone.
  * - It drops HTML comments, so the page's Outlook conditional comments are
@@ -93,7 +96,7 @@ function codeStub(label: string): string {
   );
 }
 
-interface AuthEmailCopy {
+interface CodeEmailCopy {
   /** Supabase's name for the template. */
   supabaseTemplate: string;
   /** The committed file's name under AUTH_EMAIL_TEMPLATE_DIR. */
@@ -115,7 +118,7 @@ interface AuthEmailCopy {
   reason: string;
 }
 
-const COPY: ReadonlyArray<AuthEmailCopy> = [
+const CODE_EMAILS: ReadonlyArray<CodeEmailCopy> = [
   {
     supabaseTemplate: "Confirm signup",
     file: "confirm-signup.html",
@@ -147,24 +150,37 @@ const COPY: ReadonlyArray<AuthEmailCopy> = [
 ];
 
 export interface AuthEmailTemplate {
+  /** Supabase's name for the template. */
   supabaseTemplate: string;
+  /** Where it is under Authentication → Emails → Templates: the main list, or the Security notifications. */
+  section: "Templates" | "Security";
+  /** "code": carries `{{ .Token }}` in its subject and body. "notice": no code. */
+  kind: "code" | "notice";
   file: string;
   subject: string;
   html: string;
 }
+
+/** The forgot-password page (app/forgot-password), from the security notice. */
+export const FORGOT_PASSWORD_PATH = "/forgot-password";
 
 /** Go's html/template drops HTML comments, so take out the kit's Outlook-only ones rather than commit markup Supabase never sends. */
 function withoutComments(html: string): string {
   return html.replace(/<!--\[if mso\]>[\s\S]*?<!\[endif\]-->\n?/g, "");
 }
 
-function render(c: AuthEmailCopy, siteUrl: string): string {
-  const html = kitPage({
+/** The page around `body`: the kit page, without comments, with the hosted wordmark. */
+function page(input: { title: string; preheader: string; siteUrl: string; body: string }): string {
+  const html = kitPage({ ...input, tone: "customer", head: HEAD });
+  const wordmark = `${input.siteUrl.replace(/\/+$/, "")}${AUTH_EMAIL_WORDMARK_PATH}`;
+  return withoutComments(html).replaceAll(`cid:${WORDMARK_CID}`, escapeHtml(wordmark));
+}
+
+function renderCode(c: CodeEmailCopy, siteUrl: string): string {
+  return page({
     title: c.title,
     preheader: c.preheader,
     siteUrl,
-    tone: "customer",
-    head: HEAD,
     body: kitStack([
       kitHeader(),
       kitIntro(c.eyebrow, c.heading),
@@ -180,18 +196,69 @@ function render(c: AuthEmailCopy, siteUrl: string): string {
       kitFooter({ siteUrl, tone: "customer", reason: c.reason }),
     ]),
   });
-  const wordmark = `${siteUrl.replace(/\/+$/, "")}${AUTH_EMAIL_WORDMARK_PATH}`;
-  return withoutComments(html).replaceAll(`cid:${WORDMARK_CID}`, escapeHtml(wordmark));
+}
+
+/**
+ * Security → "Password changed" (Supabase's `password_changed_notification`):
+ * sent after every password update while that notification is on, so after
+ * a reset and also when an invitee sets their first password
+ * (setNewPassword). Supabase gives it only SiteURL, Email and Data (no time:
+ * the email's own sent time is when it happened), so it uses `{{ .Email }}`
+ * alone. A notice: no code, and a button to the forgot-password page.
+ */
+function renderPasswordChanged(siteUrl: string): string {
+  const reset = new URL(FORGOT_PASSWORD_PATH, siteUrl).href;
+  return page({
+    title: "Your Sheltüh password was changed",
+    preheader: "If this wasn’t you, reset your password now.",
+    siteUrl,
+    body: kitStack([
+      kitHeader(),
+      kitIntro("Account security", "Your password was changed"),
+      kitStack(
+        [
+          kitText(`The password for your Sheltüh account, ${EMAIL}, was just changed.`),
+          kitText(escapeHtml("If you reset it or set it up from an invite, there’s nothing to do.")),
+          kitText(
+            `<strong style="font-weight:600">If this wasn’t you,</strong> ${kitLink(reset, "reset your password now")}.`,
+          ),
+          kitButtons([{ label: "Reset your password", href: reset, kind: "primary" }]),
+        ],
+        24,
+      ),
+      kitHelp("customer"),
+      kitFooter({ siteUrl, tone: "customer", reason: "You’re getting this security notice because the password on your Sheltüh account changed." }),
+    ]),
+  });
 }
 
 /** Every Supabase Auth template the app uses, rendered for `siteUrl` (the production origin by default). */
 export function buildAuthEmailTemplates(siteUrl: string = AUTH_EMAIL_SITE_URL): AuthEmailTemplate[] {
-  return COPY.map((c) => ({ supabaseTemplate: c.supabaseTemplate, file: c.file, subject: c.subject, html: render(c, siteUrl) }));
+  return [
+    ...CODE_EMAILS.map((c): AuthEmailTemplate => ({
+      supabaseTemplate: c.supabaseTemplate,
+      section: "Templates",
+      kind: "code",
+      file: c.file,
+      subject: c.subject,
+      html: renderCode(c, siteUrl),
+    })),
+    {
+      supabaseTemplate: "Password changed",
+      section: "Security",
+      kind: "notice",
+      file: "password-changed.html",
+      subject: "Your Sheltüh password was changed",
+      html: renderPasswordChanged(siteUrl),
+    },
+  ];
 }
 
 /** supabase/templates/README.md: what to paste where. */
 export function authEmailTemplatesReadme(templates: ReadonlyArray<AuthEmailTemplate> = buildAuthEmailTemplates()): string {
-  const rows = templates.map((t) => `| ${t.supabaseTemplate} | \`${t.subject}\` | \`${t.file}\` |`).join("\n");
+  const rows = templates
+    .map((t) => `| ${t.section === "Security" ? `Security → ${t.supabaseTemplate}` : t.supabaseTemplate} | \`${t.subject}\` | \`${t.file}\` |`)
+    .join("\n");
   return `# Supabase Auth email templates
 
 Generated by \`scripts/render-auth-email-templates.ts\` from
@@ -200,9 +267,10 @@ hand: change the copy or the kit, run \`node --import tsx
 scripts/render-auth-email-templates.ts\`, and commit the output
 (\`tests/server/auth-email-templates.test.ts\` fails while a file is stale).
 
-Paste each into Supabase → Authentication → Emails → Templates: the subject
-into "Subject", the whole file into "Message body" (Source). Keep
-\`{{ .Token }}\` and \`{{ .Email }}\` exactly as they are.
+Paste each into Supabase → Authentication → Emails → Templates (the
+"Security" ones under its Security notifications): the subject into
+"Subject", the whole file into "Message body" (Source). Keep \`{{ .Token }}\`
+and \`{{ .Email }}\` exactly as they are.
 
 | Supabase template | Subject | File |
 | --- | --- | --- |
@@ -210,6 +278,7 @@ ${rows}
 
 The app sends no other Supabase Auth email (no magic link, email change,
 reauthentication or Supabase invite), so the other templates stay as they
-are. Steps and caveats: \`docs/supabase-setup.md\`, "Auth settings".
+are. "Email address changed" (Security) can't fire: there's no account
+email change. Steps and caveats: \`docs/supabase-setup.md\`, "Auth settings".
 `;
 }
