@@ -1,4 +1,4 @@
--- Reserved seating, part 1: seat maps (docs/SEATING_PLAN.md, docs/architecture.md
+-- Reserved seating, part 1: seat maps (docs/architecture.md
 -- "Reserved seating"). Part 2 (20261101000100_seat_holds.sql) adds holds,
 -- sales, and the checkout, fulfilment, refund and check-in changes.
 --

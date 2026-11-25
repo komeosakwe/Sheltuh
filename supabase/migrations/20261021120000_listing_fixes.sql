@@ -1,4 +1,4 @@
--- Listing fixes (docs/FEATURE_PLAN.md, B1).
+-- Listing fixes (B1).
 --
 -- 1. events.is_free means "has ticket types, and every one is free". It was
 --    `not exists (a paid ticket type)`, which is also true for an event with

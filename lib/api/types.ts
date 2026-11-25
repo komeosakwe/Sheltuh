@@ -3313,7 +3313,7 @@ export interface UnsubscribeFollowResult {
 export const CHECKOUT_PAY_MINUTES = 15;
 
 /**
- * Seat holds (docs/SEATING_PLAN.md). The buyer is told `stripeMinutes`: the
+ * Seat holds. The buyer is told `stripeMinutes`: the
  * time to pay, CHECKOUT_PAY_MINUTES (the name is older than the pay
  * deadline: Stripe's own session now outlasts it). The seats stay held
  * `holdMinutes`, a buffer after the deadline for a payment made at the last

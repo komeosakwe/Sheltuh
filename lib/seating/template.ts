@@ -34,7 +34,7 @@ export const ROW_PITCH = 32;
 
 /** At most this many seats in one map (the database checks it too). */
 export const MAX_SEATS_PER_MAP = 10_000;
-/** At most this many seats in one order (decision 4, docs/SEATING_PLAN.md). */
+/** At most this many seats in one order (decision 4 of the owner's seating plan, private). */
 export const MAX_SEATS_PER_ORDER = 10;
 export const MAX_SECTIONS = 100;
 export const MAX_ROWS_PER_SECTION = 200;

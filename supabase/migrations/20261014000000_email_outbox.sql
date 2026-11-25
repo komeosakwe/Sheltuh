@@ -1,4 +1,4 @@
--- Reliable ticket email (docs/REMEDIATION_PLAN.md, fix 2).
+-- Reliable ticket email.
 --
 -- Until now the ticket email was sent once, best-effort, straight after an
 -- order was paid; a failure was logged and never retried. Now:

@@ -15,8 +15,8 @@ marketplace.
 - **More:**
   - [`docs/architecture.md`](docs/architecture.md): data model, API and
     payment flow.
-  - [`docs/PROJECT_CONTEXT.md`](docs/PROJECT_CONTEXT.md): business, legal
-    and roadmap context.
+  - [`docs/PROJECT_CONTEXT.md`](docs/PROJECT_CONTEXT.md): product rules,
+    stack and working style.
 
 ## What's built
 

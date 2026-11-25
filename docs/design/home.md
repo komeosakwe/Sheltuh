@@ -23,7 +23,7 @@ Status: proposed · Owner: ui-design-director · Scope: `/` from 320px up.
 
 This replaces the split home: `PhoneHome` below `sm` plus the desktop tree (`IntentHero`, `EventPreview`, `WhatElse`, `PartnerBand`) from `sm`. One tree generalises the phone home: rails below `sm`, grids from `sm`, and "Up next" inside the hero from `lg`. It builds on `docs/design/mobile-home.md`. Below 640px nothing changes except what this spec says.
 
-**Code read:** `app/page.tsx`, `app/layout.tsx`, `app/globals.css`, `components/home/phone/*`, `IntentHero`, `EventPreview`, `HomeSections`, `EventResults`, `EventArt`, `DemoNotice`, `ui/{EventTile,Carousel,Section}`, `lib/{home-sections,home-events,types,pricing,format,scene-map-filters}.ts`, `lib/api/public-events.ts`, `lib/server/handlers/public-events.ts`, `lib/server/pagination.ts`, `tests/{phone-home-tokens,PhoneHome,PhoneEventSections}.test.*`, `docs/FEATURE_PLAN.md`, `docs/design-system.md`, `docs/design/mobile.md`, `docs/design/mobile-home.md`.
+**Code read:** `app/page.tsx`, `app/layout.tsx`, `app/globals.css`, `components/home/phone/*`, `IntentHero`, `EventPreview`, `HomeSections`, `EventResults`, `EventArt`, `DemoNotice`, `ui/{EventTile,Carousel,Section}`, `lib/{home-sections,home-events,types,pricing,format,scene-map-filters}.ts`, `lib/api/public-events.ts`, `lib/server/handlers/public-events.ts`, `lib/server/pagination.ts`, `tests/{phone-home-tokens,PhoneHome,PhoneEventSections}.test.*`, `docs/design-system.md`, `docs/design/mobile.md`, `docs/design/mobile-home.md`.
 
 **Facts that shape this spec:**
 - **`upcoming=1` exists on the server** (`ends_at > now()`), but `lib/home-events.ts` doesn't send it. It pages 3×10 with no `limit`, although the server default is 20 (max 50).

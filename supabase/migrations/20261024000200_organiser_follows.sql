@@ -1,6 +1,6 @@
 -- Organiser follows, "events hosted" and the featured video
 -- (docs/architecture.md, "Following organisers" and "Organiser profiles";
--- owner request 21 Oct 2026, docs/FEATURE_PLAN.md).
+-- owner request 21 Oct 2026).
 --
 --   * public.organiser_follows: a verified member follows an approved
 --     organiser (one row per pair; keyed on the account, like favourites).

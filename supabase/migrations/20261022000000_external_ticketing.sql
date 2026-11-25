@@ -1,4 +1,4 @@
--- External ticketing (docs/FEATURE_PLAN.md, B2; docs/architecture.md,
+-- External ticketing (B2; docs/architecture.md,
 -- "External ticketing"): an event whose tickets are sold on another site,
 -- which Sheltüh lists and links to.
 --

@@ -1,6 +1,6 @@
 # Reserved seating: design spec
 
-Status: proposed · Owner: ui-design-director · Scope: the seated-event panel on the event page, `/events/[slug]/seats`, the seated checkout's cancelled page, seat lines on the ticket stub, email and door, the organiser seat-map editor and the admin preview. Behaviour, data and decisions come from `docs/SEATING_PLAN.md` (final). Tokens, type, shapes and the orange budget come from `docs/design/brand-direction-one.md` (BD1), which wins on anything visual. Door colours stay as in `check-in.md`.
+Status: proposed · Owner: ui-design-director · Scope: the seated-event panel on the event page, `/events/[slug]/seats`, the seated checkout's cancelled page, seat lines on the ticket stub, email and door, the organiser seat-map editor and the admin preview. Behaviour, data and decisions come from the owner's seating plan (private; built as `docs/architecture.md`, "Reserved seating"). Tokens, type, shapes and the orange budget come from `docs/design/brand-direction-one.md` (BD1), which wins on anything visual. Door colours stay as in `check-in.md`.
 
 **Code read:** `app/globals.css`, `components/TicketSelector.tsx`, `components/EventDetailsView.tsx`, `components/tickets/TicketStub.tsx`, `components/check-in/ResultPanel.tsx`, `components/ui/{FilterChip,Section}.tsx`, `lib/pricing.ts`, `lib/types.ts` (`TicketType`), `lib/server/handlers/orders.ts` (`cancel_url`), `docs/design/check-in.md` §5.A8.
 

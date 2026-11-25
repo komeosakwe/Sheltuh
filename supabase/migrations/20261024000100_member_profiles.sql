@@ -1,5 +1,5 @@
 -- Member profiles and profile photos (docs/architecture.md, "Member
--- profiles"; owner request 21 Oct 2026, docs/FEATURE_PLAN.md).
+-- profiles"; owner request 21 Oct 2026).
 --
 --   * public.profiles gains:
 --       - public_id: an opaque, random id for the profile's URL

@@ -4,7 +4,7 @@ Status: built (see §8 for where the build differs) · Owner: ui-design-director
 nav entry. Part 2 `/dashboard/analytics` and `/dashboard/events/[id]/analytics`, including tracking links.
 Desktop and phone (320+).
 
-**Code read:** `docs/design-system.md`, `docs/design/{mobile,mobile-home,whos-going}.md`, `docs/ROADMAP.md`,
+**Code read:** `docs/design-system.md`, `docs/design/{mobile,mobile-home,whos-going}.md`,
 `app/globals.css`, `components/ui/{EventTile,Section,Button,Field,Carousel}.tsx`,
 `components/home/phone/{HomeEventCard,FeaturedEventCard,GoingStack}.tsx`, `EventDetailsView.tsx`,
 `EventResults.tsx`, `Nav.tsx`, `AuthNavLinks.tsx`, `DemoNotice.tsx`, `EventArt.tsx`, `components/dashboard/*`,

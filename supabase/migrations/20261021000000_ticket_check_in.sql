@@ -1,4 +1,4 @@
--- Ticket check-in at the door (QR check-in plan, step B1; docs/REMEDIATION_PLAN.md, Fix 3).
+-- Ticket check-in at the door (QR check-in plan, step B1).
 --
 -- An organiser scans (or types) a ticket code for one of their events. The
 -- API (lib/server/handlers/check-ins.ts) calls private.check_in_ticket, which

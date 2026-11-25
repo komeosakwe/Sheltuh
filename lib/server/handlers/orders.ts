@@ -1153,7 +1153,7 @@ export const stripeWebhook: Handler = async (req, _params, deps) => {
 // ---------------------------------------------------------------------------
 
 /**
- * Seat holds (docs/SEATING_PLAN.md decisions 1 and 5): SEAT_HOLD.holdMinutes
+ * Seat holds (decisions 1 and 5 of the owner's seating plan, private): SEAT_HOLD.holdMinutes
  * (20), five minutes past the checkout's pay deadline (CHECKOUT_PAY_MINUTES,
  * 15, which is what the buyer is told), when the seats are released anyway;
  * Stripe's own session expires at 31 minutes (its minimum is 30), an outer
