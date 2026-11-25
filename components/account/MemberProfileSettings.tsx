@@ -8,6 +8,7 @@ import { Notice } from "@/components/ui/Section";
 import ActionErrorNotice from "@/components/whos-going/ActionErrorNotice";
 import DisplayNameField from "@/components/whos-going/DisplayNameField";
 import { SESSION_EXPIRED_MESSAGE } from "@/components/whos-going/shared";
+import { ownMemberPageHref } from "@/components/nav/useNavAccount";
 import { ApiError, type GetToken } from "@/lib/api/client";
 import { updateMyProfile } from "@/lib/api/profiles";
 import type { ProfilePatchInput, ProfileRecord } from "@/lib/api/types";
@@ -69,6 +70,7 @@ export default function MemberProfileSettings({
   onSaved,
   onMissing,
   returnTo,
+  showMemberPageLink = true,
 }: {
   profile: ProfileRecord;
   getToken: GetToken;
@@ -77,6 +79,8 @@ export default function MemberProfileSettings({
   onMissing: () => void;
   /** Where a "Sign in" after an expired session comes back to: the page showing the card (/account or /profile). */
   returnTo: string;
+  /** "See your profile as members see it" once they can: off on /profile, whose head has its own link. */
+  showMemberPageLink?: boolean;
 }) {
   const [name, setName] = useState(profile.displayName);
   const [visible, setVisible] = useState(profile.profileVisible ?? false);
@@ -163,6 +167,7 @@ export default function MemberProfileSettings({
     return <p className="text-sm text-muted">Suspended profiles can&rsquo;t be changed or shown to other members.</p>;
   }
 
+  const memberPageHref = ownMemberPageHref(profile);
   const bioLeft = MAX_MEMBER_BIO_LENGTH - length(bio);
   const describedBy = (field: Field, ...notes: string[]) =>
     [...notes, errors[field] ? `${fieldId(field)}-error` : null].filter(Boolean).join(" ") || undefined;
@@ -291,9 +296,9 @@ export default function MemberProfileSettings({
           {error && <ActionErrorNotice message={error} returnTo={returnTo} />}
           {/* Always mounted so the result is announced when it appears. */}
           <div role="status">{saved && <Notice>{saved}</Notice>}</div>
-          {profile.profileVisible && profile.profileId && (
+          {showMemberPageLink && memberPageHref && (
             <Link
-              href={`/members/${encodeURIComponent(profile.profileId)}`}
+              href={memberPageHref}
               className="inline-flex min-h-11 items-center text-sm underline underline-offset-4 hover:decoration-2"
             >
               See your profile as members see it

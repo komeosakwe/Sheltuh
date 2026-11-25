@@ -291,6 +291,26 @@ describe("avatar menu (from lg)", () => {
     expect(within(drawer).getByRole("link", { name: "Latte, view profile", hidden: true })).toHaveAttribute("href", "/profile");
   });
 
+  it("on /profile with a visible profile (Profile goes to the member page): Profile and the identity are the location", () => {
+    pathname = "/profile";
+    const { drawer, panel } = renderNav();
+    const row = within(requirePanel(panel)).getByRole("link", { name: "Profile", hidden: true });
+    expect(row).toHaveAttribute("href", "/members/p-latte");
+    expect(row).toHaveAttribute("aria-current", "location");
+    expect(row.querySelector(".umlaut")).toHaveAttribute("data-current", "");
+    expect(screen.getByRole("button", { name: "Account" })).toHaveAttribute("data-current", "");
+    const identity = within(drawer).getByRole("link", { name: "Latte, view profile", hidden: true });
+    expect(identity).toHaveAttribute("href", "/members/p-latte");
+    expect(identity).toHaveAttribute("aria-current", "location");
+  });
+
+  it("on the member page itself, Profile is the page", () => {
+    pathname = "/members/p-latte";
+    const { drawer, panel } = renderNav();
+    expect(within(requirePanel(panel)).getByRole("link", { name: "Profile", hidden: true })).toHaveAttribute("aria-current", "page");
+    expect(within(drawer).getByRole("link", { name: "Latte, view profile", hidden: true })).toHaveAttribute("aria-current", "page");
+  });
+
   it("marks Profile and the avatar current on /profile", () => {
     pathname = "/profile";
     profileState = { status: "ready", profile: null };

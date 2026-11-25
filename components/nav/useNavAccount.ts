@@ -48,6 +48,11 @@ export interface NavAccount {
   profile: ProfileRecord | null | undefined;
   /** The member page when other members can open it (ownMemberPageHref), else /profile, where it's edited. */
   profileHref: string;
+  /**
+   * aria-current for a Profile link: "page" on its own page; "location" on /profile when the link goes to
+   * the member page instead (as the account tabs mark it, useAccountNav).
+   */
+  profileCurrent: "page" | "location" | undefined;
   /** The display name, else the email: what the identity rows show first. */
   name: string;
   /** Organisers and applicants (or when that couldn't be told, as /account decides) get Your events. */
@@ -111,6 +116,7 @@ function useLoadNavAccount(): NavAccount {
     savedCount,
     profile,
     profileHref,
+    profileCurrent: current(profileHref) ?? (current(PROFILE_HREF) ? "location" : undefined),
     name: profile?.displayName || auth.email || "Your account",
     showEvents: !organiser.loading && (organiser.organiser !== null || organiser.error !== null),
     avatarCurrent: AVATAR_MENU_PAGES.some((href) => current(href) === "page") || current(profileHref) === "page",

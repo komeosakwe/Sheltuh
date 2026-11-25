@@ -14,9 +14,8 @@ import { LoadingState } from "@/components/ui/ProgressLoader";
 import { SUPPORT_EMAIL } from "@/lib/contact";
 import AccountLinks, { EVENTS_ROWS, type AccountEventsRow } from "./AccountLinks";
 import DeleteProfile from "./DeleteProfile";
-import ProfileCard, { cardHeadingClass, DemoProfileCard, settingsCardClass } from "./ProfileCard";
+import ProfileCard, { cardHeadingClass, DemoProfileCard, linkClass, settingsCardClass } from "./ProfileCard";
 
-const linkClass = "underline underline-offset-4 hover:decoration-2";
 const RETURN_TO = "/account";
 
 /**

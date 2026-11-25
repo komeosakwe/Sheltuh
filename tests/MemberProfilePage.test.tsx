@@ -112,7 +112,7 @@ describe("/members/[profileId] gate", () => {
     getMyProfile.mockRejectedValue(new ApiError(404, "No profile."));
     renderPage();
     expect(await screen.findByRole("heading", { level: 1, name: "Create a profile to see member profiles" })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Create your profile" })).toHaveAttribute("href", "/account");
+    expect(screen.getByRole("link", { name: "Create your profile" })).toHaveAttribute("href", "/profile");
     expect(getMemberProfile).not.toHaveBeenCalled();
   });
 

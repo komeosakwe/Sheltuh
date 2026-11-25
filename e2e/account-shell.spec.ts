@@ -152,6 +152,12 @@ test.describe("account area at 1440px", () => {
     await expect(page.getByRole("heading", { level: 1, name: "Profile" })).toBeVisible();
     await expect(page.getByRole("form", { name: "Your profile" }).getByLabel("Display name")).toHaveValue("Latte");
     await expect(page.getByRole("link", { name: "See your public profile" })).toHaveAttribute("href", "/members/p1");
+    // One link to the member page: the card doesn't repeat the head's.
+    await expect(page.getByRole("link", { name: "See your profile as members see it" })).toHaveCount(0);
+    // The head keeps to the card's column, so the link sits over the card's right edge.
+    const linkBox = await page.getByRole("link", { name: "See your public profile" }).boundingBox();
+    const cardBox = await page.getByRole("region", { name: "Your profile" }).boundingBox();
+    expect(Math.round((linkBox?.x ?? 0) + (linkBox?.width ?? 0))).toBe(Math.round((cardBox?.x ?? 0) + (cardBox?.width ?? 0)));
     await noSidewaysScroll(page);
     await shot(page, "account-shell-profile-1440");
   });
@@ -223,5 +229,22 @@ test.describe("account area at 390px", () => {
     await expect(page.getByRole("region", { name: "Sign-in" })).toHaveCount(0);
     await noSidewaysScroll(page);
     await shot(page, "account-shell-profile-390");
+  });
+
+  test("a visible profile on /profile: Profile is the location (it links to the member page), one public-profile link", async ({
+    page,
+  }) => {
+    await signedIn(page, { profileVisible: true });
+    await page.goto("/profile");
+    const tabs = page.locator("[data-account-tabs]");
+    const profile = tabs.getByRole("link", { name: "Profile" });
+    await expect(profile).toHaveAttribute("aria-current", "location", { timeout: 60_000 });
+    await expect(profile).toHaveAttribute("href", "/members/p1");
+    const publicLink = page.getByRole("link", { name: "See your public profile" });
+    await expect(publicLink).toHaveAttribute("href", "/members/p1");
+    expect((await publicLink.boundingBox())?.height).toBeGreaterThanOrEqual(44);
+    await expect(page.getByRole("link", { name: "See your profile as members see it" })).toHaveCount(0);
+    await noSidewaysScroll(page);
+    await shot(page, "account-shell-profile-visible-390");
   });
 });

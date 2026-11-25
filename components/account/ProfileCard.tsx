@@ -20,7 +20,7 @@ import { LoadingState } from "@/components/ui/ProgressLoader";
 import MemberProfileSettings from "./MemberProfileSettings";
 
 const pillClass = "w-full sm:w-auto";
-const linkClass = "underline underline-offset-4 hover:decoration-2";
+export const linkClass = "underline underline-offset-4 hover:decoration-2";
 /** A Settings card (Latte's 1120 Settings frames): a 1px border/subtle outline, radius 16, 24px in, 16px between its parts. */
 export const settingsCardClass = "flex min-w-0 flex-col gap-4 rounded-card border border-surface-border bg-card p-6";
 /** A card's title: Heading/H4, 20/28 at every width. */
@@ -54,6 +54,7 @@ export default function ProfileCard({
   getToken,
   returnTo,
   deleted = false,
+  showMemberPageLink = true,
 }: {
   state: ProfileState;
   reload: () => void;
@@ -62,6 +63,8 @@ export default function ProfileCard({
   returnTo: string;
   /** The profile was just deleted on this page (Settings' Privacy card). */
   deleted?: boolean;
+  /** The card's own link to the member page (off on /profile, whose head has one). */
+  showMemberPageLink?: boolean;
 }) {
   if (state.status === "loading") {
     return (
@@ -89,7 +92,14 @@ export default function ProfileCard({
   }
 
   return (
-    <ProfileSection profile={state.profile} deleted={deleted} onSaved={onSaved} getToken={getToken} returnTo={returnTo} />
+    <ProfileSection
+      profile={state.profile}
+      deleted={deleted}
+      onSaved={onSaved}
+      getToken={getToken}
+      returnTo={returnTo}
+      showMemberPageLink={showMemberPageLink}
+    />
   );
 }
 
@@ -112,6 +122,9 @@ export function DemoProfileCard() {
   );
 }
 
+/** The card's anchor: where a sign-in from the photo comes back to (MemberProfileSettings adds it to returnTo). */
+const CARD_ID = "member-profile";
+
 type ProfileNotice = { kind: "created"; name: string } | { kind: "missing" };
 
 /**
@@ -126,17 +139,25 @@ function ProfileSection({
   onSaved,
   getToken,
   returnTo,
+  showMemberPageLink,
 }: {
   profile: ProfileRecord | null;
   deleted: boolean;
   onSaved: (profile: ProfileRecord | null) => void;
   getToken: GetToken;
   returnTo: string;
+  showMemberPageLink: boolean;
 }) {
+  const sectionRef = useRef<HTMLElement>(null);
   const deletedRef = useRef<HTMLDivElement>(null);
   const [notice, setNotice] = useState<ProfileNotice | null>(null);
   const noticeRef = useRef<HTMLDivElement>(null);
 
+  // Back from signing in to …#member-profile (a "Sign in" after an expired session): the card
+  // mounts after the profile loads, too late for the browser's own jump, so focus it once here.
+  useEffect(() => {
+    if (window.location.hash === `#${CARD_ID}`) sectionRef.current?.focus();
+  }, []);
   useEffect(() => {
     if (deleted) deletedRef.current?.focus();
   }, [deleted]);
@@ -162,7 +183,8 @@ function ProfileSection({
   return (
     // #member-profile: the card's anchor (the photo's sign-in comes back to it).
     <section
-      id="member-profile"
+      ref={sectionRef}
+      id={CARD_ID}
       tabIndex={-1}
       aria-labelledby="member-profile-title"
       className={`${settingsCardClass} scroll-mt-24 outline-offset-2`}
@@ -188,6 +210,7 @@ function ProfileSection({
             onSaved={onSaved}
             onMissing={onMissing}
             returnTo={returnTo}
+            showMemberPageLink={showMemberPageLink}
           />
         </>
       ) : (

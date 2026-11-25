@@ -11,7 +11,10 @@ import { withNext } from "@/lib/safe-next-path";
 import AccountPageHead from "./AccountPageHead";
 import ProfileCard, { DemoProfileCard } from "./ProfileCard";
 
-/** One card, not Settings' two columns: Your profile at a readable width. */
+/**
+ * One column, not Settings' two: the head and the card at a readable width (672), so "See your
+ * public profile" sits over the card's right edge rather than at the panel's.
+ */
 const COLUMN = "flex w-full max-w-2xl min-w-0 flex-col gap-6";
 
 /**
@@ -27,7 +30,7 @@ export default function ProfilePageContent() {
     auth.configured && auth.status === "signed-in" && state.status === "ready" ? ownMemberPageHref(state.profile) : null;
 
   return (
-    <>
+    <div className={COLUMN}>
       <AccountPageHead
         title="Profile"
         intro="How you show on Who’s Going lists."
@@ -40,10 +43,10 @@ export default function ProfilePageContent() {
         }
       />
       {!auth.configured ? (
-        <div className={COLUMN}>
+        <>
           <DemoNotice>Accounts aren&rsquo;t available in this demo.</DemoNotice>
           <DemoProfileCard />
-        </div>
+        </>
       ) : auth.status === "loading" ? (
         <LoadingState text="Loading your profile…" />
       ) : auth.status === "signed-out" ? (
@@ -56,16 +59,15 @@ export default function ProfilePageContent() {
           }
         />
       ) : (
-        <div className={COLUMN}>
-          <ProfileCard
-            state={state}
-            reload={reload}
-            onSaved={setProfile}
-            getToken={auth.getAccessToken}
-            returnTo={PROFILE_HREF}
-          />
-        </div>
+        <ProfileCard
+          state={state}
+          reload={reload}
+          onSaved={setProfile}
+          getToken={auth.getAccessToken}
+          returnTo={PROFILE_HREF}
+          showMemberPageLink={false}
+        />
       )}
-    </>
+    </div>
   );
 }

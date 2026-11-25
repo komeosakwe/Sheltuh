@@ -20,17 +20,24 @@ vi.mock("@/lib/api/client", async (importOriginal) => ({
 const getMyProfile = vi.fn();
 const saveMyProfile = vi.fn();
 const updateMyProfile = vi.fn();
+const uploadMyAvatar = vi.fn();
 vi.mock("@/lib/api/profiles", () => ({
   getMyProfile: (...args: unknown[]) => getMyProfile(...args),
   saveMyProfile: (...args: unknown[]) => saveMyProfile(...args),
   updateMyProfile: (...args: unknown[]) => updateMyProfile(...args),
+  uploadMyAvatar: (...args: unknown[]) => uploadMyAvatar(...args),
 }));
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  window.history.replaceState(null, "", "/");
+});
 beforeEach(() => {
   getMyProfile.mockReset();
   saveMyProfile.mockReset();
   updateMyProfile.mockReset();
+  uploadMyAvatar.mockReset();
+  Object.assign(URL, { createObjectURL: vi.fn(() => "blob:1"), revokeObjectURL: vi.fn() });
 });
 
 const PROFILE: ProfileRecord = {
@@ -118,10 +125,12 @@ describe("/profile", () => {
     expect(publicLink()).toBeNull();
   });
 
-  it("a visible profile: See your public profile goes to the member page", async () => {
+  it("a visible profile: See your public profile goes to the member page, and the card doesn't repeat it", async () => {
     getMyProfile.mockResolvedValue({ ...PROFILE, profileVisible: true });
     renderProfile();
     expect(await screen.findByRole("link", { name: "See your public profile" })).toHaveAttribute("href", "/members/pid-1");
+    expect(screen.getAllByRole("link", { name: /profile as members see it|public profile/ })).toHaveLength(1);
+    expect(screen.queryByRole("link", { name: "See your profile as members see it" })).toBeNull();
   });
 
   it("a suspended member: no public profile link (their page is a 404 while suspended)", async () => {
@@ -149,5 +158,49 @@ describe("/profile", () => {
     const alert = await screen.findByRole("alert");
     expect(alert).toHaveTextContent("Your session has expired. Sign in again to continue.");
     expect(within(alert).getByRole("link", { name: "Sign in" })).toHaveAttribute("href", "/login?next=%2Fprofile");
+  });
+
+  it("offers Sign in, back to /profile, when creating a profile finds the session expired", async () => {
+    getMyProfile.mockRejectedValue(new ApiError(404, "You haven't set up a profile yet."));
+    saveMyProfile.mockRejectedValueOnce(new SessionExpiredError());
+    renderProfile();
+    const form = await screen.findByRole("form", { name: "Create your Who's Going profile" });
+    fireEvent.change(within(form).getByLabelText("Display name"), { target: { value: "Mia T." } });
+    fireEvent.click(within(form).getByRole("checkbox", { name: "I’m 18 or older" }));
+    fireEvent.click(within(form).getByRole("button", { name: "Create profile" }));
+    const alert = await within(form).findByRole("alert");
+    expect(alert).toHaveTextContent("Your session has expired. Sign in again to continue.");
+    expect(within(alert).getByRole("link", { name: "Sign in" })).toHaveAttribute("href", "/login?next=%2Fprofile");
+  });
+
+  it("offers Sign in, back to the card on /profile, when a photo upload finds the session expired", async () => {
+    getMyProfile.mockResolvedValue(PROFILE);
+    uploadMyAvatar.mockRejectedValueOnce(new SessionExpiredError());
+    renderProfile();
+    await screen.findByRole("form", { name: "Your profile" });
+    fireEvent.change(screen.getByLabelText(/Photo \(optional\)/), {
+      target: { files: [new File(["x"], "me.png", { type: "image/png" })] },
+    });
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("Your session has expired.");
+    expect(within(alert).getByRole("link", { name: "Sign in" })).toHaveAttribute(
+      "href",
+      "/login?next=%2Fprofile%23member-profile",
+    );
+  });
+
+  it("back from signing in to #member-profile: focuses the card once it has loaded", async () => {
+    window.history.replaceState(null, "", "/profile#member-profile");
+    getMyProfile.mockResolvedValue(PROFILE);
+    renderProfile();
+    await screen.findByRole("form", { name: "Your profile" });
+    await waitFor(() => expect(screen.getByRole("region", { name: "Your profile" })).toHaveFocus());
+  });
+
+  it("without the anchor, leaves focus where it is", async () => {
+    getMyProfile.mockResolvedValue(PROFILE);
+    renderProfile();
+    await screen.findByRole("form", { name: "Your profile" });
+    expect(screen.getByRole("region", { name: "Your profile" })).not.toHaveFocus();
   });
 });

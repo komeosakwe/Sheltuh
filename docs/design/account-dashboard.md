@@ -53,9 +53,13 @@ line and a link to Discover.
   and when you open another conversation or go back to /messages.
 - **Profile** (`app/(account)/profile/page.tsx`, `ProfilePageContent`): "Profile", "How you show on Who's
   Going lists.", then Settings' Your profile card (`ProfileCard`: loading, couldn't load + Try again, create,
-  edit, suspended) in one column (max 672). "See your public profile" (outline) at the head's right once
-  other members can open it. Signed out: sign in, back to `/profile`. Demo: the disabled sample card. No
-  frame for it yet: Latte to design; Delete your profile stays on Settings.
+  edit, suspended), head and card in one column (max 672). "See your public profile" (outline) at the
+  head's right, over the card's edge, once other members can open it; the card's own "See your profile as
+  members see it" is left out here (`showMemberPageLink={false}`), so there's one. A sign-in back to
+  `#member-profile` focuses the card once it loads. Signed out: sign in, back to `/profile`. Demo: the
+  disabled sample card. No frame for it yet: Latte to design; Delete your profile stays on Settings.
+  The avatar menu's Profile row and the drawer's identity are `aria-current="location"` on `/profile`
+  when they link to the member page, as the tabs are.
 - **Settings** (`AccountContent`): two columns of outlined cards from 768 (stacked on phones). Left: Your
   profile, Privacy (Blocked members, privacy link, Delete your profile). Right: Sign-in ("Signed in as … ·
   Google", Sign out: the only log-out below 1024), Events (Your events / Organise events, Organisers you
