@@ -11,6 +11,7 @@ import { useToday } from "@/components/dashboard/useToday";
 import { LoadingState } from "@/components/ui/ProgressLoader";
 import { getOrganiserOverview } from "@/lib/api/organiser-summary";
 import type { OrganiserOverview, OrganiserRecord } from "@/lib/api/types";
+import { accountKey } from "@/lib/auth/account";
 import { useAuth } from "@/lib/auth/AuthContext";
 import { useOrganiser } from "@/lib/auth/useOrganiser";
 import { useFramedHint } from "@/lib/organiser-frame-hint";
@@ -75,6 +76,14 @@ function useOverview(enabled: boolean) {
  * Performance saying what will show there).
  */
 export default function OverviewContent() {
+  // One account's from start to finish: the dashboard's frame stays mounted across a sign-out and a
+  // switch of accounts (OrganiserShell), so the page starts again for the next account rather than
+  // keep the last one's numbers (or its request) on screen.
+  const auth = useAuth();
+  return <AccountOverview key={accountKey(auth) ?? ""} />;
+}
+
+function AccountOverview() {
   // The numbers are asked for alongside the organiser's record rather than after it, for an account
   // that's an approved organiser as far as the page knows (its record, or while that loads, this
   // browser's hint: lib/organiser-nav.ts isKnownOrganiser). The API checks it either way (403 for

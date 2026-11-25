@@ -23,9 +23,20 @@ type Organiser = Pick<OrganiserRecord, "organiserId" | "status" | "displayName">
 let organiser: Organiser | null = { organiserId: "org-1", status: "approved", displayName: "Here & Now" };
 let organiserError: string | null = null;
 let organiserLoading = false;
-vi.mock("@/lib/auth/useOrganiser", () => ({
-  useOrganiser: () => ({ loading: organiserLoading, organiser, error: organiserError, refetch: vi.fn() }),
-}));
+/** Per account (by user id), when set: that account's record, or loading for an account not in it. */
+let organisersByAccount: Record<string, Organiser> | null = null;
+vi.mock("@/lib/auth/useOrganiser", async () => {
+  const { useAuth } = await import("@/lib/auth/AuthContext");
+  return {
+    useOrganiser: () => {
+      const auth = useAuth();
+      if (organisersByAccount === null) return { loading: organiserLoading, organiser, error: organiserError, refetch: vi.fn() };
+      if (auth.status !== "signed-in" || auth.userId === undefined) return { loading: false, organiser: null, error: null, refetch: vi.fn() };
+      const own = organisersByAccount[auth.userId];
+      return { loading: own === undefined, organiser: own ?? null, error: null, refetch: vi.fn() };
+    },
+  };
+});
 
 // Tuesday 17 November 2026, midday in Melbourne.
 const NOW = new Date("2026-11-17T01:00:00.000Z");
@@ -114,6 +125,7 @@ beforeEach(() => {
   organiser = { organiserId: "org-1", status: "approved", displayName: "Here & Now" };
   organiserError = null;
   organiserLoading = false;
+  organisersByAccount = null;
   localStorage.clear();
 });
 
@@ -457,5 +469,98 @@ describe("Overview — asked for alongside the organiser record", () => {
     rememberFramed("u1", true);
     renderOverview(auth());
     expect(getOrganiserOverview).not.toHaveBeenCalled();
+  });
+});
+
+describe("Overview — a switch of accounts (the frame stays mounted)", () => {
+  const A = fakeAuthValue({ userId: "u-a", email: "a@example.com" });
+  const B = fakeAuthValue({ userId: "u-b", email: "b@example.com" });
+  const aOrganiser: Organiser = { organiserId: "org-a", status: "approved", displayName: "Here & Now" };
+  const bOrganiser: Organiser = { organiserId: "org-b", status: "approved", displayName: "Other Rooms" };
+  const aNumbers = () => overview();
+  const bNumbers = () => overview({ thisWeek: { ...overview().thisWeek, ticketsSold: 3, views: 7, newFollowers: 1 } });
+  const noAs = () => {
+    expect(screen.queryByText("+86")).toBeNull();
+    expect(screen.queryByText("+412")).toBeNull();
+    expect(screen.queryByText("Welcome back, Here & Now!")).toBeNull();
+  };
+
+  function page(auth: AuthContextValue) {
+    return (
+      <FakeAuthProvider value={auth}>
+        <OverviewContent />
+      </FakeAuthProvider>
+    );
+  }
+
+  async function aWithNumbers() {
+    organisersByAccount = { "u-a": aOrganiser };
+    getOrganiserOverview.mockResolvedValueOnce(aNumbers());
+    const view = render(page(A));
+    const week = await screen.findByRole("region", { name: "This week" });
+    expect(within(week).getByText("+86")).toBeInTheDocument();
+    return view;
+  }
+
+  async function bArrives(rerender: (ui: React.ReactElement) => void) {
+    let answer: (value: OrganiserOverview) => void = () => {};
+    getOrganiserOverview.mockReturnValueOnce(new Promise<OrganiserOverview>((resolve) => (answer = resolve)));
+    rerender(page(B));
+    noAs();
+    return (value: OrganiserOverview) => answer(value);
+  }
+
+  it("B, an approved organiser already known: loading, never A's numbers, and B's own asked for", async () => {
+    const { rerender } = await aWithNumbers();
+    organisersByAccount = { "u-a": aOrganiser, "u-b": bOrganiser };
+    const answer = await bArrives(rerender);
+    expect(screen.getByRole("heading", { level: 1, name: "Welcome back, Other Rooms!" })).toBeInTheDocument();
+    expect(screen.getByRole("progressbar", { name: "Loading your overview" })).toBeInTheDocument();
+    expect(getOrganiserOverview).toHaveBeenCalledTimes(2);
+    answer(bNumbers());
+    const week = await screen.findByRole("region", { name: "This week" });
+    expect(within(week).getByText("+3")).toBeInTheDocument();
+    noAs();
+  });
+
+  it("B with this browser's hint, its record still loading: B's asked for at once, and A's never shown while it arrives", async () => {
+    const { rerender } = await aWithNumbers();
+    rememberFramed("u-b", true);
+    const answer = await bArrives(rerender);
+    // The hint asks for B's numbers alongside B's record; the gate waits for the record.
+    expect(getOrganiserOverview).toHaveBeenCalledTimes(2);
+    expect(screen.queryByRole("region", { name: "This week" })).toBeNull();
+    organisersByAccount = { "u-a": aOrganiser, "u-b": bOrganiser };
+    rerender(page(B));
+    noAs();
+    expect(screen.getByRole("progressbar", { name: "Loading your overview" })).toBeInTheDocument();
+    answer(bNumbers());
+    expect(within(await screen.findByRole("region", { name: "This week" })).getByText("+3")).toBeInTheDocument();
+    noAs();
+    expect(getOrganiserOverview).toHaveBeenCalledTimes(2);
+  });
+
+  it("B without the hint: nothing of A's while B's record loads, then B's own numbers once it's approved", async () => {
+    const { rerender } = await aWithNumbers();
+    const answer = await bArrives(rerender);
+    expect(getOrganiserOverview).toHaveBeenCalledTimes(1);
+    organisersByAccount = { "u-a": aOrganiser, "u-b": bOrganiser };
+    rerender(page(B));
+    noAs();
+    expect(getOrganiserOverview).toHaveBeenCalledTimes(2);
+    answer(bNumbers());
+    expect(within(await screen.findByRole("region", { name: "This week" })).getByText("+3")).toBeInTheDocument();
+    noAs();
+  });
+
+  it("signing out and back in as B starts again too", async () => {
+    const { rerender } = await aWithNumbers();
+    rerender(page(fakeAuthValue({ status: "signed-out", userId: undefined, email: undefined })));
+    expect(screen.getByText("Sign in to see your dashboard.")).toBeInTheDocument();
+    organisersByAccount = { "u-a": aOrganiser, "u-b": bOrganiser };
+    const answer = await bArrives(rerender);
+    expect(getOrganiserOverview).toHaveBeenCalledTimes(2);
+    answer(bNumbers());
+    expect(within(await screen.findByRole("region", { name: "This week" })).getByText("+3")).toBeInTheDocument();
   });
 });
