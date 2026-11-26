@@ -292,6 +292,32 @@ describe("EventQrCode", () => {
     expect(screen.queryByText("A's secret event")).toBeNull();
   });
 
+  it("a page that stays mounted while its event changes never shows the previous event's code", async () => {
+    let resolveSecond!: (value: EventRecord) => void;
+    api.getMyEvent
+      .mockResolvedValueOnce(event({ title: "First event" }))
+      .mockReturnValueOnce(new Promise<EventRecord>((r) => (resolveSecond = r)));
+    api.ensureQrTrackingLink.mockResolvedValue(LINK);
+    const auth = fakeAuthValue();
+    const view = render(
+      <FakeAuthProvider value={auth}>
+        <EventQrCode eventId="evt-1" />
+      </FakeAuthProvider>,
+    );
+    expect(await screen.findByText("First event")).toBeInTheDocument();
+    view.rerender(
+      <FakeAuthProvider value={auth}>
+        <EventQrCode eventId="evt-2" />
+      </FakeAuthProvider>,
+    );
+    // evt-2 is still loading: nothing of evt-1's is left to view or download.
+    expect(screen.queryByText("First event")).toBeNull();
+    expect(screen.queryByRole("img", { name: /QR code for/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Download PNG" })).toBeNull();
+    await act(async () => resolveSecond(event({ title: "Second event" })));
+    expect(await screen.findByText("Second event")).toBeInTheDocument();
+  });
+
   it("in the demo (no accounts) says so and calls nothing", () => {
     renderWith(<EventQrCode eventId="evt-1" />, fakeAuthValue({ configured: false }));
     expect(screen.getByRole("heading", { level: 1, name: "QR code" })).toBeInTheDocument();

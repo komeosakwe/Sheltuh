@@ -79,7 +79,7 @@ export function useEventQr(eventId: string): { state: EventQrState; retry: () =>
   const auth = useAuth();
   const account = accountKey(auth);
   const getToken = useAccountToken(auth);
-  const [loaded, setLoaded] = useState<{ account: string; state: EventQrState } | null>(null);
+  const [loaded, setLoaded] = useState<{ account: string; eventId: string; state: EventQrState } | null>(null);
   const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
@@ -87,7 +87,7 @@ export function useEventQr(eventId: string): { state: EventQrState; retry: () =>
     let cancelled = false;
     sharedLoad(account, eventId, getToken).then(
       (next) => {
-        if (!cancelled) setLoaded({ account, state: next });
+        if (!cancelled) setLoaded({ account, eventId, state: next });
       },
       (err: unknown) => {
         // Another account's session by now: its own load follows the re-render.
@@ -97,7 +97,7 @@ export function useEventQr(eventId: string): { state: EventQrState; retry: () =>
         else if (err instanceof SessionExpiredError || (err instanceof ApiError && err.status === 401)) {
           next = { status: "error", message: SESSION_ENDED, reauth: true };
         } else next = { status: "error", message: NOT_READY };
-        setLoaded({ account, state: next });
+        setLoaded({ account, eventId, state: next });
       },
     );
     return () => {
@@ -110,6 +110,9 @@ export function useEventQr(eventId: string): { state: EventQrState; retry: () =>
     setAttempt((n) => n + 1);
   }, []);
 
-  const state: EventQrState = loaded !== null && loaded.account === account ? loaded.state : { status: "loading" };
+  // Only an answer for this account and this event: a page that stays mounted
+  // while its event id changes must not show the previous event's code.
+  const state: EventQrState =
+    loaded !== null && loaded.account === account && loaded.eventId === eventId ? loaded.state : { status: "loading" };
   return { state, retry };
 }
