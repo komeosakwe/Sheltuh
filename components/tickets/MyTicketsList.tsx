@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useEffectEvent, useRef, useState, useSyncExternalStore, type ReactNode, type Ref } from "react";
+import { useEffect, useEffectEvent, useLayoutEffect, useRef, useState, useSyncExternalStore, type ReactNode, type Ref } from "react";
 import DemoNotice from "@/components/DemoNotice";
 import EventArt from "@/components/EventArt";
 import { SAVED_GRID, SHOW_MORE_CLASS } from "@/components/favourites/SavedPageContent";
@@ -151,8 +151,10 @@ function LiveTickets({ getToken, email, announce }: { getToken: GetToken; email?
   // Leaving the page: a refresh or "Show more" still on its way is dropped.
   useEffect(() => () => busy.current?.abort(), []);
 
-  // Focus, once what changed is drawn.
-  useEffect(() => {
+  // Focus, once what changed is drawn: in the same commit (a layout effect), so it's never left on the body, and
+  // so the request is taken by the commit that draws its change. A passive effect from an earlier commit can still
+  // be waiting when a click or a read's answer sets the request; it would take it against the old cards.
+  useLayoutEffect(() => {
     const request = focusRequest.current;
     const root = rootRef.current;
     if (!request || !root || load.status === "loading") return;

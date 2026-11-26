@@ -1279,7 +1279,7 @@ in `lib/server/event-input.ts`.
 An optional amount a buyer adds to a paid checkout, which goes entirely to
 Sheltüh, the platform (`lib/support.ts`, migration
 `20261110000100_order_support.sql`). It's never called a donation: Sheltüh
-is a sole trader, not a charity, and nothing says or implies it's tax
+is a partnership, not a charity, and nothing says or implies it's tax
 deductible. It isn't a fee: `lib/fees.ts` doesn't know about it, and no
 booking fee is charged on it.
 
