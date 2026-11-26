@@ -76,7 +76,7 @@ export function needsPayouts(
 
 /**
  * The card's other actions, in the dashboard's fixed order (lib/organiser-events.ts): View public page,
- * Orders, Analytics, Check-in. The editor ("Manage →" / "Continue →") is the card's own link, so it isn't
+ * QR code, Orders, Analytics, Check-in. The editor ("Manage →" / "Continue →") is the card's own link, so it isn't
  * repeated. The seat map isn't here (the summary doesn't say which events have one): it's on the event's
  * own page, through Manage.
  */

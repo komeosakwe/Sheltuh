@@ -14,6 +14,7 @@ import { accountKey } from "@/lib/auth/account";
 import { useAuth } from "@/lib/auth/AuthContext";
 import { useKeptWhileSignedOut } from "@/lib/auth/useKeptWhileSignedOut";
 import { useOrganiser } from "@/lib/auth/useOrganiser";
+import { eventQrHref } from "@/lib/organiser-nav";
 import { LoadingState } from "@/components/ui/ProgressLoader";
 
 /**
@@ -154,6 +155,12 @@ function EditorView({
         >
           Analytics
         </ButtonLink>
+        {/* The poster code: it opens the public page, so only once the event is live. */}
+        {event.status === "published" && (
+          <ButtonLink variant="outline" size="sm" className="min-h-11 w-fit" href={eventQrHref(event.eventId)}>
+            QR code
+          </ButtonLink>
+        )}
         {/* Who bought (names and emails): Sheltüh-ticketed events that have gone live. */}
         {event.status === "published" && event.ticketingMode !== "external" && (
           <ButtonLink

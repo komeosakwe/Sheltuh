@@ -342,12 +342,14 @@ describe("Events tab — what the list always said, kept on the card", () => {
     };
     expect(menuOf("Neon Static")).toEqual([
       ["View public page", "/events/evt-live"],
+      ["QR code", "/dashboard/events/evt-live/qr"],
       ["Orders", "/dashboard/events/evt-live/orders"],
       ["Analytics", "/dashboard/events/evt-live/analytics"],
       ["Check-in", "/dashboard/evt-live/check-in"],
     ]);
     expect(menuOf("Elsewhere")).toEqual([
       ["View public page", "/events/evt-ext"],
+      ["QR code", "/dashboard/events/evt-ext/qr"],
       ["Analytics", "/dashboard/events/evt-ext/analytics"],
     ]);
     expect(menuOf("dad")).toEqual([["Analytics", "/dashboard/events/evt-draft/analytics"]]);
