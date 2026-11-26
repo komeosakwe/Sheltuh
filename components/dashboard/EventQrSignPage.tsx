@@ -48,7 +48,8 @@ function SignReady({ ready }: { ready: Extract<EventQrState, { status: "ready" }
   const text = signText(ready.event, ready.url);
 
   return (
-    <div className="flex flex-col gap-6">
+    // The controls, the proofreading line and the preview share the sheet's width (`qr-sign-column`), so they line up.
+    <div className="qr-sign-column flex flex-col gap-6" data-paper={paper}>
       {/* The chosen paper's print page (constant CSS, never built from the event). */}
       <style>{SIGN_PAGE_CSS[paper]}</style>
       <div className="flex flex-col flex-wrap gap-4 md:flex-row md:items-end md:justify-between">

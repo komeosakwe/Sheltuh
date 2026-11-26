@@ -1744,6 +1744,17 @@ h4 {
   .qr-sign[data-paper="a5"] {
     max-width: 148mm;
   }
+  /* The sign page's column (components/dashboard/EventQrSignPage.tsx): the controls above the sheet line up with it. */
+  .qr-sign-column {
+    width: 100%;
+    margin-inline: auto;
+  }
+  .qr-sign-column[data-paper="a4"] {
+    max-width: 210mm;
+  }
+  .qr-sign-column[data-paper="a5"] {
+    max-width: 148mm;
+  }
   .qr-sign-body {
     display: flex;
     flex: 1 1 auto;
