@@ -33,7 +33,8 @@ export default function EventQrSign({ text, matrix, paper }: { text: SignText; m
           {text.place && <p className="qr-sign-place">{text.place}</p>}
         </div>
         <div className="qr-sign-code">
-          <LinkQrImage matrix={matrix} label={`QR code for ${text.address}`} />
+          {/* Just "QR code": the address it opens is printed right under it. */}
+          <LinkQrImage matrix={matrix} label="QR code" />
         </div>
         <p className="qr-sign-action">{text.action}</p>
         <p className="qr-sign-address">{text.address}</p>

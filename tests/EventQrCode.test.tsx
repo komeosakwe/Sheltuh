@@ -161,6 +161,7 @@ describe("EventQrCode", () => {
     api.ensureQrTrackingLink.mockResolvedValue(null);
     renderWith(<EventQrCode eventId="evt-1" />);
     expect(await screen.findByRole("img", { name: "QR code for sheltuh.com.au/events/night-market" })).toBeInTheDocument();
+    expect(screen.getByText(/This code opens your event page directly, so its visits aren’t counted separately\./)).toBeInTheDocument();
     expect(screen.getByText(/You have 20 tracking links, the most for one event/)).toBeInTheDocument();
     expect(screen.queryByText(/page views, not scans/)).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Download SVG" }));
@@ -325,7 +326,7 @@ describe("EventQrSignPage", () => {
     expect(within(sheet).getByText("Sat 5 Dec, 5:00 pm – 8:00 pm")).toBeInTheDocument();
     expect(within(sheet).getByText("Perth time (AWST)")).toBeInTheDocument();
     expect(within(sheet).getByText("The Tote, Northbridge, WA")).toBeInTheDocument();
-    expect(within(sheet).getByRole("img", { name: "QR code for sheltuh.com.au/events/night-market" })).toBeInTheDocument();
+    expect(within(sheet).getByRole("img", { name: "QR code" })).toBeInTheDocument();
     expect(within(sheet).getByText("Scan for tickets")).toBeInTheDocument();
     expect(within(sheet).getByText("sheltuh.com.au/events/night-market")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "QR code" })).toHaveAttribute("href", "/dashboard/events/evt-1/qr");

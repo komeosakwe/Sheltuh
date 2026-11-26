@@ -138,8 +138,8 @@ function QrCodeReady({ eventId, ready }: { eventId: string; ready: Extract<Event
           </div>
         ) : (
           <Notice>
-            You have {MAX_TRACKING_LINKS_PER_EVENT} tracking links, the most for one event, so visits from this code aren’t counted
-            on their own. To get a tracked code, delete a link in{" "}
+            This code opens your event page directly, so its visits aren’t counted separately. You have{" "}
+            {MAX_TRACKING_LINKS_PER_EVENT} tracking links, the most for one event: to get a tracked code, delete one in{" "}
             <Link href={`/dashboard/events/${encodeURIComponent(eventId)}/analytics`} className="font-semibold underline underline-offset-4">
               Analytics
             </Link>
