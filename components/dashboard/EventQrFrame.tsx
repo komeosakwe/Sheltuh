@@ -7,6 +7,7 @@ import { backLinkClass } from "@/components/ui/BackLink";
 import { LoadingState } from "@/components/ui/ProgressLoader";
 import { EmptyState, Notice } from "@/components/ui/Section";
 import Strap from "@/components/ui/Strap";
+import { SUPPORT_EMAIL } from "@/lib/contact";
 import { EVENTS_HREF, eventQrHref, eventQrSignHref, manageEventHref } from "@/lib/organiser-nav";
 import { withNext } from "@/lib/safe-next-path";
 import type { EventQrState } from "./useEventQr";
@@ -37,7 +38,8 @@ function BackLinks({ eventId, from }: { eventId: string; from: "qr" | "sign" }) 
  * The QR page's and the sign's frame: the way back, the header (the h1 and
  * the event's title once known), then either `children` with the loaded code
  * or the state that stands in for it (loading; an error with Try again, or
- * Sign in when the session has ended; not found; not published yet).
+ * Sign in when the session has ended, or nothing to retry when it can't
+ * help; not found; not published yet).
  */
 export default function EventQrFrame({
   eventId,
@@ -94,15 +96,26 @@ export default function EventQrFrame({
         <div className="flex flex-col items-start gap-3">
           <Notice tone="danger" role="alert">
             {state.message}
+            {state.permanent && (
+              <>
+                {" "}
+                <a href={`mailto:${SUPPORT_EMAIL}`} className="font-semibold underline underline-offset-4">
+                  Contact Sheltüh
+                </a>
+                .
+              </>
+            )}
           </Notice>
           {state.reauth ? (
             <ButtonLink size="lg" href={withNext("/login", from === "sign" ? eventQrSignHref(eventId) : eventQrHref(eventId))}>
               Sign in
             </ButtonLink>
           ) : (
-            <Button variant="outline" size="lg" onClick={retry}>
-              Try again
-            </Button>
+            !state.permanent && (
+              <Button variant="outline" size="lg" onClick={retry}>
+                Try again
+              </Button>
+            )
           )}
         </div>
       )}

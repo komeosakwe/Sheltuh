@@ -170,6 +170,25 @@ describe("EventQrCode", () => {
     expect(await screen.findByRole("link", { name: "Sign in" })).toHaveAttribute("href", `/login?next=${encodeURIComponent("/dashboard/events/evt-1/qr/sign")}`);
   });
 
+  it("an address that can't be a QR code: no Try again (it can't help), and a way to contact Sheltüh", async () => {
+    api.getMyEvent.mockResolvedValue(event());
+    api.ensureQrTrackingLink.mockResolvedValue({ ...LINK, url: "javascript:alert(1)" });
+    renderWith(<EventQrCode eventId="evt-1" />);
+    expect(await screen.findByRole("alert")).toHaveTextContent("This event’s address can’t be made into a QR code. Contact Sheltüh.");
+    expect(screen.getByRole("link", { name: "Contact Sheltüh" })).toHaveAttribute("href", "mailto:support@sheltuh.com.au");
+    expect(screen.queryByRole("button", { name: "Try again" })).toBeNull();
+    expect(screen.queryByRole("img", { name: /QR code for/ })).toBeNull();
+  });
+
+  it.each(["draft", "pending_review", "rejected"] as const)("a %s event has no code, and no tracking link is made", async (status) => {
+    api.getMyEvent.mockResolvedValue(event({ status }));
+    renderWith(<EventQrCode eventId="evt-1" />);
+    expect(await screen.findByText("Publish your event first")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Go to your event" })).toHaveAttribute("href", "/dashboard/evt-1");
+    expect(api.ensureQrTrackingLink).not.toHaveBeenCalled();
+    expect(screen.queryByRole("img", { name: /QR code for/ })).toBeNull();
+  });
+
   it("another organiser's (or a deleted) event is not found", async () => {
     api.getMyEvent.mockRejectedValue(new ApiError(404, "Event not found."));
     renderWith(<EventQrCode eventId="evt-1" />);

@@ -25,18 +25,19 @@ import { siteOrigin } from "@/lib/share-metadata";
  *   tracking link is made.
  * - `not-found`: not one of the organiser's events (the API's 404).
  * - `error`: `reauth` when the session has ended (sign in again, not Try
- *   again).
+ *   again); `permanent` when trying again can't help (the address can't be
+ *   made into a QR code).
  */
 export type EventQrState =
   | { status: "loading" }
   | { status: "not-found" }
-  | { status: "error"; message: string; reauth?: boolean }
+  | { status: "error"; message: string; reauth?: boolean; permanent?: boolean }
   | { status: "unpublished"; event: EventRecord }
   | { status: "ready"; event: EventRecord; url: string; matrix: boolean[][]; tracked: boolean };
 
 const SESSION_ENDED = "Your session has ended. Sign in again to get the QR code.";
 const NOT_READY = "Couldn’t get the QR code ready. Try again.";
-const NO_CODE = "This event’s address can’t be made into a QR code. Contact Sheltüh.";
+const NO_CODE = "This event’s address can’t be made into a QR code.";
 
 async function loadEventQr(eventId: string, getToken: GetToken): Promise<EventQrState> {
   const event = await getMyEvent(eventId, getToken);
@@ -44,7 +45,7 @@ async function loadEventQr(eventId: string, getToken: GetToken): Promise<EventQr
   const link = await ensureQrTrackingLink(eventId, getToken);
   const url = link?.url ?? publicEventUrl(event.slug, siteOrigin() ?? window.location.origin);
   const matrix = linkQrMatrix(url);
-  if (!matrix) return { status: "error", message: NO_CODE };
+  if (!matrix) return { status: "error", message: NO_CODE, permanent: true };
   return { status: "ready", event, url, matrix, tracked: link !== null };
 }
 
