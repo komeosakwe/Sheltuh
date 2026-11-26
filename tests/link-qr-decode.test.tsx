@@ -2,7 +2,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import sharp from "sharp";
 import { describe, expect, it } from "vitest";
 import LinkQrImage from "@/components/dashboard/LinkQrImage";
-import { linkQrMatrix, linkQrPngLayout, linkQrSvg, linkQrVersion } from "@/lib/link-qr";
+import { LINK_QR_MAX_VERSION, linkQrMatrix, linkQrPngLayout, linkQrSvg } from "@/lib/link-qr";
 import { encodePng } from "@/lib/server/png";
 import { decodeQrImage } from "./test-utils/qr-decode";
 
@@ -79,7 +79,8 @@ describe("event poster QR codes decode with ZXing", () => {
     for (const url of URLS) {
       const matrix = linkQrMatrix(url);
       expect(matrix, url).not.toBeNull();
-      expect(linkQrVersion(matrix!)).toBeLessThanOrEqual(10);
+      // Version v is 17 + 4v modules wide.
+      expect(matrix!.length).toBeLessThanOrEqual(17 + 4 * LINK_QR_MAX_VERSION);
     }
   });
 

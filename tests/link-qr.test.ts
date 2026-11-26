@@ -7,7 +7,6 @@ import {
   linkQrMatrix,
   linkQrPngLayout,
   linkQrSvg,
-  linkQrVersion,
 } from "@/lib/link-qr";
 import { qrcodegen } from "@/lib/qr/qrcodegen";
 
@@ -19,6 +18,9 @@ import { qrcodegen } from "@/lib/qr/qrcodegen";
 
 const SITE = "https://sheltuh.com.au";
 const tracked = (slug: string, code = "k7mq2hxd") => `${SITE}/events/${slug}?ref=${code}`;
+
+/** A symbol's side in modules for QR version `v`: 17 + 4v. */
+const modulesFor = (v: number) => 17 + 4 * v;
 
 /** The level the encoder settled on (it may raise Q to H while the symbol stays the same size). */
 function levelOf(url: string): number {
@@ -35,13 +37,12 @@ describe("linkQrMatrix", () => {
 
   it("pins the versions: a typical tracked URL (27-character slug) is version 6, the longest slug (87) version 9", () => {
     const typical = linkQrMatrix(tracked("a".repeat(27)));
-    expect(typical).toHaveLength(41);
-    expect(linkQrVersion(typical!)).toBe(6);
+    expect(typical).toHaveLength(modulesFor(6));
     // slugify keeps 80 characters; a taken slug gets "-" and 6 more (withUniqueSlug).
     const longest = linkQrMatrix(tracked(`${"a".repeat(80)}-${"b".repeat(6)}`));
-    expect(linkQrVersion(longest!)).toBe(9);
+    expect(longest).toHaveLength(modulesFor(9));
     // The plain (untracked) URL of the longest slug fits too.
-    expect(linkQrVersion(linkQrMatrix(`${SITE}/events/${"a".repeat(87)}`)!)).toBeLessThanOrEqual(9);
+    expect(linkQrMatrix(`${SITE}/events/${"a".repeat(87)}`)!.length).toBeLessThanOrEqual(modulesFor(9));
   });
 
   it("is at least level Q (2), and raised to H where it fits in the same size", () => {

@@ -81,11 +81,6 @@ export function linkQrMatrix(url: string): boolean[][] | null {
   return Array.from({ length: qr.size }, (_, y) => Array.from({ length: qr.size }, (_, x) => qr.getModule(x, y)));
 }
 
-/** A matrix's QR version (1 to 40), from its side. */
-export function linkQrVersion(matrix: boolean[][]): number {
-  return (matrix.length - 17) / 4;
-}
-
 /**
  * A standalone SVG file of the code: the white plate (with the 4-module quiet
  * zone the standard requires) and one black path of whole-module rectangles,
