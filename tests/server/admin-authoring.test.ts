@@ -366,6 +366,12 @@ describe("PATCH /admin/events/{id}", () => {
     expect(res.status).toBe(200);
     expect(res.body.status).toBe("published");
     expect(res.body.title).toBe("Neon Static: Encore");
+    // The slug is permanent: a new title never moves the page, so printed QR codes and shared links keep working
+    // (docs/architecture.md, "Event QR codes").
+    expect(res.body.slug).toBe(event.slug);
+    const page = await api.call(getPublicEventBySlug, { params: { slug: event.slug } });
+    expect(page.status).toBe(200);
+    expect(page.body.title).toBe("Neon Static: Encore");
     expect(res.body.ticketTypes.map((t: { id: string }) => t.id)).toEqual(["ga", "vip"]);
     expect(res.body.updatedAt).not.toBe(event.updatedAt);
 

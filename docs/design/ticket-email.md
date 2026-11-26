@@ -717,11 +717,10 @@ follow-up can bring the free confirmation's ticket block onto this card.
 3. **Q3: refund wording.** The site's shared Australian Consumer Law wording (`REFUND_ACL_STATEMENT`), not the
    image's sentence.
 
-**Still open:**
-4. **Q4: the admin campaign QR.** It isn't a ticket, so it isn't changed: no centre ü (the owner's rule covers
-   ticket QRs, and the build applies it to every one: the email and the confirmation/ticket page).
-   *Recommend:* keep it plain. If the owner wants the mark there too, reuse `ticketQrSymbol`'s rules
-   (level H, 7×7 clear) and add it to the decode suite.
+**Answered on 26 Nov:**
+4. **Q4: QR codes that aren't tickets.** Plain, no centre ü: the admin campaign QR and the organiser's event
+   poster code (`lib/link-qr.ts`, docs/architecture.md "Event QR codes"). The ü stays the mark of a ticket, so a
+   poster is never mistaken for one.
 
 ## 13. Build record (18 Nov)
 
