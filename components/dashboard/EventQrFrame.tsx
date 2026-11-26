@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useRef, type ReactNode } from "react";
 import { Button, ButtonLink } from "@/components/ui/Button";
-import { backLinkClass } from "@/components/ui/BackLink";
+import BackLink, { backLinkClass } from "@/components/ui/BackLink";
 import { LoadingState } from "@/components/ui/ProgressLoader";
 import { EmptyState, Notice } from "@/components/ui/Section";
 import Strap from "@/components/ui/Strap";
@@ -17,14 +17,10 @@ function BackLinks({ eventId, from }: { eventId: string; from: "qr" | "sign" }) 
   return (
     <nav aria-label="Event" className="mb-6 flex flex-wrap gap-x-6">
       {from === "sign" ? (
-        <Link href={eventQrHref(eventId)} className={backLinkClass}>
-          &larr; QR code
-        </Link>
+        <BackLink href={eventQrHref(eventId)}>QR code</BackLink>
       ) : (
         <>
-          <Link href={EVENTS_HREF} className={backLinkClass}>
-            &larr; Events
-          </Link>
+          <BackLink href={EVENTS_HREF}>Events</BackLink>
           <Link href={manageEventHref(eventId)} className={backLinkClass}>
             Edit event
           </Link>

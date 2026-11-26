@@ -100,6 +100,10 @@ describe("EventQrCode", () => {
     expect(screen.getByRole("link", { name: "Printable sign" })).toHaveAttribute("href", "/dashboard/events/evt-1/qr/sign");
     expect(screen.getByRole("link", { name: "Analytics" })).toHaveAttribute("href", "/dashboard/events/evt-1/analytics");
     expect(screen.getByRole("link", { name: "Edit event" })).toHaveAttribute("href", "/dashboard/evt-1");
+    // The back link's arrow is for the eye only: its name is the word.
+    const back = screen.getByRole("link", { name: "Events" });
+    expect(back).toHaveAttribute("href", "/dashboard/events");
+    expect(back.querySelector('[aria-hidden="true"]')).toHaveTextContent("←");
   });
 
   it("downloads the SVG (the code alone) and the PNG, named after the slug, and says so", async () => {
@@ -321,7 +325,7 @@ describe("EventQrSignPage", () => {
     expect(within(sheet).getByRole("img", { name: "QR code for sheltuh.com.au/events/night-market" })).toBeInTheDocument();
     expect(within(sheet).getByText("Scan for tickets")).toBeInTheDocument();
     expect(within(sheet).getByText("sheltuh.com.au/events/night-market")).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "← QR code" })).toHaveAttribute("href", "/dashboard/events/evt-1/qr");
+    expect(screen.getByRole("link", { name: "QR code" })).toHaveAttribute("href", "/dashboard/events/evt-1/qr");
   });
 
   it("“Scan to see the event” for a free or externally ticketed event", async () => {

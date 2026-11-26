@@ -267,9 +267,9 @@ test("on a 375px phone: no sideways scroll, targets at least 44px, the code and 
   for (const name of ["Download PNG", "Download SVG"]) {
     expect((await main.getByRole("button", { name }).boundingBox())!.height).toBeGreaterThanOrEqual(44);
   }
-  for (const name of ["Printable sign", "← Events", "Edit event"]) {
-    expect((await main.getByRole("link", { name, exact: true }).boundingBox())!.height).toBeGreaterThanOrEqual(44);
-  }
+  expect((await main.getByRole("link", { name: "Printable sign" }).boundingBox())!.height).toBeGreaterThanOrEqual(44);
+  const backLinks = main.getByRole("navigation", { name: "Event" }).getByRole("link");
+  for (const link of await backLinks.all()) expect((await link.boundingBox())!.height).toBeGreaterThanOrEqual(44);
 
   await page.goto(`/dashboard/events/${EVENT}/qr/sign`);
   const sheet = main.getByRole("region", { name: "Sign preview, A4" });
