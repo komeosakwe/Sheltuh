@@ -111,8 +111,9 @@ const isQrLink = (link: TrackingLink) => link.label.trim().toLowerCase() === QR_
  * existing one (its label in any case, as the API compares labels) or a new
  * one. Null when the event already has the most links it can
  * (MAX_TRACKING_LINKS_PER_EVENT, a 409 without a label error): the code then
- * opens the plain event page, untracked. A 409 on the label means another tab
- * made it first, so it's read again. Anything else throws. Only for a
+ * opens the plain event page, untracked. Any 409 reads the list again
+ * first, since another tab may have made the link (taking the label, or the
+ * last of the 20 places), and uses it if it's there. Anything else throws. Only for a
  * published event (call it for nothing else: a draft's link would be made for
  * a page nobody can open yet).
  */
@@ -123,10 +124,11 @@ export async function ensureQrTrackingLink(eventId: string, getToken: GetToken):
     return await createTrackingLink(eventId, { label: QR_TRACKING_LABEL }, getToken);
   } catch (err) {
     if (!(err instanceof ApiError) || err.status !== 409) throw err;
-    if (!err.fieldErrors?.label) return null;
+    // Another tab may have made it first: on the label (taken), or as the 20th link (so this one hit the cap).
     const raced = (await listTrackingLinks(eventId, getToken)).items.find(isQrLink);
     if (raced) return raced;
-    throw err;
+    if (err.fieldErrors?.label) throw err;
+    return null;
   }
 }
 

@@ -76,10 +76,19 @@ describe("ensureQrTrackingLink", () => {
     await expect(ensureQrTrackingLink("evt 1", getToken)).rejects.toMatchObject({ status: 409 });
   });
 
-  it("at the 20-link cap (a 409 with no label error) resolves to null: the code opens the plain page", async () => {
-    const fetch = stub(json({ items: Array.from({ length: 20 }, (_, i) => link(`Link ${i}`, `code${i}aa`)) }), json({ error: "This event already has 20 tracking links." }, 409));
+  it("at the 20-link cap (a 409 with no label error, and still no QR link) resolves to null: the code opens the plain page", async () => {
+    const full = { items: Array.from({ length: 20 }, (_, i) => link(`Link ${i}`, `code${i}aa`)) };
+    const fetch = stub(json(full), json({ error: "This event already has 20 tracking links." }, 409), json(full));
     await expect(ensureQrTrackingLink("evt 1", getToken)).resolves.toBeNull();
-    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(fetch).toHaveBeenCalledTimes(3);
+  });
+
+  it("lost a race at the cap (another tab's QR link took the 20th place): reads the list again and uses it", async () => {
+    const others = Array.from({ length: 19 }, (_, i) => link(`Link ${i}`, `code${i}aa`));
+    const raced = link("QR code", "race2345");
+    const fetch = stub(json({ items: others }), json({ error: "This event already has 20 tracking links." }, 409), json({ items: [raced, ...others] }));
+    await expect(ensureQrTrackingLink("evt 1", getToken)).resolves.toEqual(raced);
+    expect(fetch).toHaveBeenCalledTimes(3);
   });
 
   it("anything else throws with the API's status: a failed list, or a failed create", async () => {
