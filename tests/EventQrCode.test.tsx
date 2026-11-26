@@ -154,6 +154,23 @@ describe("EventQrCode", () => {
     fireEvent.click(screen.getByRole("button", { name: "Try again" }));
     expect(await screen.findByRole("img", { name: /QR code for/ })).toBeInTheDocument();
     expect(api.ensureQrTrackingLink).toHaveBeenCalledTimes(2);
+    // The button is gone: focus is on the page's h1, where the answer starts.
+    await waitFor(() => expect(screen.getByRole("heading", { level: 1, name: "QR code" })).toHaveFocus());
+  });
+
+  it("a retry that ends in not found moves focus to that h1", async () => {
+    api.getMyEvent.mockRejectedValueOnce(new ApiError(500, "Server error.")).mockRejectedValueOnce(new ApiError(404, "Event not found."));
+    renderWith(<EventQrCode eventId="evt-1" />);
+    fireEvent.click(await screen.findByRole("button", { name: "Try again" }));
+    await waitFor(() => expect(screen.getByRole("heading", { level: 1, name: "Event not found" })).toHaveFocus());
+  });
+
+  it("focus isn't moved on the first load: only after Try again", async () => {
+    api.getMyEvent.mockResolvedValue(event());
+    api.ensureQrTrackingLink.mockResolvedValue(LINK);
+    renderWith(<EventQrCode eventId="evt-1" />);
+    await screen.findByRole("img", { name: /QR code for/ });
+    expect(screen.getByRole("heading", { level: 1 })).not.toHaveFocus();
   });
 
   it("an ended session offers Sign in, back to this page, instead of Try again", async () => {

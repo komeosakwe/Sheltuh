@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import type { ReactNode } from "react";
+import { useEffect, useRef, type ReactNode } from "react";
 import { Button, ButtonLink } from "@/components/ui/Button";
 import { backLinkClass } from "@/components/ui/BackLink";
 import { LoadingState } from "@/components/ui/ProgressLoader";
@@ -58,6 +58,20 @@ export default function EventQrFrame({
   children: (ready: Extract<EventQrState, { status: "ready" }>) => ReactNode;
 }) {
   const back = <BackLinks eventId={eventId} from={from} />;
+  // After Try again, focus goes to the page's h1 once the new state has settled: the button is gone by then,
+  // and the heading is where the answer (the code, an error, not found) starts.
+  const heading = useRef<HTMLHeadingElement>(null);
+  const retried = useRef(false);
+  const settled = state.status !== "loading";
+  useEffect(() => {
+    if (!settled || !retried.current) return;
+    retried.current = false;
+    heading.current?.focus();
+  }, [settled, state]);
+  function tryAgain() {
+    retried.current = true;
+    retry();
+  }
 
   if (state.status === "not-found") {
     return (
@@ -65,6 +79,7 @@ export default function EventQrFrame({
         {back}
         <EmptyState
           headingLevel={1}
+          titleRef={heading}
           title="Event not found"
           action={
             <ButtonLink size="lg" variant="outline" href={EVENTS_HREF}>
@@ -84,7 +99,9 @@ export default function EventQrFrame({
       {back}
       <header className="mb-8 flex flex-col gap-3">
         <Strap label="QR code" rule={false} />
-        <h1 className="display-md break-words">{title}</h1>
+        <h1 ref={heading} tabIndex={-1} className="display-md break-words outline-offset-2 focus:outline-none!">
+          {title}
+        </h1>
         {event && <p className="meta break-words text-muted">{event.title || "Untitled event"}</p>}
       </header>
       {state.status === "loading" && (
@@ -112,7 +129,7 @@ export default function EventQrFrame({
             </ButtonLink>
           ) : (
             !state.permanent && (
-              <Button variant="outline" size="lg" onClick={retry}>
+              <Button variant="outline" size="lg" onClick={tryAgain}>
                 Try again
               </Button>
             )
