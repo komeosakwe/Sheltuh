@@ -6,7 +6,7 @@
  * UI, the API's validation, Stripe's line item and the ticket email all say
  * and allow the same thing.
  *
- * Sheltüh is a sole trader, not a charity: the copy never calls it a
+ * Sheltüh is a small business (a partnership), not a charity: the copy never calls it a
  * donation, and never suggests it's tax deductible or goes to the organiser.
  * It isn't a fee either: lib/fees.ts doesn't know about it, and the booking
  * fee is never charged on it.
