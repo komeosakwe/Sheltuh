@@ -201,6 +201,18 @@ export function formatEventDateTimeRange(
 }
 
 /**
+ * The event page's date line (components/EventDetailsView.tsx), also on the
+ * printable QR sign: formatEventDateTimeRange in the event's zone, "Fri 25
+ * Sep, 8:00 pm – Sat 26 Sep, midnight", with midnight said in words (people
+ * misread "12:00 am"). The formatter always writes the hour as "12:00 am" for
+ * midnight, so this is a whole-word swap. The zone is named beside it, by
+ * formatTimeZoneLabel.
+ */
+export function formatEventPageWhen(startsAt: string, endsAt: string | undefined, timeZone: string): string {
+  return formatEventDateTimeRange(startsAt, endsAt, timeZone).replace(/\b12:00 am\b/g, "midnight");
+}
+
+/**
  * The date chip's day and month, in the zone's local time (Melbourne by
  * default), in sentence case as written (owner decision, 13 Nov 2026):
  * `{ range: "3", month: "Oct" }` for one day (an end on the same local date
