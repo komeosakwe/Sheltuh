@@ -3080,12 +3080,18 @@ and nothing calls the API.
 
 - **What it opens.** The event's "QR code" tracking link
   (`ensureQrTrackingLink` in `lib/api/analytics.ts`): the existing one
-  (label compared ignoring case, as the API does), else a new one. A 409 on
-  the label means another tab made it first, so the list is read again; a
-  409 without it is the 20-link cap, and the code then opens the plain
+  (label compared ignoring case, as the API does), else a new one. Any 409
+  reads the list again first (another tab may have made it, taking the
+  label or the 20th place) and uses the QR link if it's there; otherwise a
+  label 409 is an error and a cap 409 means the code opens the plain
   `/events/{slug}` on `NEXT_PUBLIC_SITE_URL` (or the page's origin), with a
   notice that it isn't tracked. It's only ever called for a published event,
-  so a draft never gets a link. Deleting the "QR code" link stops the
+  so a draft never gets a link. That check is the page's only: the
+  tracking-link API makes a link for any of the organiser's own events
+  (accepted: it's their event, and a draft's link counts nothing until the
+  page is public). The load (`components/dashboard/useEventQr.ts`) uses
+  `useAccountToken` and is shared only per account and event, so one
+  account never sees another's after a switch. Deleting the "QR code" link stops the
   printed code counting (it still opens the event), and the next visit
   makes a new link, so a different code: the page warns about this.
   Analytics counts the page views a code brings, not scans.
@@ -3106,11 +3112,14 @@ and nothing calls the API.
 - **The printable sign** (`/dashboard/events/{id}/qr/sign`,
   `components/dashboard/EventQrSignPage.tsx` and `EventQrSign.tsx`, words in
   `lib/qr-sign.ts`): an HTML page printed by the browser ("Print or save as
-  PDF"), A4 or A5 portrait. The wordmark, the title (the event page's display
-  face), the date and time in the event's own zone as the event page says
-  them (`formatEventPageWhen`, `formatTimeZoneLabel`), the venue and suburb,
-  the code as vector SVG, "Scan for tickets" (paid Sheltüh tickets) or "Scan
-  to see the event" (free, or ticketed elsewhere), and the short address.
+  PDF"), A4 or A5 portrait. The title (the event page's display face), the
+  date and time in the event's own zone as the event page says them
+  (`formatEventPageWhen`, `formatTimeZoneLabel`), the venue and suburb, the
+  code as vector SVG (its black area up to about 118mm on A4, 83mm on A5),
+  "Scan for tickets" (paid Sheltüh tickets) or "Scan to see the event" (free,
+  or ticketed elsewhere), the short address, and the wordmark at the foot.
+  The page repeats the details as text above the preview, for proofreading
+  on a phone.
   Black on white in every theme. Sized in container units (`.qr-sign` in
   `app/globals.css`), so the preview is the printed page; printing shows the
   sheet alone (`[data-print-sheet]`: everything else is `display: none`) at
