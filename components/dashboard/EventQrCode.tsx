@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import AnalyticsGate from "@/components/analytics/AnalyticsGate";
 import { saveBlob } from "@/components/analytics/ExportCsvButton";
 import { Button, ButtonLink } from "@/components/ui/Button";
@@ -41,19 +41,37 @@ function QrCodePage({ eventId }: { eventId: string }) {
   );
 }
 
+/** How long the status region stays empty before a download's words are set (see `announce`). */
+const ANNOUNCE_DELAY_MS = 100;
+
 function QrCodeReady({ eventId, ready }: { eventId: string; ready: Extract<EventQrState, { status: "ready" }> }) {
   const { event, url, matrix, tracked } = ready;
   const [pngBusy, setPngBusy] = useState(false);
   const [pngError, setPngError] = useState<string | null>(null);
   const [announcement, setAnnouncement] = useState("");
+  const announceTimer = useRef<number | undefined>(undefined);
   const address = displayUrl(url);
+
+  useEffect(() => () => window.clearTimeout(announceTimer.current), []);
+
+  /**
+   * Says `message` in the status region. It's emptied first and the words set a moment later, so the same
+   * words again (a second download) are a change a screen reader announces, not a no-op.
+   */
+  function announce(message: string) {
+    window.clearTimeout(announceTimer.current);
+    setAnnouncement("");
+    announceTimer.current = window.setTimeout(() => setAnnouncement(message), ANNOUNCE_DELAY_MS);
+  }
 
   async function downloadPng() {
     setPngBusy(true);
     setPngError(null);
+    window.clearTimeout(announceTimer.current);
+    setAnnouncement("");
     try {
       saveBlob(await linkQrPngBlob(matrix), eventQrFilename(event.slug, "png"));
-      setAnnouncement("PNG downloaded.");
+      announce("PNG downloaded.");
     } catch {
       setPngError("Couldn’t make the PNG. Try again, or download the SVG.");
     } finally {
@@ -62,8 +80,10 @@ function QrCodeReady({ eventId, ready }: { eventId: string; ready: Extract<Event
   }
 
   function downloadSvg() {
+    // The SVG is the way round a PNG that failed: that error no longer applies.
+    setPngError(null);
     saveBlob(new Blob([linkQrSvg(matrix)], { type: "image/svg+xml" }), eventQrFilename(event.slug, "svg"));
-    setAnnouncement("SVG downloaded.");
+    announce("SVG downloaded.");
   }
 
   return (

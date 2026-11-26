@@ -113,13 +113,31 @@ describe("EventQrCode", () => {
     expect(svgName).toBe("sheltuh-night-market-qr.svg");
     expect(svgBlob.type).toBe("image/svg+xml");
     expect(await (svgBlob as Blob).text()).toBe(linkQrSvg(linkQrMatrix(TRACKED_URL)!));
-    expect(screen.getByRole("status")).toHaveTextContent("SVG downloaded.");
+    expect(await screen.findByText("SVG downloaded.")).toHaveAttribute("role", "status");
 
     fireEvent.click(screen.getByRole("button", { name: "Download PNG" }));
     await waitFor(() => expect(saveBlob).toHaveBeenCalledTimes(2));
     expect(linkQrPngBlob).toHaveBeenCalledWith(linkQrMatrix(TRACKED_URL));
     expect(saveBlob.mock.calls[1]).toEqual([png, "sheltuh-night-market-qr.png"]);
-    expect(screen.getByRole("status")).toHaveTextContent("PNG downloaded.");
+    expect(await screen.findByText("PNG downloaded.")).toHaveAttribute("role", "status");
+
+    // The same download again is announced again: the region is emptied, then the words come back.
+    fireEvent.click(screen.getByRole("button", { name: "Download PNG" }));
+    await waitFor(() => expect(saveBlob).toHaveBeenCalledTimes(3));
+    expect(screen.getByRole("status")).toHaveTextContent("");
+    expect(await screen.findByText("PNG downloaded.")).toHaveAttribute("role", "status");
+  });
+
+  it("downloading the SVG clears a PNG error: the SVG is the way round it", async () => {
+    api.getMyEvent.mockResolvedValue(event());
+    api.ensureQrTrackingLink.mockResolvedValue(LINK);
+    linkQrPngBlob.mockRejectedValue(new Error("no canvas"));
+    renderWith(<EventQrCode eventId="evt-1" />);
+    fireEvent.click(await screen.findByRole("button", { name: "Download PNG" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Couldn’t make the PNG.");
+    fireEvent.click(screen.getByRole("button", { name: "Download SVG" }));
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(await screen.findByText("SVG downloaded.")).toBeInTheDocument();
   });
 
   it("shows a PNG that can't be made, and keeps the SVG on offer", async () => {
