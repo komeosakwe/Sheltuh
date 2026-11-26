@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { useLayoutEffect, useState } from "react";
 import { renderToString } from "react-dom/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import MyTicketsList, { REFRESH_AFTER_MS } from "@/components/tickets/MyTicketsList";
@@ -64,13 +65,14 @@ const RECEIVED: MyTicketReceivedItem = {
 
 const PAST = order("o-past", "Old Show", { section: "past", eventStartsAt: "2020-03-06T09:00:00.000Z", eventEndsAt: "2020-03-06T12:00:00.000Z" });
 
-/** A read that answers when the test says (and never on its own). */
+/** A read that answers (or fails) when the test says, and never on its own. */
 function deferred<T>() {
-  const box: { resolve: (value: T) => void } = { resolve: () => undefined };
-  const promise = new Promise<T>((resolve) => {
+  const box: { resolve: (value: T) => void; reject: (error: unknown) => void } = { resolve: () => undefined, reject: () => undefined };
+  const promise = new Promise<T>((resolve, reject) => {
     box.resolve = resolve;
+    box.reject = reject;
   });
-  return { promise, resolve: (value: T) => box.resolve(value) };
+  return { promise, resolve: (value: T) => box.resolve(value), reject: (error: unknown) => box.reject(error) };
 }
 
 const statusLine = () => document.querySelector("[data-my-tickets-status]");
@@ -94,6 +96,33 @@ function renderList(auth: Partial<AuthContextValue> = { status: "signed-in", ema
       <MyTicketsList />
     </FakeAuthProvider>,
   );
+}
+
+/**
+ * The list, with a way to do something (a press, coming back to the tab) at the point where a render of it is on
+ * screen but React hasn't run that render's effects yet: a busy phone or a slow CI worker can land a press or a
+ * read's answer there. `onNextCommit(action)` runs `action` from a layout effect in the commit of the updates made
+ * with it (in the same act), which runs at exactly that point; React then runs the pending effects before it
+ * renders what `action` changed.
+ */
+function renderListActingOnCommit() {
+  const box: { arm: (run: () => void) => void } = { arm: () => undefined };
+  function ActOnCommit() {
+    const [action, setAction] = useState<{ run: () => void } | null>(null);
+    box.arm = (run) => setAction({ run });
+    useLayoutEffect(() => {
+      action?.run();
+    }, [action]);
+    return null;
+  }
+  render(
+    <FakeAuthProvider value={fakeAuthValue({ status: "signed-in", email: "sam@email.com", userId: "u-sam" })}>
+      <h1>My tickets</h1>
+      <MyTicketsList />
+      <ActOnCommit />
+    </FakeAuthProvider>,
+  );
+  return { onNextCommit: (run: () => void) => box.arm(run) };
 }
 
 beforeEach(() => {
@@ -174,6 +203,18 @@ describe("My tickets — the states", () => {
     listMyTickets.mockRejectedValue(new ApiError(500, "boom"));
     renderList();
     fireEvent.click(await screen.findByRole("button", { name: "Try again" }));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Try again" })).toHaveFocus());
+  });
+
+  it("Try again pressed before the error's render has run its effects: focus still lands on the next Try again", async () => {
+    const firstRead = deferred<MyTicketsPage>();
+    listMyTickets.mockReturnValueOnce(firstRead.promise).mockRejectedValueOnce(new ApiError(500, "boom"));
+    const { onNextCommit } = renderListActingOnCommit();
+    await act(async () => {
+      firstRead.reject(new ApiError(500, "boom"));
+      onNextCommit(() => screen.getByRole("button", { name: "Try again" }).click());
+    });
+    await waitFor(() => expect(listMyTickets).toHaveBeenCalledTimes(2));
     await waitFor(() => expect(screen.getByRole("button", { name: "Try again" })).toHaveFocus());
   });
 
@@ -308,6 +349,25 @@ describe("My tickets — reading the list again", () => {
     const past = await screen.findByRole("region", { name: "Past, 1" });
     expect(listMyTickets).toHaveBeenCalledTimes(2);
     expect(within(past).getByRole("article")).toHaveAttribute("data-state", "ended");
+    await waitFor(() => expect(within(past).getByRole("link", { name: "View order, First" })).toHaveFocus());
+    expect(statusLine()).toHaveTextContent("Your tickets were updated.");
+  });
+
+  it("a refresh answered before the list's render has run its effects: focus still follows the card to its new list", async () => {
+    const firstRead = deferred<MyTicketsPage>();
+    const moved = page([order("o1", "First", { section: "past" })], { upcoming: 0, past: 1 });
+    // The refresh's answer arrives at once (a thenable that answers when it's asked), so it's handled at that point too.
+    listMyTickets.mockReturnValueOnce(firstRead.promise).mockReturnValueOnce({ then: (answer: (value: MyTicketsPage) => void) => answer(moved) });
+    const { onNextCommit } = renderListActingOnCommit();
+    await act(async () => {
+      firstRead.resolve(page([order("o1", "First")], { upcoming: 1, past: 0 }));
+      onNextCommit(() => {
+        screen.getByRole("link", { name: "Show ticket, First" }).focus();
+        window.dispatchEvent(Object.assign(new Event("pageshow"), { persisted: true }));
+      });
+    });
+    const past = await screen.findByRole("region", { name: "Past, 1" });
+    expect(listMyTickets).toHaveBeenCalledTimes(2);
     await waitFor(() => expect(within(past).getByRole("link", { name: "View order, First" })).toHaveFocus());
     expect(statusLine()).toHaveTextContent("Your tickets were updated.");
   });

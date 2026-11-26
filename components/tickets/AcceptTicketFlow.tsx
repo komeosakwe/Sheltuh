@@ -21,6 +21,8 @@ import { withNext } from "@/lib/safe-next-path";
 import { ticketStubDate, ticketStubTime } from "@/lib/ticket-times";
 import { MAX_HELD_TICKETS_PER_EVENT } from "@/lib/ticket-transfer-rules";
 import { forgetOfferToken, keepOfferToken, keptOfferToken } from "@/lib/ticket-transfer-return";
+import { TICKET_PHOTO_SIZES } from "@/lib/responsive-image";
+import AcceptColumn from "./AcceptColumn";
 
 export const ACCEPT_PATH = "/tickets/accept";
 /** The one answer for every offer that can't be opened (the API's own words: a link's history isn't told). */
@@ -226,9 +228,9 @@ export default function AcceptTicketFlow() {
   }
   if (!offer) {
     return (
-      <Column>
+      <AcceptColumn>
         <LoadingState text="Opening your ticket…" />
-      </Column>
+      </AcceptColumn>
     );
   }
   return (
@@ -249,18 +251,14 @@ export default function AcceptTicketFlow() {
 }
 
 /** Latte's content column: 480 wide from 768, centred; the full width on phones. Parts 24 apart. */
-function Column({ children }: { children: ReactNode }) {
-  return <div className="mx-auto flex w-full max-w-120 flex-col gap-6">{children}</div>;
-}
-
 function Message({ title, children, headingRef }: { title: string; children: ReactNode; headingRef: Ref<HTMLHeadingElement> }) {
   return (
-    <Column>
+    <AcceptColumn>
       <h1 ref={headingRef} tabIndex={-1} className={titleClass}>
         {title}
       </h1>
       {children}
-    </Column>
+    </AcceptColumn>
   );
 }
 
@@ -318,7 +316,7 @@ function OfferView({
   const suburb = offer.suburb ? bareSuburb(offer.suburb, offer.eventState) : "";
   const venueLine = listed ? [offer.venueName?.trim() ?? "", suburb].filter(Boolean).join(" · ") : "";
   const art = event ? (
-    <EventArt poster={event.poster} title={event.title} imageUrl={event.imageUrl} imageFocus={event.imageFocus} className="size-full" />
+    <EventArt poster={event.poster} title={event.title} imageUrl={event.imageUrl} imageFocus={event.imageFocus} sizes={TICKET_PHOTO_SIZES} className="size-full" />
   ) : undefined;
 
   async function accept(submitEvent: FormEvent<HTMLFormElement>) {
@@ -394,7 +392,7 @@ function OfferView({
   );
 
   return (
-    <Column>
+    <AcceptColumn>
       <div className="flex flex-col gap-2">
         <p className="body-s font-semibold break-words text-signal-text">From {offer.fromName}</p>
         <h1 ref={headingRef} tabIndex={-1} className={titleClass}>
@@ -502,6 +500,6 @@ function OfferView({
       <p className="body-s text-muted">
         Once you accept, {sender}’s copy stops working. If you decline, it goes back to {sender}.
       </p>
-    </Column>
+    </AcceptColumn>
   );
 }

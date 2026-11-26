@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { MY_TICKETS_HEAD } from "@/components/account/account-heads";
 import AccountPageHead from "@/components/account/AccountPageHead";
 import MyTicketsList from "@/components/tickets/MyTicketsList";
 
@@ -12,7 +13,7 @@ export const metadata: Metadata = {
 export default function MyTicketsPage() {
   return (
     <>
-      <AccountPageHead title="My tickets" intro="Tickets you’ve bought or been sent." />
+      <AccountPageHead {...MY_TICKETS_HEAD} />
       <MyTicketsList />
     </>
   );

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { createAccessTokenResolver, SessionExpiredError, type SessionLike } from "../lib/auth/session-token";
+import { AccountMismatchError, accessTokenFor, createAccessTokenResolver, SessionExpiredError, type SessionLike } from "../lib/auth/session-token";
 
 const session = (token: string): SessionLike => ({ access_token: token });
 
@@ -55,5 +55,24 @@ describe("createAccessTokenResolver", () => {
 
   it("SessionExpiredError carries a clear, actionable message", () => {
     expect(new SessionExpiredError().message).toMatch(/sign in again/i);
+  });
+});
+
+describe("accessTokenFor", () => {
+  const theirs: SessionLike = { access_token: "a-token", user: { id: "user-a", email: "a@example.com" } };
+
+  it("hands over the token only for the session's own account", () => {
+    expect(accessTokenFor(theirs, { userId: "user-a" })).toBe("a-token");
+  });
+
+  it("refuses anyone else's with AccountMismatchError, which is a SessionExpiredError (every form's sign-in recovery)", () => {
+    let caught: unknown;
+    try {
+      accessTokenFor(theirs, { userId: "user-b" });
+    } catch (err) {
+      caught = err;
+    }
+    expect(caught).toBeInstanceOf(AccountMismatchError);
+    expect(caught).toBeInstanceOf(SessionExpiredError);
   });
 });

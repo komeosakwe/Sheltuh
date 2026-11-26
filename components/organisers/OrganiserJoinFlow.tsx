@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
+import { useEffect, useEffectEvent, useRef, useState, type FormEvent, type ReactNode } from "react";
 import DemoNotice from "@/components/DemoNotice";
 import { supportMailto, SUPPORT_LINK_LABEL } from "@/components/invites/invite-problems";
 import { Button, ButtonLink } from "@/components/ui/Button";
@@ -166,9 +166,21 @@ export default function OrganiserJoinFlow() {
     if (unavailable || joined) forgetToken();
   }, [unavailable, joined]);
 
+  // Joined: the account's organiser record, which the header and the dashboard's frame and pages share
+  // (lib/auth/useOrganiser.ts), is approved now. It's fetched again before the dashboard opens, so the
+  // dashboard never opens on the one from before (no application, or pending).
+  const refreshRecord = useEffectEvent(() => refetch());
+  const openDashboard = useEffectEvent(() => router.push(JOINED_PATH));
   useEffect(() => {
-    if (joined) router.push(JOINED_PATH);
-  }, [joined, router]);
+    if (!joined) return;
+    let cancelled = false;
+    void refreshRecord().then(() => {
+      if (!cancelled) openDashboard();
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [joined]);
 
   const screen = decide();
   const headingRef = useFocusOnScreenChange(screen.id, screen.focusFirst ?? false);

@@ -6,3 +6,10 @@
  * rows 32px apart.
  */
 export const HOME_GRID = "grid grid-cols-1 gap-x-4 gap-y-8 md:grid-cols-2 md:gap-x-6 lg:grid-cols-3 lg:gap-x-8 xl:grid-cols-4";
+
+/**
+ * Saved's own grid (Latte's Saved frames), which My tickets shares: one card per row on phones, two
+ * from 768px (328px cards at 768) and three from 1280px; 16px across and 24px down (16 down on
+ * phones). The cards carry their own 16px padding.
+ */
+export const SAVED_GRID = "grid grid-cols-1 gap-4 md:grid-cols-2 md:gap-y-6 xl:grid-cols-3";

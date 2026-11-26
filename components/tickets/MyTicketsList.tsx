@@ -1,10 +1,12 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useEffectEvent, useRef, useState, useSyncExternalStore, type ReactNode, type Ref } from "react";
+import { useEffect, useEffectEvent, useLayoutEffect, useRef, useState, useSyncExternalStore, type ReactNode, type Ref } from "react";
 import DemoNotice from "@/components/DemoNotice";
 import EventArt from "@/components/EventArt";
-import { SAVED_GRID, SHOW_MORE_CLASS } from "@/components/favourites/SavedPageContent";
+import { SHOW_MORE_CLASS } from "@/components/favourites/SavedPageContent";
+import { SAVED_GRID } from "@/components/ui/grids";
+import TicketsLoading from "./TicketsLoading";
 import TicketCard from "@/components/tickets/TicketCard";
 import { Button, ButtonLink } from "@/components/ui/Button";
 import { EmptyState, Notice } from "@/components/ui/Section";
@@ -151,8 +153,10 @@ function LiveTickets({ getToken, email, announce }: { getToken: GetToken; email?
   // Leaving the page: a refresh or "Show more" still on its way is dropped.
   useEffect(() => () => busy.current?.abort(), []);
 
-  // Focus, once what changed is drawn.
-  useEffect(() => {
+  // Focus, once what changed is drawn: in the same commit (a layout effect), so it's never left on the body, and
+  // so the request is taken by the commit that draws its change. A passive effect from an earlier commit can still
+  // be waiting when a click or a read's answer sets the request; it would take it against the old cards.
+  useLayoutEffect(() => {
     const request = focusRequest.current;
     const root = rootRef.current;
     if (!request || !root || load.status === "loading") return;
@@ -366,31 +370,6 @@ function SignedOut({ ended = false, titleRef }: { ended?: boolean; titleRef?: Re
   );
 }
 
-/** Three cards' shapes while the list loads (no shimmer); the status line says it. */
-function TicketsLoading() {
-  return (
-    <div aria-busy="true" className="flex flex-col gap-4">
-      <div className="h-7 w-40 rounded-badge bg-surface" aria-hidden="true" />
-      <ul aria-hidden="true" className={SAVED_GRID} data-my-tickets-loading="">
-        {[0, 1, 2].map((i) => (
-          <li key={i} className="flex flex-col gap-4 rounded-card border border-surface-border bg-card p-4">
-            <div className="flex items-center gap-4">
-              <div className="size-22 shrink-0 rounded-control bg-surface" />
-              <div className="flex min-w-0 flex-1 flex-col gap-2">
-                <div className="h-4 w-24 max-w-full rounded-badge bg-surface" />
-                <div className="h-6 w-full rounded-badge bg-surface" />
-                <div className="h-4 w-32 max-w-full rounded-badge bg-surface" />
-              </div>
-            </div>
-            <div className="h-4 w-40 max-w-full rounded-badge bg-surface" />
-            <div className="h-14 w-full rounded-control bg-surface" />
-          </li>
-        ))}
-      </ul>
-    </div>
-  );
-}
-
 interface MoreControls {
   /** Where "Show more" sits; null once everything is in. */
   section: MyTicketSection | null;
@@ -550,5 +529,5 @@ function CardArt({ item, demo }: { item: MyTicketItem; demo: boolean }) {
   if (!slug) return null;
   // The demo's samples have their own art; a live event's is generated from its slug, as everywhere else.
   const poster = (demo ? sampleEvents.find((event) => event.slug === slug)?.poster : undefined) ?? assignPoster(slug);
-  return <EventArt poster={poster} title={item.eventTitle} imageUrl={item.imageUrl} imageFocus={item.imageFocus} className="size-full" />;
+  return <EventArt poster={poster} title={item.eventTitle} imageUrl={item.imageUrl} imageFocus={item.imageFocus} sizes="88px" className="size-full" />;
 }

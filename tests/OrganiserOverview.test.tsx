@@ -1,11 +1,12 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import OverviewContent from "@/components/dashboard/overview/OverviewContent";
 import { DashFrameContext } from "@/components/dashboard/ui/DashFrameContext";
 import type { OrganiserEventPerformance, OrganiserEventSummary, OrganiserOverview, OrganiserRecord } from "@/lib/api/types";
 import type { AuthContextValue } from "@/lib/auth/AuthContext";
-import { fakeAuthValue, FakeAuthProvider } from "./test-utils/fakeAuth";
+import { rememberFramed } from "@/lib/organiser-frame-hint";
+import { fakeAuthValue, FakeAuthProvider, switchableSession } from "./test-utils/fakeAuth";
 
 /**
  * The organiser dashboard's Overview (Latte's frames 430:7340, 492:14153, 492:14487; organiser-dashboard
@@ -21,9 +22,21 @@ vi.mock("@/lib/api/organiser-summary", () => ({
 type Organiser = Pick<OrganiserRecord, "organiserId" | "status" | "displayName">;
 let organiser: Organiser | null = { organiserId: "org-1", status: "approved", displayName: "Here & Now" };
 let organiserError: string | null = null;
-vi.mock("@/lib/auth/useOrganiser", () => ({
-  useOrganiser: () => ({ loading: false, organiser, error: organiserError, refetch: vi.fn() }),
-}));
+let organiserLoading = false;
+/** Per account (by user id), when set: that account's record, or loading for an account not in it. */
+let organisersByAccount: Record<string, Organiser> | null = null;
+vi.mock("@/lib/auth/useOrganiser", async () => {
+  const { useAuth } = await import("@/lib/auth/AuthContext");
+  return {
+    useOrganiser: () => {
+      const auth = useAuth();
+      if (organisersByAccount === null) return { loading: organiserLoading, organiser, error: organiserError, refetch: vi.fn() };
+      if (auth.status !== "signed-in" || auth.userId === undefined) return { loading: false, organiser: null, error: null, refetch: vi.fn() };
+      const own = organisersByAccount[auth.userId];
+      return { loading: own === undefined, organiser: own ?? null, error: null, refetch: vi.fn() };
+    },
+  };
+});
 
 // Tuesday 17 November 2026, midday in Melbourne.
 const NOW = new Date("2026-11-17T01:00:00.000Z");
@@ -111,6 +124,9 @@ beforeEach(() => {
   getOrganiserOverview.mockReset();
   organiser = { organiserId: "org-1", status: "approved", displayName: "Here & Now" };
   organiserError = null;
+  organiserLoading = false;
+  organisersByAccount = null;
+  localStorage.clear();
 });
 
 afterEach(() => {
@@ -351,12 +367,30 @@ describe("Overview — a new organiser, loading and errors (not drawn)", () => {
     expect(screen.getByRole("button", { name: "Try again" })).not.toHaveAttribute("aria-disabled");
   });
 
-  it("asks only for the organiser's own overview, with their token", async () => {
+  it("asks only for the organiser's own overview, with their own account's token", async () => {
     getOrganiserOverview.mockResolvedValue(overview());
-    const auth = fakeAuthValue();
+    const auth = fakeAuthValue({ userId: "u1", email: "org@example.com" });
     renderOverview(auth);
     await loaded();
-    expect(getOrganiserOverview).toHaveBeenCalledWith(auth.getAccessToken, expect.objectContaining({ signal: expect.any(AbortSignal) }));
+    expect(getOrganiserOverview).toHaveBeenCalledWith(expect.any(Function), expect.objectContaining({ signal: expect.any(AbortSignal) }));
+    const getToken = getOrganiserOverview.mock.calls[0][0] as () => Promise<string>;
+    await expect(getToken()).resolves.toBe("fake-access-token");
+    expect(auth.getAccessTokenFor).toHaveBeenCalledWith({ userId: "u1", email: "org@example.com" });
+  });
+
+  it("with someone else's session by then (another tab signed in), it stays loading: no error, no numbers", async () => {
+    const session = switchableSession({ userId: "u1" });
+    getOrganiserOverview.mockImplementation(async (getToken: () => Promise<string>) => {
+      await getToken();
+      return overview();
+    });
+    session.become({ userId: "u2" });
+    renderOverview(fakeAuthValue({ userId: "u1", ...session.auth }));
+    await waitFor(() => expect(session.auth.getAccessTokenFor).toHaveBeenCalledWith({ userId: "u1", email: "organiser@example.com" }));
+    await act(async () => {});
+    expect(screen.getByRole("progressbar", { name: "Loading your overview" })).toBeInTheDocument();
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(screen.queryByRole("region", { name: "This week" })).toBeNull();
   });
 });
 
@@ -424,5 +458,127 @@ describe("Overview — in the frame", () => {
     const page = document.querySelector("[data-overview]");
     expect(page).toHaveClass("-mx-4", "md:-mx-6", "-mb-6", "col-lg:flex-row", "col-lg:-mt-14");
     expect(screen.getByRole("region", { name: "Performance" })).toHaveClass("bg-hover", "col-lg:w-100");
+  });
+});
+
+describe("Overview — asked for alongside the organiser record", () => {
+  const auth = () => fakeAuthValue({ userId: "u1" });
+
+  it("for a returning organiser (this browser's hint), the numbers are asked for while the record still loads", () => {
+    getOrganiserOverview.mockReturnValue(new Promise(() => {}));
+    organiserLoading = true;
+    organiser = null;
+    rememberFramed("u1", true);
+    renderOverview(auth());
+    expect(getOrganiserOverview).toHaveBeenCalledTimes(1);
+    // The gate still waits for the record before showing anything of the organiser's.
+    expect(screen.queryByRole("heading", { name: /Welcome back/ })).toBeNull();
+  });
+
+  it("without the hint, or for anyone who isn't an approved organiser, nothing is asked for", () => {
+    organiserLoading = true;
+    organiser = null;
+    renderOverview(auth());
+    expect(getOrganiserOverview).not.toHaveBeenCalled();
+    cleanup();
+
+    organiserLoading = false;
+    organiser = { organiserId: "org-1", status: "pending", displayName: "Here & Now" };
+    rememberFramed("u1", true);
+    renderOverview(auth());
+    expect(getOrganiserOverview).not.toHaveBeenCalled();
+  });
+});
+
+describe("Overview — a switch of accounts (the frame stays mounted)", () => {
+  const A = fakeAuthValue({ userId: "u-a", email: "a@example.com" });
+  const B = fakeAuthValue({ userId: "u-b", email: "b@example.com" });
+  const aOrganiser: Organiser = { organiserId: "org-a", status: "approved", displayName: "Here & Now" };
+  const bOrganiser: Organiser = { organiserId: "org-b", status: "approved", displayName: "Other Rooms" };
+  const aNumbers = () => overview();
+  const bNumbers = () => overview({ thisWeek: { ...overview().thisWeek, ticketsSold: 3, views: 7, newFollowers: 1 } });
+  const noAs = () => {
+    expect(screen.queryByText("+86")).toBeNull();
+    expect(screen.queryByText("+412")).toBeNull();
+    expect(screen.queryByText("Welcome back, Here & Now!")).toBeNull();
+  };
+
+  function page(auth: AuthContextValue) {
+    return (
+      <FakeAuthProvider value={auth}>
+        <OverviewContent />
+      </FakeAuthProvider>
+    );
+  }
+
+  async function aWithNumbers() {
+    organisersByAccount = { "u-a": aOrganiser };
+    getOrganiserOverview.mockResolvedValueOnce(aNumbers());
+    const view = render(page(A));
+    const week = await screen.findByRole("region", { name: "This week" });
+    expect(within(week).getByText("+86")).toBeInTheDocument();
+    return view;
+  }
+
+  async function bArrives(rerender: (ui: React.ReactElement) => void) {
+    let answer: (value: OrganiserOverview) => void = () => {};
+    getOrganiserOverview.mockReturnValueOnce(new Promise<OrganiserOverview>((resolve) => (answer = resolve)));
+    rerender(page(B));
+    noAs();
+    return (value: OrganiserOverview) => answer(value);
+  }
+
+  it("B, an approved organiser already known: loading, never A's numbers, and B's own asked for", async () => {
+    const { rerender } = await aWithNumbers();
+    organisersByAccount = { "u-a": aOrganiser, "u-b": bOrganiser };
+    const answer = await bArrives(rerender);
+    expect(screen.getByRole("heading", { level: 1, name: "Welcome back, Other Rooms!" })).toBeInTheDocument();
+    expect(screen.getByRole("progressbar", { name: "Loading your overview" })).toBeInTheDocument();
+    expect(getOrganiserOverview).toHaveBeenCalledTimes(2);
+    answer(bNumbers());
+    const week = await screen.findByRole("region", { name: "This week" });
+    expect(within(week).getByText("+3")).toBeInTheDocument();
+    noAs();
+  });
+
+  it("B with this browser's hint, its record still loading: B's asked for at once, and A's never shown while it arrives", async () => {
+    const { rerender } = await aWithNumbers();
+    rememberFramed("u-b", true);
+    const answer = await bArrives(rerender);
+    // The hint asks for B's numbers alongside B's record; the gate waits for the record.
+    expect(getOrganiserOverview).toHaveBeenCalledTimes(2);
+    expect(screen.queryByRole("region", { name: "This week" })).toBeNull();
+    organisersByAccount = { "u-a": aOrganiser, "u-b": bOrganiser };
+    rerender(page(B));
+    noAs();
+    expect(screen.getByRole("progressbar", { name: "Loading your overview" })).toBeInTheDocument();
+    answer(bNumbers());
+    expect(within(await screen.findByRole("region", { name: "This week" })).getByText("+3")).toBeInTheDocument();
+    noAs();
+    expect(getOrganiserOverview).toHaveBeenCalledTimes(2);
+  });
+
+  it("B without the hint: nothing of A's while B's record loads, then B's own numbers once it's approved", async () => {
+    const { rerender } = await aWithNumbers();
+    const answer = await bArrives(rerender);
+    expect(getOrganiserOverview).toHaveBeenCalledTimes(1);
+    organisersByAccount = { "u-a": aOrganiser, "u-b": bOrganiser };
+    rerender(page(B));
+    noAs();
+    expect(getOrganiserOverview).toHaveBeenCalledTimes(2);
+    answer(bNumbers());
+    expect(within(await screen.findByRole("region", { name: "This week" })).getByText("+3")).toBeInTheDocument();
+    noAs();
+  });
+
+  it("signing out and back in as B starts again too", async () => {
+    const { rerender } = await aWithNumbers();
+    rerender(page(fakeAuthValue({ status: "signed-out", userId: undefined, email: undefined })));
+    expect(screen.getByText("Sign in to see your dashboard.")).toBeInTheDocument();
+    organisersByAccount = { "u-a": aOrganiser, "u-b": bOrganiser };
+    const answer = await bArrives(rerender);
+    expect(getOrganiserOverview).toHaveBeenCalledTimes(2);
+    answer(bNumbers());
+    expect(within(await screen.findByRole("region", { name: "This week" })).getByText("+3")).toBeInTheDocument();
   });
 });

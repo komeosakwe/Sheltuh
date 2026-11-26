@@ -2,8 +2,8 @@
 
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
-import { DotsLoader } from "@/components/brand/DotsMark";
 import EventDetailsView from "@/components/EventDetailsView";
+import EventPageLoading from "@/components/events/EventPageLoading";
 import NotFoundMessage from "@/components/NotFoundMessage";
 import { Button } from "@/components/ui/Button";
 import { Notice } from "@/components/ui/Section";
@@ -100,13 +100,7 @@ export default function LiveEventDetails({ slug }: { slug: string }) {
     setAttempt((n) => n + 1);
   }
 
-  if (state.status === "loading") {
-    return (
-      <div className="mx-auto flex max-w-6xl justify-center px-5 py-20 sm:px-8">
-        <DotsLoader announce label="Loading event" />
-      </div>
-    );
-  }
+  if (state.status === "loading") return <EventPageLoading />;
 
   return (
     <div ref={rootRef}>

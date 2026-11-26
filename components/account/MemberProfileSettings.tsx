@@ -86,6 +86,19 @@ export default function MemberProfileSettings({
   const [visible, setVisible] = useState(profile.profileVisible ?? false);
   const [bio, setBio] = useState(profile.bio ?? "");
   const [handle, setHandle] = useState(profile.instagramHandle ?? "");
+  // The profile the fields started from. The card can open on the page's shared copy, which is then
+  // checked again (lib/auth/useProfile.ts), and a save elsewhere (the photo, another tab) changes it
+  // too: a field the person hasn't touched follows the new profile, one they've edited keeps their
+  // words, and Save compares against the new one, so it never sends back a value they didn't change.
+  // Set while rendering, React's pattern for state that follows a prop.
+  const [baseline, setBaseline] = useState(profile);
+  if (baseline !== profile) {
+    setBaseline(profile);
+    if (name === baseline.displayName) setName(profile.displayName);
+    if (visible === (baseline.profileVisible ?? false)) setVisible(profile.profileVisible ?? false);
+    if (bio === (baseline.bio ?? "")) setBio(profile.bio ?? "");
+    if (handle === (baseline.instagramHandle ?? "")) setHandle(profile.instagramHandle ?? "");
+  }
   const [errors, setErrors] = useState<Partial<Record<Field, string>>>({});
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState<string | null>(null);

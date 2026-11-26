@@ -80,6 +80,23 @@ export const nextConfig: NextConfig = {
   // indexed read.
   htmlLimitedBots: /.*/,
 
+  // The image optimizer (/_next/image), for the site's own stock photos only (public/events, public/home: next/image and
+  // lib/responsive-image.ts), resized to the box that shows them and served as AVIF or WebP. Only an image file (by its
+  // extension) in those folders, with no query string: anything else is a 400, so the optimizer never fetches an app
+  // route (an event's /events/{slug}/story-card above all). Organisers' event photos (/api/events/{id}/image) stay out
+  // of it on purpose: an optimized copy can't be taken down. Next keeps serving its cached copy after the source starts
+  // failing (a failed revalidation keeps the previous entry, and the image cache keeps every entry for at least
+  // `minimumCacheTTL`), so an unpublished event's photo would outlive its route's hour (EVENT_IMAGE_CACHE) with no end.
+  // Their route serves them as uploaded. The stock photos change only with a deploy. tests/responsive-image.test.ts.
+  images: {
+    localPatterns: [
+      { pathname: "/events/*.{jpg,jpeg,png,webp}", search: "" },
+      { pathname: "/home/**/*.{jpg,jpeg,png,webp}", search: "" },
+    ],
+    formats: ["image/avif", "image/webp"],
+    minimumCacheTTL: 3600,
+  },
+
   // Files a server route reads from disk at a path the build's file tracing can't follow, added
   // to that route's function bundle on Vercel. The story card (lib/server/story-card-render.tsx,
   // lib/server/share-card-data.ts readDemoPhoto) reads its four TTFs and, in demo mode, the

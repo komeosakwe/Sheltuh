@@ -157,7 +157,12 @@ describe("/organisers/join before signing in", () => {
 
 describe("/organisers/join signed in", () => {
   it("asks only for the name and categories, then joins and goes to the dashboard, forgetting the token", async () => {
-    joinWithOrganiserLink.mockResolvedValue({ organiserId: "org-new", displayName: "Neon Collective" });
+    // The organiser record asked for again after the join, held until the test answers it.
+    let answerRecord: (record: OrganiserRecord) => void = () => {};
+    joinWithOrganiserLink.mockImplementation(async () => {
+      getMyOrganiser.mockImplementation(() => new Promise<OrganiserRecord>((resolve) => (answerRecord = resolve)));
+      return { organiserId: "org-new", displayName: "Neon Collective" };
+    });
     renderFlow(SIGNED_IN);
     const form = await screen.findByRole("form", { name: "Join as an organiser" });
     expect(within(form).getAllByRole("textbox")).toHaveLength(1);
@@ -170,12 +175,22 @@ describe("/organisers/join signed in", () => {
     fireEvent.click(within(form).getByLabelText("Live music"));
     fireEvent.click(within(form).getByRole("button", { name: "Join as an organiser" }));
 
-    await waitFor(() => expect(push).toHaveBeenCalledWith(JOINED_PATH));
+    expect(await screen.findByRole("heading", { level: 1, name: "You’re in" })).toBeInTheDocument();
     expect(joinWithOrganiserLink).toHaveBeenCalledWith(
       { token: TOKEN, displayName: "Neon Collective", categories: ["live-music"] },
       expect.any(Function),
     );
-    expect(await screen.findByRole("heading", { level: 1, name: "You’re in" })).toBeInTheDocument();
+    // The organiser record the header and the dashboard share is fetched again after the join, and the
+    // dashboard doesn't open until it has arrived, so it never opens on the one from before
+    // (lib/auth/useOrganiser.ts).
+    await waitFor(() =>
+      expect(Math.max(...getMyOrganiser.mock.invocationCallOrder)).toBeGreaterThan(joinWithOrganiserLink.mock.invocationCallOrder[0]),
+    );
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(push).not.toHaveBeenCalled();
+    answerRecord(organiser("approved", "Neon Collective"));
+    await waitFor(() => expect(push).toHaveBeenCalledWith(JOINED_PATH));
+    expect(push).toHaveBeenCalledTimes(1);
     expect(sessionStorage.getItem(STORAGE_KEY)).toBeNull();
   });
 

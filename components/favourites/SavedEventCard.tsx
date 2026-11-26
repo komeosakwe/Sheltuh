@@ -53,6 +53,8 @@ export default function SavedEventCard({
           title={event.title}
           fit="poster"
           priority={priority}
+          // The saved grid's one, two and three columns (SAVED_GRID).
+          sizes="(min-width: 1280px) 33vw, (min-width: 768px) 50vw, 100vw"
           className={`size-full ${state === "ended" ? "grayscale" : state === "sold-out" ? "opacity-60" : ""}`.trim()}
         />
       </div>

@@ -1,11 +1,11 @@
 // @vitest-environment jsdom
-import { act, renderHook, waitFor } from "@testing-library/react";
+import { act, render, renderHook, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ApiError } from "@/lib/api/client";
 import type { OrganiserRecord } from "@/lib/api/types";
 import type { AuthContextValue } from "@/lib/auth/AuthContext";
 import { announceOrganiserChange, useOrganiser } from "@/lib/auth/useOrganiser";
-import { fakeAuthValue, FakeAuthProvider } from "./test-utils/fakeAuth";
+import { fakeAuthValue, FakeAuthProvider, switchableSession } from "./test-utils/fakeAuth";
 
 vi.mock("@/lib/api/client", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/lib/api/client")>()),
@@ -76,6 +76,8 @@ describe("useOrganiser", () => {
     getMyOrganiser.mockImplementationOnce(() => new Promise((resolve) => (resolveB = resolve)));
     become(B);
     expect(result.current).toMatchObject({ loading: true, organiser: null });
+    // B's request starts once B's token is in hand (lib/auth/account-store.ts loadWithToken).
+    await waitFor(() => expect(getMyOrganiser).toHaveBeenCalledTimes(2));
     await act(async () => resolveB(record("user-b", "pending")));
     expect(result.current).toMatchObject({ loading: false, organiser: { ownerUserId: "user-b", status: "pending" } });
   });
@@ -101,10 +103,184 @@ describe("useOrganiser", () => {
       done = result.current.refetch();
     });
     expect(result.current).toMatchObject({ loading: false, refreshing: true, organiser: { status: "pending" } });
+    await waitFor(() => expect(getMyOrganiser).toHaveBeenCalledTimes(2));
     await act(async () => {
       resolve(record("user-a", "approved"));
       await done;
     });
     expect(result.current).toMatchObject({ loading: false, refreshing: false, organiser: { status: "approved" } });
+  });
+
+  it("is one copy for the page: readers mounted together share one request", async () => {
+    getMyOrganiser.mockResolvedValue(record("user-a", "approved"));
+    const getAccessToken = vi.fn().mockResolvedValue("token");
+    const seen: (string | undefined)[] = [];
+    function Reader() {
+      seen.push(useOrganiser().organiser?.status);
+      return null;
+    }
+    render(
+      <FakeAuthProvider value={fakeAuthValue({ getAccessToken, ...A })}>
+        <Reader />
+        <Reader />
+        <Reader />
+      </FakeAuthProvider>,
+    );
+    await waitFor(() => expect(seen.at(-1)).toBe("approved"));
+    expect(getMyOrganiser).toHaveBeenCalledTimes(1);
+  });
+
+  it("a reader mounted later (a dashboard tab switch) has the record at once, never loading, and it's checked again quietly", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      getMyOrganiser.mockResolvedValueOnce(record("user-a", "pending"));
+      const first = hook(A);
+      await waitFor(() => expect(first.result.current.organiser?.status).toBe("pending"));
+      vi.setSystemTime(Date.now() + 60_000);
+
+      let resolve: (value: OrganiserRecord) => void = () => {};
+      getMyOrganiser.mockImplementationOnce(() => new Promise((r) => (resolve = r)));
+      const later = hook(A);
+      expect(later.result.current).toMatchObject({ loading: false, organiser: { status: "pending" } });
+      await waitFor(() => expect(getMyOrganiser).toHaveBeenCalledTimes(2));
+      await act(async () => resolve(record("user-a", "approved")));
+      // Every reader gets the fresher answer.
+      expect(later.result.current.organiser?.status).toBe("approved");
+      expect(first.result.current.organiser?.status).toBe("approved");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("refetch reaches every reader (after a join approves the organiser)", async () => {
+    getMyOrganiser.mockResolvedValueOnce(record("user-a", "pending"));
+    const header = hook(A);
+    const page = hook(A);
+    await waitFor(() => expect(header.result.current.organiser?.status).toBe("pending"));
+    getMyOrganiser.mockResolvedValueOnce(record("user-a", "approved"));
+    await act(async () => {
+      await page.result.current.refetch();
+    });
+    expect(header.result.current.organiser?.status).toBe("approved");
+  });
+
+  it("the person's own Sign out forgets it; a session that expired keeps it for the same account's return", async () => {
+    getMyOrganiser.mockResolvedValue(record("user-a", "approved"));
+    const { result, become } = hook(A);
+    await waitFor(() => expect(result.current.organiser?.status).toBe("approved"));
+
+    let resolve: (value: OrganiserRecord) => void = () => {};
+    getMyOrganiser.mockImplementation(() => new Promise((r) => (resolve = r)));
+    become({ status: "signed-out", signedOutBy: "session", userId: undefined, email: undefined, accessToken: undefined });
+    become(A);
+    expect(result.current).toMatchObject({ loading: false, organiser: { status: "approved" } });
+    await waitFor(() => expect(getMyOrganiser).toHaveBeenCalledTimes(2));
+    await act(async () => resolve(record("user-a", "approved")));
+
+    become({ status: "signed-out", signedOutBy: "user", userId: undefined, email: undefined, accessToken: undefined });
+    become(A);
+    expect(result.current).toMatchObject({ loading: true, organiser: null });
+    await waitFor(() => expect(getMyOrganiser).toHaveBeenCalledTimes(3));
+    await act(async () => resolve(record("user-a", "approved")));
+    expect(result.current).toMatchObject({ loading: false, organiser: { status: "approved" } });
+  });
+
+  it("a quiet check that fails (offline, a 5xx) keeps the record a page is showing; one that answers still lands", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      getMyOrganiser.mockResolvedValueOnce(record("user-a", "approved"));
+      const first = hook(A);
+      await waitFor(() => expect(first.result.current.organiser?.status).toBe("approved"));
+      vi.setSystemTime(Date.now() + 60_000);
+
+      getMyOrganiser.mockRejectedValueOnce(new ApiError(503, "Service unavailable."));
+      const later = hook(A);
+      await waitFor(() => expect(getMyOrganiser).toHaveBeenCalledTimes(2));
+      await act(async () => {});
+      expect(first.result.current).toMatchObject({ loading: false, organiser: { status: "approved" }, error: null });
+      expect(later.result.current).toMatchObject({ loading: false, organiser: { status: "approved" }, error: null });
+
+      // An authoritative answer still lands: the application is gone (404).
+      vi.setSystemTime(Date.now() + 60_000);
+      getMyOrganiser.mockRejectedValueOnce(new ApiError(404, "Not found."));
+      hook(A);
+      await waitFor(() => expect(first.result.current).toMatchObject({ loading: false, organiser: null, error: null }));
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("a quiet check the API refuses (401: the account revoked or deleted) replaces the approved record with its error", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      getMyOrganiser.mockResolvedValueOnce(record("user-a", "approved"));
+      const first = hook(A);
+      await waitFor(() => expect(first.result.current.organiser?.status).toBe("approved"));
+      vi.setSystemTime(Date.now() + 60_000);
+      getMyOrganiser.mockRejectedValueOnce(new ApiError(401, "Sign in again."));
+      hook(A);
+      await waitFor(() => expect(first.result.current).toMatchObject({ loading: false, organiser: null, error: "Sign in again." }));
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("a first load that fails shows the error", async () => {
+    getMyOrganiser.mockRejectedValueOnce(new ApiError(503, "Service unavailable."));
+    const { result } = hook(A);
+    await waitFor(() => expect(result.current).toMatchObject({ loading: false, organiser: null, error: "Service unavailable." }));
+  });
+
+  it("asks as the account it files the answer under: when the session is someone else's by then, nothing is kept or cleared", async () => {
+    const session = switchableSession({ userId: "user-a" });
+    getMyOrganiser.mockImplementation(async (getToken: () => Promise<string>) => {
+      const token = await getToken();
+      return record(token === "user-a-token" ? "user-a" : "user-b", "approved");
+    });
+    let auth: Partial<AuthContextValue> = A;
+    const view = renderHook(() => useOrganiser(), {
+      wrapper: ({ children }) => <FakeAuthProvider value={fakeAuthValue({ ...auth, ...session.auth })}>{children}</FakeAuthProvider>,
+    });
+    await waitFor(() => expect(view.result.current.organiser?.ownerUserId).toBe("user-a"));
+    expect(session.auth.getAccessTokenFor).toHaveBeenLastCalledWith({ userId: "user-a", email: "a@example.com" });
+
+    // B signs in in another tab; this page still says A when its refetch asks for a token.
+    session.become({ userId: "user-b" });
+    await act(async () => {
+      await view.result.current.refetch();
+    });
+    // No request at all was made with B's session for A's record, and A's own record wasn't cleared.
+    expect(getMyOrganiser).toHaveBeenCalledTimes(1);
+    expect(view.result.current).toMatchObject({ loading: false, organiser: { ownerUserId: "user-a" }, error: null });
+
+    // The page catches up: B's own is asked for (as B), and A's is never shown for B.
+    auth = B;
+    view.rerender();
+    expect(view.result.current).toMatchObject({ loading: true, organiser: null });
+    await waitFor(() => expect(view.result.current.organiser?.ownerUserId).toBe("user-b"));
+    expect(session.auth.getAccessTokenFor).toHaveBeenLastCalledWith({ userId: "user-b", email: "b@example.com" });
+  });
+
+  it("a stale reader's refetch, refused by the token check, doesn't drop the signed-in account's request in flight", async () => {
+    const session = switchableSession({ userId: "user-b" });
+    let answerB: (value: OrganiserRecord) => void = () => {};
+    getMyOrganiser.mockImplementation(async (getToken: () => Promise<string>) => {
+      await getToken();
+      return new Promise<OrganiserRecord>((resolve) => (answerB = resolve));
+    });
+    const reader = (auth: Partial<AuthContextValue>) =>
+      renderHook(() => useOrganiser(), {
+        wrapper: ({ children }) => <FakeAuthProvider value={fakeAuthValue({ ...auth, ...session.auth })}>{children}</FakeAuthProvider>,
+      });
+    const forB = reader(B);
+    await waitFor(() => expect(getMyOrganiser).toHaveBeenCalledTimes(1));
+    // A part of the page that still shows A (it hasn't re-rendered yet) asks again after a user action.
+    const stale = reader(A);
+    await act(async () => {
+      await stale.result.current.refetch();
+    });
+    expect(getMyOrganiser).toHaveBeenCalledTimes(1);
+    await act(async () => answerB(record("user-b", "approved")));
+    expect(forB.result.current).toMatchObject({ loading: false, organiser: { ownerUserId: "user-b", status: "approved" } });
   });
 });

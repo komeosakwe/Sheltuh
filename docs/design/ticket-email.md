@@ -119,7 +119,7 @@ Everything else is as specified. The QR area is taller than drawn by design (P2)
 
 | # | What | Image | Built | Reason |
 | --- | --- | --- | --- | --- |
-| D1 | Footer legal line | "Sheltüh Pty Ltd · ABN XX XXX XXX XXX · Naarm / Melbourne VIC" | **Removed**, with no replacement line | Owner, 18 Nov. The business is a sole trader, and no legal line is invented. |
+| D1 | Footer legal line | "Sheltüh Pty Ltd · ABN XX XXX XXX XXX · Naarm / Melbourne VIC" | **Removed**, with no replacement line | Owner, 18 Nov. The business is a partnership, not a company, and no legal line is invented. |
 | D2 | QR code | A placeholder version 1 symbol, no logo | The real code at **error-correction level H, version 2 (25×25 modules), with the ü mark in the centre** (§6) | Owner (centre logo). Level H is what lets the code survive the logo. The 13-character payload doesn't fit version 1 at level H, so the symbol becomes 25×25. |
 | D3 | Real content instead of placeholders | A placeholder QR, the backup code "BPT7-7P6W", and black wallet buttons with a generic wallet glyph | The ticket's real QR and code, and the **official** "Add to Apple Wallet" and "Add to Google Wallet" badges | Designer's notes. The badges keep their vendors' proportions, so their widths follow the artwork rather than the image's 207 / 215px (§5.6). |
 | D4 | The fourth share chip | "Copy link" | **"Share page"**, in the same chip style and position, linking to the event's public page, where the share and copy controls work | Owner, 18 Nov (approved). Email can't run the JavaScript that a copy button needs. |

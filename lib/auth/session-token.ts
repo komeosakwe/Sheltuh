@@ -13,6 +13,19 @@ export class SessionExpiredError extends Error {
   }
 }
 
+/**
+ * The session is someone else's (another account signed in, in another tab): `accessTokenFor`'s refusal. A
+ * SessionExpiredError, so every form treats it as one (its sign-in recovery); a reader that labels what it
+ * fetched with an account (lib/auth/account-store.ts) can tell it apart from no session at all, and keep
+ * nothing for either account.
+ */
+export class AccountMismatchError extends SessionExpiredError {
+  constructor() {
+    super();
+    this.name = "AccountMismatchError";
+  }
+}
+
 export interface SessionLike {
   access_token: string;
   /** Whose session it is (Supabase's `session.user`). */
@@ -62,11 +75,11 @@ export function createAccessTokenResolver(getSession: () => Promise<SessionLike 
 
 /**
  * `session`'s access token, only if it's `account`'s session (by user id,
- * lib/auth/account.ts); otherwise `SessionExpiredError`, as for no session at
- * all: a request made with it would act as someone else.
+ * lib/auth/account.ts); otherwise `AccountMismatchError` (a SessionExpiredError,
+ * as for no session at all): a request made with it would act as someone else.
  */
 export function accessTokenFor(session: SessionLike, account: AccountRef): string {
   const sessionAccount: AccountRef = { userId: session.user?.id, email: session.user?.email };
-  if (!sameAccount(sessionAccount, account)) throw new SessionExpiredError();
+  if (!sameAccount(sessionAccount, account)) throw new AccountMismatchError();
   return session.access_token;
 }

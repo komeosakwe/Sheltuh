@@ -20,6 +20,7 @@ import { eventZone } from "@/lib/format";
 import { bareSuburb } from "@/lib/place";
 import { withNext } from "@/lib/safe-next-path";
 import { ticketStubDate, ticketStubTime, ticketWhenLine } from "@/lib/ticket-times";
+import { TICKET_PHOTO_SIZES } from "@/lib/responsive-image";
 
 /** A transfer id as the API issues them (a uuid): anything else is "not found" without asking. */
 const TRANSFER_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -158,7 +159,7 @@ function ReceivedTicketView({ ticket }: { ticket: ReceivedTicketRecord }) {
     endsAt: ticket.eventEndsAt,
   });
   const art = event ? (
-    <EventArt poster={event.poster} title={event.title} imageUrl={event.imageUrl} imageFocus={event.imageFocus} className="size-full" />
+    <EventArt poster={event.poster} title={event.title} imageUrl={event.imageUrl} imageFocus={event.imageFocus} sizes={TICKET_PHOTO_SIZES} className="size-full" />
   ) : undefined;
   const held = ticket.status === "valid" ? ticket.ticket : undefined;
   const ticketProps = held
