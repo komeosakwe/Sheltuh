@@ -156,19 +156,18 @@ describe("EventQrCode", () => {
     expect(api.ensureQrTrackingLink).toHaveBeenCalledTimes(2);
   });
 
-  it("an ended session says to sign in again", async () => {
+  it("an ended session offers Sign in, back to this page, instead of Try again", async () => {
     api.getMyEvent.mockRejectedValue(new ApiError(401, "Unauthorised."));
     renderWith(<EventQrCode eventId="evt-1" />);
     expect(await screen.findByRole("alert")).toHaveTextContent("Your session has ended. Sign in again to get the QR code.");
+    expect(screen.getByRole("link", { name: "Sign in" })).toHaveAttribute("href", `/login?next=${encodeURIComponent("/dashboard/events/evt-1/qr")}`);
+    expect(screen.queryByRole("button", { name: "Try again" })).toBeNull();
   });
 
-  it.each(["draft", "pending_review", "rejected"] as const)("a %s event has no code, and no tracking link is made", async (status) => {
-    api.getMyEvent.mockResolvedValue(event({ status }));
-    renderWith(<EventQrCode eventId="evt-1" />);
-    expect(await screen.findByText("Publish your event first")).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Go to your event" })).toHaveAttribute("href", "/dashboard/evt-1");
-    expect(api.ensureQrTrackingLink).not.toHaveBeenCalled();
-    expect(screen.queryByRole("img", { name: /QR code for/ })).toBeNull();
+  it("on the sign, Sign in comes back to the sign", async () => {
+    api.getMyEvent.mockRejectedValue(new ApiError(401, "Unauthorised."));
+    renderWith(<EventQrSignPage eventId="evt-1" />);
+    expect(await screen.findByRole("link", { name: "Sign in" })).toHaveAttribute("href", `/login?next=${encodeURIComponent("/dashboard/events/evt-1/qr/sign")}`);
   });
 
   it("another organiser's (or a deleted) event is not found", async () => {

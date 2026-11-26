@@ -7,7 +7,8 @@ import { backLinkClass } from "@/components/ui/BackLink";
 import { LoadingState } from "@/components/ui/ProgressLoader";
 import { EmptyState, Notice } from "@/components/ui/Section";
 import Strap from "@/components/ui/Strap";
-import { EVENTS_HREF, eventQrHref, manageEventHref } from "@/lib/organiser-nav";
+import { EVENTS_HREF, eventQrHref, eventQrSignHref, manageEventHref } from "@/lib/organiser-nav";
+import { withNext } from "@/lib/safe-next-path";
 import type { EventQrState } from "./useEventQr";
 
 /** The ways back, above the header: to the Events tab and the event (the QR page), or to the QR page (the sign). */
@@ -35,8 +36,8 @@ function BackLinks({ eventId, from }: { eventId: string; from: "qr" | "sign" }) 
 /**
  * The QR page's and the sign's frame: the way back, the header (the h1 and
  * the event's title once known), then either `children` with the loaded code
- * or the state that stands in for it (loading, error with Try again, not
- * found, not published yet).
+ * or the state that stands in for it (loading; an error with Try again, or
+ * Sign in when the session has ended; not found; not published yet).
  */
 export default function EventQrFrame({
   eventId,
@@ -94,9 +95,15 @@ export default function EventQrFrame({
           <Notice tone="danger" role="alert">
             {state.message}
           </Notice>
-          <Button variant="outline" size="lg" onClick={retry}>
-            Try again
-          </Button>
+          {state.reauth ? (
+            <ButtonLink size="lg" href={withNext("/login", from === "sign" ? eventQrSignHref(eventId) : eventQrHref(eventId))}>
+              Sign in
+            </ButtonLink>
+          ) : (
+            <Button variant="outline" size="lg" onClick={retry}>
+              Try again
+            </Button>
+          )}
         </div>
       )}
       {state.status === "unpublished" && (

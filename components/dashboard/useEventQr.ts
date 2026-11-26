@@ -24,11 +24,13 @@ import { siteOrigin } from "@/lib/share-metadata";
  * - `unpublished`: no code (the page it would open isn't public), and no
  *   tracking link is made.
  * - `not-found`: not one of the organiser's events (the API's 404).
+ * - `error`: `reauth` when the session has ended (sign in again, not Try
+ *   again).
  */
 export type EventQrState =
   | { status: "loading" }
   | { status: "not-found" }
-  | { status: "error"; message: string }
+  | { status: "error"; message: string; reauth?: boolean }
   | { status: "unpublished"; event: EventRecord }
   | { status: "ready"; event: EventRecord; url: string; matrix: boolean[][]; tracked: boolean };
 
@@ -92,7 +94,7 @@ export function useEventQr(eventId: string): { state: EventQrState; retry: () =>
         let next: EventQrState;
         if (err instanceof ApiError && err.status === 404) next = { status: "not-found" };
         else if (err instanceof SessionExpiredError || (err instanceof ApiError && err.status === 401)) {
-          next = { status: "error", message: SESSION_ENDED };
+          next = { status: "error", message: SESSION_ENDED, reauth: true };
         } else next = { status: "error", message: NOT_READY };
         setLoaded({ account, state: next });
       },
