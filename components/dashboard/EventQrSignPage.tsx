@@ -3,7 +3,6 @@
 import { useId, useState } from "react";
 import AnalyticsGate from "@/components/analytics/AnalyticsGate";
 import { Button } from "@/components/ui/Button";
-import type { GetToken } from "@/lib/api/client";
 import { SIGN_PAGE_CSS, SIGN_PAPER_LABEL, SIGN_PAPERS, signText, type SignPaper } from "@/lib/qr-sign";
 import { eventQrSignHref } from "@/lib/organiser-nav";
 import EventQrFrame from "./EventQrFrame";
@@ -21,13 +20,14 @@ import { useEventQr, type EventQrState } from "./useEventQr";
 export default function EventQrSignPage({ eventId }: { eventId: string }) {
   return (
     <AnalyticsGate title="Printable sign" returnTo={eventQrSignHref(eventId)} signInTitle="Sign in to get your QR code" need="get a QR code">
-      {(getToken) => <SignPage eventId={eventId} getToken={getToken} />}
+      {() => <SignPage eventId={eventId} />}
     </AnalyticsGate>
   );
 }
 
-function SignPage({ eventId, getToken }: { eventId: string; getToken: GetToken }) {
-  const { state, retry } = useEventQr(eventId, getToken);
+/** The gate has made sure the viewer is an approved organiser; the hook reads their account itself. */
+function SignPage({ eventId }: { eventId: string }) {
+  const { state, retry } = useEventQr(eventId);
   return (
     <EventQrFrame eventId={eventId} from="sign" title="Printable sign" state={state} retry={retry}>
       {(ready) => <SignReady ready={ready} />}

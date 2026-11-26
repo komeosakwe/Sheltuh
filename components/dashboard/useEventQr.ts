@@ -5,7 +5,9 @@ import { ensureQrTrackingLink } from "@/lib/api/analytics";
 import { ApiError, type GetToken } from "@/lib/api/client";
 import { getMyEvent } from "@/lib/api/events";
 import type { EventRecord } from "@/lib/api/types";
-import { SessionExpiredError } from "@/lib/auth/AuthContext";
+import { accountKey } from "@/lib/auth/account";
+import { AccountMismatchError, SessionExpiredError, useAuth } from "@/lib/auth/AuthContext";
+import { useAccountToken } from "@/lib/auth/useAccountToken";
 import { publicEventUrl } from "@/lib/event-url";
 import { linkQrMatrix } from "@/lib/link-qr";
 import { siteOrigin } from "@/lib/share-metadata";
@@ -30,14 +32,8 @@ export type EventQrState =
   | { status: "unpublished"; event: EventRecord }
   | { status: "ready"; event: EventRecord; url: string; matrix: boolean[][]; tracked: boolean };
 
-/** Why the code couldn't be loaded, in the organiser's words. */
-export function eventQrErrorMessage(err: unknown): string {
-  if (err instanceof SessionExpiredError || (err instanceof ApiError && err.status === 401)) {
-    return "Your session has ended. Sign in again to get the QR code.";
-  }
-  return "Couldn’t get the QR code ready. Try again.";
-}
-
+const SESSION_ENDED = "Your session has ended. Sign in again to get the QR code.";
+const NOT_READY = "Couldn’t get the QR code ready. Try again.";
 const NO_CODE = "This event’s address can’t be made into a QR code. Contact Sheltüh.";
 
 async function loadEventQr(eventId: string, getToken: GetToken): Promise<EventQrState> {
@@ -51,51 +47,66 @@ async function loadEventQr(eventId: string, getToken: GetToken): Promise<EventQr
 }
 
 /**
- * The load in flight for each token getter (an account) and event, so the
- * effect running twice (React's development double run, or the token getter
- * settling) shares one request instead of racing to make the link twice.
- * Each entry goes once it settles, so Try again always loads afresh.
+ * The load in flight for each account and event, so the effect running twice
+ * (React's development double run) shares one request instead of racing to
+ * make the tracking link twice. Keyed by the account (accountKey) as well as
+ * the event, never by the token getter, which is the same function for every
+ * account: so one account never receives another's unfinished load after a
+ * switch. Each entry goes once it settles, so Try again always loads afresh.
  */
-const inFlight = new WeakMap<GetToken, Map<string, Promise<EventQrState>>>();
+const inFlight = new Map<string, Promise<EventQrState>>();
 
-function sharedLoad(eventId: string, getToken: GetToken): Promise<EventQrState> {
-  let byEvent = inFlight.get(getToken);
-  if (!byEvent) {
-    byEvent = new Map();
-    inFlight.set(getToken, byEvent);
-  }
-  const running = byEvent.get(eventId);
+function sharedLoad(account: string, eventId: string, getToken: GetToken): Promise<EventQrState> {
+  const key = `${account}\u0000${eventId}`;
+  const running = inFlight.get(key);
   if (running) return running;
-  const load = loadEventQr(eventId, getToken).finally(() => byEvent.delete(eventId));
-  byEvent.set(eventId, load);
+  const load = loadEventQr(eventId, getToken).finally(() => inFlight.delete(key));
+  inFlight.set(key, load);
   return load;
 }
 
-export function useEventQr(eventId: string, getToken: GetToken): { state: EventQrState; retry: () => void } {
-  const [state, setState] = useState<EventQrState>({ status: "loading" });
+/**
+ * The QR code of the signed-in organiser's event. Its token getter is for
+ * that account only (useAccountToken): if the session becomes someone else's
+ * mid-load, the load is dropped (AccountMismatchError) and the page stays
+ * loading until it re-renders for the new account, which loads its own.
+ * Only an answer for the account now signed in is ever returned.
+ */
+export function useEventQr(eventId: string): { state: EventQrState; retry: () => void } {
+  const auth = useAuth();
+  const account = accountKey(auth);
+  const getToken = useAccountToken(auth);
+  const [loaded, setLoaded] = useState<{ account: string; state: EventQrState } | null>(null);
   const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
+    if (account === null) return;
     let cancelled = false;
-    sharedLoad(eventId, getToken).then(
+    sharedLoad(account, eventId, getToken).then(
       (next) => {
-        if (!cancelled) setState(next);
+        if (!cancelled) setLoaded({ account, state: next });
       },
       (err: unknown) => {
-        if (cancelled) return;
-        if (err instanceof ApiError && err.status === 404) setState({ status: "not-found" });
-        else setState({ status: "error", message: eventQrErrorMessage(err) });
+        // Another account's session by now: its own load follows the re-render.
+        if (cancelled || err instanceof AccountMismatchError) return;
+        let next: EventQrState;
+        if (err instanceof ApiError && err.status === 404) next = { status: "not-found" };
+        else if (err instanceof SessionExpiredError || (err instanceof ApiError && err.status === 401)) {
+          next = { status: "error", message: SESSION_ENDED };
+        } else next = { status: "error", message: NOT_READY };
+        setLoaded({ account, state: next });
       },
     );
     return () => {
       cancelled = true;
     };
-  }, [eventId, getToken, attempt]);
+  }, [account, eventId, getToken, attempt]);
 
   const retry = useCallback(() => {
-    setState({ status: "loading" });
+    setLoaded(null);
     setAttempt((n) => n + 1);
   }, []);
 
+  const state: EventQrState = loaded !== null && loaded.account === account ? loaded.state : { status: "loading" };
   return { state, retry };
 }

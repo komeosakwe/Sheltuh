@@ -7,7 +7,6 @@ import { saveBlob } from "@/components/analytics/ExportCsvButton";
 import { Button, ButtonLink } from "@/components/ui/Button";
 import { Notice } from "@/components/ui/Section";
 import { QR_TRACKING_LABEL } from "@/lib/api/analytics";
-import type { GetToken } from "@/lib/api/client";
 import { MAX_TRACKING_LINKS_PER_EVENT } from "@/lib/api/types";
 import { displayUrl, eventQrFilename, linkQrSvg } from "@/lib/link-qr";
 import { linkQrPngBlob } from "@/lib/link-qr-png";
@@ -27,13 +26,14 @@ import { useEventQr, type EventQrState } from "./useEventQr";
 export default function EventQrCode({ eventId }: { eventId: string }) {
   return (
     <AnalyticsGate title="QR code" returnTo={eventQrHref(eventId)} signInTitle="Sign in to get your QR code" need="get a QR code">
-      {(getToken) => <QrCodePage eventId={eventId} getToken={getToken} />}
+      {() => <QrCodePage eventId={eventId} />}
     </AnalyticsGate>
   );
 }
 
-function QrCodePage({ eventId, getToken }: { eventId: string; getToken: GetToken }) {
-  const { state, retry } = useEventQr(eventId, getToken);
+/** The gate has made sure the viewer is an approved organiser; the hook reads their account itself. */
+function QrCodePage({ eventId }: { eventId: string }) {
+  const { state, retry } = useEventQr(eventId);
   return (
     <EventQrFrame eventId={eventId} from="qr" title="QR code" state={state} retry={retry}>
       {(ready) => <QrCodeReady eventId={eventId} ready={ready} />}

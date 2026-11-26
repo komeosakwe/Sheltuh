@@ -1,7 +1,8 @@
 // @vitest-environment jsdom
 import { readFileSync } from "node:fs";
 import path from "node:path";
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { StrictMode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import EventQrCode from "@/components/dashboard/EventQrCode";
 import EventQrSignPage from "@/components/dashboard/EventQrSignPage";
@@ -176,6 +177,53 @@ describe("EventQrCode", () => {
     expect(await screen.findByRole("heading", { level: 1, name: "Event not found" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Back to events" })).toHaveAttribute("href", "/dashboard/events");
     expect(api.ensureQrTrackingLink).not.toHaveBeenCalled();
+  });
+
+  it("loads once under React's double effects (Strict Mode): one event read, one tracking-link call", async () => {
+    api.getMyEvent.mockResolvedValue(event());
+    api.ensureQrTrackingLink.mockResolvedValue(LINK);
+    renderWith(
+      <StrictMode>
+        <EventQrCode eventId="evt-1" />
+      </StrictMode>,
+    );
+    expect(await screen.findByRole("img", { name: /QR code for/ })).toBeInTheDocument();
+    expect(api.getMyEvent).toHaveBeenCalledTimes(1);
+    expect(api.ensureQrTrackingLink).toHaveBeenCalledTimes(1);
+  });
+
+  it("an account switch mid-load never shows the first account's event, whenever its answer arrives", async () => {
+    const deferred = () => {
+      let resolve!: (value: EventRecord) => void;
+      const promise = new Promise<EventRecord>((r) => (resolve = r));
+      return { promise, resolve };
+    };
+    const forA = deferred();
+    const forB = deferred();
+    api.getMyEvent.mockReturnValueOnce(forA.promise).mockReturnValueOnce(forB.promise);
+    api.ensureQrTrackingLink.mockResolvedValue(LINK);
+    const a = fakeAuthValue({ userId: "user-a", email: "a@example.com" });
+    // As AuthContext's: the same token functions whichever account is signed in.
+    const b = fakeAuthValue({ userId: "user-b", email: "b@example.com", getAccessToken: a.getAccessToken, getAccessTokenFor: a.getAccessTokenFor });
+    const view = render(
+      <FakeAuthProvider value={a}>
+        <EventQrCode eventId="evt-1" />
+      </FakeAuthProvider>,
+    );
+    await waitFor(() => expect(api.getMyEvent).toHaveBeenCalledTimes(1));
+    view.rerender(
+      <FakeAuthProvider value={b}>
+        <EventQrCode eventId="evt-1" />
+      </FakeAuthProvider>,
+    );
+    // B's own load starts: A's unfinished one is never handed over.
+    await waitFor(() => expect(api.getMyEvent).toHaveBeenCalledTimes(2));
+    await act(async () => forA.resolve(event({ title: "A's secret event" })));
+    expect(screen.queryByText("A's secret event")).toBeNull();
+    expect(screen.queryByRole("img", { name: /QR code for/ })).toBeNull();
+    await act(async () => forB.resolve(event({ title: "B's event" })));
+    expect(await screen.findByText("B's event")).toBeInTheDocument();
+    expect(screen.queryByText("A's secret event")).toBeNull();
   });
 
   it("in the demo (no accounts) says so and calls nothing", () => {
