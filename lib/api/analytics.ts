@@ -101,6 +101,35 @@ export async function createTrackingLink(eventId: string, input: CreateTrackingL
   return apiFetch<TrackingLink>(`${myEvent(eventId)}/tracking-links`, { method: "POST", body: input, token });
 }
 
+/** The label of the tracking link an event's QR code carries (docs/architecture.md, "Event QR codes"). */
+export const QR_TRACKING_LABEL = "QR code";
+
+const isQrLink = (link: TrackingLink) => link.label.trim().toLowerCase() === QR_TRACKING_LABEL.toLowerCase();
+
+/**
+ * The event's "QR code" tracking link, made the first time it's needed: the
+ * existing one (its label in any case, as the API compares labels) or a new
+ * one. Null when the event already has the most links it can
+ * (MAX_TRACKING_LINKS_PER_EVENT, a 409 without a label error): the code then
+ * opens the plain event page, untracked. A 409 on the label means another tab
+ * made it first, so it's read again. Anything else throws. Only for a
+ * published event (call it for nothing else: a draft's link would be made for
+ * a page nobody can open yet).
+ */
+export async function ensureQrTrackingLink(eventId: string, getToken: GetToken): Promise<TrackingLink | null> {
+  const existing = (await listTrackingLinks(eventId, getToken)).items.find(isQrLink);
+  if (existing) return existing;
+  try {
+    return await createTrackingLink(eventId, { label: QR_TRACKING_LABEL }, getToken);
+  } catch (err) {
+    if (!(err instanceof ApiError) || err.status !== 409) throw err;
+    if (!err.fieldErrors?.label) return null;
+    const raced = (await listTrackingLinks(eventId, getToken)).items.find(isQrLink);
+    if (raced) return raced;
+    throw err;
+  }
+}
+
 /** Deletes a tracking link. Idempotent. Its numbers stay in the event's analytics, under its code. */
 export async function deleteTrackingLink(eventId: string, linkId: string, getToken: GetToken) {
   const token = await getToken();
