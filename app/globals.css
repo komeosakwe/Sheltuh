@@ -1750,13 +1750,16 @@ h4 {
     flex-direction: column;
     align-items: center;
     min-height: 0;
-    padding: 7cqw 8cqw;
+    padding: 8cqw;
     text-align: center;
   }
+  /* At the foot, signing the sheet off: pushed down by whatever room is left, black like the rest. */
   .qr-sign-wordmark {
     flex-shrink: 0;
-    width: auto;
-    height: 5.5cqw;
+    width: 40cqw;
+    height: auto;
+    margin-top: auto;
+    padding-top: 4cqw;
   }
   .qr-sign-title,
   .qr-sign-place {
@@ -1768,7 +1771,7 @@ h4 {
   .qr-sign-title {
     flex-shrink: 0;
     max-width: 100%;
-    margin-top: 6cqw;
+    margin-top: 0;
     font-family: var(--face-display);
     font-weight: var(--display-weight);
     letter-spacing: var(--display-tracking);

@@ -159,6 +159,19 @@ function pdfPages(pdf: Buffer): [number, number][] {
   return boxes;
 }
 
+/** Every part of the sheet is inside it (nothing clipped at its foot), and the wordmark comes last. */
+async function expectFits(sheet: ReturnType<Page["getByRole"]>) {
+  const box = (await sheet.boundingBox())!;
+  const parts = await sheet.locator(".qr-sign-body > *").evaluateAll((els) =>
+    els.map((el) => {
+      const r = el.getBoundingClientRect();
+      return { cls: el.getAttribute("class") ?? "", bottom: r.bottom };
+    }),
+  );
+  expect(parts.at(-1)!.cls).toContain("qr-sign-wordmark");
+  for (const part of parts) expect(part.bottom, part.cls).toBeLessThanOrEqual(box.y + box.height + 0.5);
+}
+
 /** A PNG's width and height, from its IHDR chunk (which must come first, after the signature). */
 function pngSize(bytes: Buffer): { width: number; height: number } {
   expect([...bytes.subarray(0, 8)]).toEqual([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
@@ -219,10 +232,8 @@ test("the printable sign: A4 and A5 previews, and printing shows the sheet alone
   await expect(sheet.getByText("Interconnect Studio, Brunswick, VIC")).toBeVisible();
   await expect(sheet.getByText("Scan for tickets")).toBeVisible();
   await expect(sheet.getByText(`sheltuh.com.au/events/${SLUG}`)).toBeVisible();
-  // Every part fits on the sheet: nothing is cut off at its foot.
-  const sheetBox = await sheet.boundingBox();
-  const addressBox = await sheet.getByText(`sheltuh.com.au/events/${SLUG}`).boundingBox();
-  expect(addressBox!.y + addressBox!.height).toBeLessThanOrEqual(sheetBox!.y + sheetBox!.height);
+  // Every part fits on the sheet: the wordmark, last, isn't cut off at its foot.
+  await expectFits(sheet);
 
   await main.getByRole("button", { name: "Print or save as PDF" }).click();
   await expect.poll(() => page.evaluate(() => (window as unknown as { printed: number }).printed)).toBe(1);

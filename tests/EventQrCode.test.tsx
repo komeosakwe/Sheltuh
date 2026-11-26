@@ -329,6 +329,18 @@ describe("EventQrSignPage", () => {
     expect(within(sheet).getByRole("img", { name: "QR code" })).toBeInTheDocument();
     expect(within(sheet).getByText("Scan for tickets")).toBeInTheDocument();
     expect(within(sheet).getByText("sheltuh.com.au/events/night-market")).toBeInTheDocument();
+    // In reading order: the title first, the wordmark last, at the foot.
+    const order = [
+      within(sheet).getByRole("heading", { level: 2 }),
+      within(sheet).getByText("Sat 5 Dec, 5:00 pm – 8:00 pm"),
+      within(sheet).getByRole("img", { name: "QR code" }),
+      within(sheet).getByText("Scan for tickets"),
+      within(sheet).getByText("sheltuh.com.au/events/night-market"),
+      within(sheet).getByRole("img", { name: "Sheltüh" }),
+    ];
+    for (let i = 1; i < order.length; i++) {
+      expect(order[i - 1].compareDocumentPosition(order[i]) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    }
     expect(screen.getByRole("link", { name: "QR code" })).toHaveAttribute("href", "/dashboard/events/evt-1/qr");
     // The same details as text above the preview, for proofreading on a phone.
     const says = screen.getByText("The sign says:").parentElement!;
