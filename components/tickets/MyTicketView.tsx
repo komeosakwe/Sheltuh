@@ -30,6 +30,7 @@ import { SUPPORT_REFUND_NOTE } from "@/lib/support";
 import { ticketStubDate, ticketStubTime, ticketWhenLine } from "@/lib/ticket-times";
 import type { SheltuhEvent } from "@/lib/types";
 import { appleWalletDeviceNote } from "@/lib/wallet-badges";
+import { TICKET_PHOTO_SIZES } from "@/lib/responsive-image";
 
 function bySeatThenNumber(aSeat: TicketSeat | undefined, aNumber: number, bSeat: TicketSeat | undefined, bNumber: number) {
   return aSeat && bSeat ? compareSeats(aSeat, bSeat) : aSeat ? -1 : bSeat ? 1 : aNumber - bNumber;
@@ -260,7 +261,7 @@ export default function MyTicketView({
   ];
 
   const art = listedEvent ? (
-    <EventArt poster={listedEvent.poster} title={listedEvent.title} imageUrl={listedEvent.imageUrl} imageFocus={listedEvent.imageFocus} className="size-full" />
+    <EventArt poster={listedEvent.poster} title={listedEvent.title} imageUrl={listedEvent.imageUrl} imageFocus={listedEvent.imageFocus} sizes={TICKET_PHOTO_SIZES} className="size-full" />
   ) : undefined;
   const ticketProps = (ticket: CustomerOrder["tickets"][number], number: number) => ({
     eventTitle: order.eventTitle,

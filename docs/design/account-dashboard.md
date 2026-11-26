@@ -63,7 +63,7 @@ line and a link to Discover.
   disabled sample card. No frame for it yet: Latte to design; Delete your profile stays on Settings.
   The avatar menu's Profile row and the drawer's identity are `aria-current="location"` on `/profile`
   when they link to the member page, as the tabs are.
-- **My tickets** (`app/(account)/tickets/page.tsx`, `components/tickets/MyTicketsList.tsx`, words in
+- **My tickets** (`app/(account)/tickets/(list)/page.tsx`, `components/tickets/MyTicketsList.tsx`, words in
   `lib/my-tickets.ts`): "My tickets", "Tickets you've bought or been sent.", then "Upcoming · N" and "Past ·
   N" (h2, 48 apart) over `SAVED_GRID` of compact `TicketCard`s, in the API's order (`GET /api/me/tickets`).
   One card per order (by the verified email) or received ticket. Upcoming cards have "Show ticket →"; past

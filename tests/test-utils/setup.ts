@@ -1,4 +1,10 @@
 import "@testing-library/jest-dom/vitest";
+import { afterEach } from "vitest";
+import { resetAccountStores } from "@/lib/auth/account-store";
+
+// The signed-in account's shared records (its organiser record, its profile: lib/auth/account-store.ts)
+// are module state: each test starts with none, as a fresh page does.
+afterEach(() => resetAccountStores());
 
 /**
  * jsdom has no Tailwind, but it does hide a closed popover (`[popover]` is `display: none` until

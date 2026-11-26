@@ -1,10 +1,14 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { ApiError, isApiConfigured, type GetToken } from "@/lib/api/client";
 import { getMyProfile } from "@/lib/api/profiles";
 import type { ProfileRecord } from "@/lib/api/types";
+import { accountKey } from "./account";
+import { createAccountStore } from "./account-store";
+import { isTransientFailure } from "./transient-failure";
 import { useAuth } from "./AuthContext";
+import { useAccountToken } from "./useAccountToken";
 
 /** The caller's Who's Going profile, or null if they haven't created one (the API's 404). */
 export async function fetchMyProfile(getToken: GetToken): Promise<ProfileRecord | null> {
@@ -21,77 +25,84 @@ export type ProfileState =
   | { status: "error"; message: string }
   | { status: "ready"; profile: ProfileRecord | null };
 
-/**
- * Every mounted useProfile, so a change saved through one (the /account page) reaches the others
- * (the header's avatar menu and phone drawer, which stay mounted in the root layout) without a
- * reload: setProfile publishes to all of them, each keeping it only for the same account.
- */
-const sharedSetters = new Set<(email: string | undefined, profile: ProfileRecord | null) => void>();
+type SettledProfile = Exclude<ProfileState, { status: "loading" }>;
+
+/** What's kept: the state readers show, and whether its error is a passing one (isTransientFailure). */
+interface StoredProfile {
+  shown: SettledProfile;
+  transient: boolean;
+}
+
+/** The signed-in account's profile, shared by every useProfile on the page (lib/auth/account-store.ts). */
+const profileStore = createAccountStore<StoredProfile>({ isFailure: (profile) => profile.transient });
+
+async function loadProfile(getToken: GetToken): Promise<StoredProfile> {
+  try {
+    return { shown: { status: "ready", profile: await fetchMyProfile(getToken) }, transient: false };
+  } catch (err) {
+    return {
+      shown: { status: "error", message: err instanceof Error ? err.message : "Couldn't load your profile." },
+      transient: isTransientFailure(err),
+    };
+  }
+}
+
+const noSnapshot = () => null;
 
 /**
- * Loads the signed-in user's Who's Going profile. Only fetches in live mode
- * while signed in; otherwise it stays "loading" and callers render their own
- * signed-out / demo state instead.
+ * Loads the signed-in user's Who's Going profile, one copy for the whole page
+ * (lib/auth/account-store.ts): the header's avatar menu, the account area and the page share one
+ * request, and a page that mounts later (another account tab) shows it at once while it's checked
+ * again quietly. Only fetches in live mode while signed in; otherwise it stays "loading" and callers
+ * render their own signed-out / demo state instead. A change saved through one (setProfile, on
+ * /account) reaches every other at once; the person's own Sign out forgets it. A quiet check that
+ * fails for a passing reason (offline, a 5xx, a 429) keeps the profile it was checking, so a form open
+ * on it stays; any other answer (a 401 for an account that's gone) replaces it, and a first load that
+ * fails shows its error. Every request is made as the account its answer is kept for
+ * (useAccountToken, loadWithToken): if the session is someone else's by then, none is made and nothing changes.
  */
 export function useProfile() {
   const auth = useAuth();
-  const getToken = auth.getAccessToken;
-  const enabled = isApiConfigured && auth.status === "signed-in";
-  const [attempt, setAttempt] = useState(0);
-  // Each result is tagged with the request it answers, so a new account or a
-  // retry reads as "loading" straight away without resetting state in an effect.
-  const key = `${auth.email ?? ""}#${attempt}`;
-  const [result, setResult] = useState<{ key: string; state: ProfileState } | null>(null);
-  const email = auth.email;
-  // Counts changes published through setProfile. A load drops its answer if one landed while it was
-  // in flight (the answer may predate the change); a load started afterwards, e.g. after signing out
-  // and back in, settles as normal.
-  const published = useRef(0);
+  const account = isApiConfigured ? accountKey(auth) : null;
+  const getToken = useAccountToken(auth);
+  const settled = useSyncExternalStore(profileStore.subscribe, profileStore.snapshot, noSnapshot);
+  /** The account whose Try again is under way: "loading" until it answers. */
+  const [retrying, setRetrying] = useState<string | null>(null);
+  const retries = useRef(0);
+  const signedOutByUser = auth.status === "signed-out" && auth.signedOutBy === "user";
+
+  // At once if it's known, and checked again quietly; a sign-in seen by this reader always asks again.
+  const lastAccount = useRef<string | null | undefined>(undefined);
+  useEffect(() => {
+    const signedIn = lastAccount.current === null;
+    lastAccount.current = account;
+    if (account === null) return;
+    void profileStore.loadWithToken(account, getToken, loadProfile, { recheck: signedIn });
+  }, [account, getToken]);
 
   useEffect(() => {
-    if (!enabled) return;
-    let cancelled = false;
-    const startedAt = published.current;
-    const settle = (state: ProfileState) => {
-      if (published.current === startedAt) setResult({ key, state });
-    };
-    fetchMyProfile(getToken).then(
-      (profile) => {
-        if (!cancelled) settle({ status: "ready", profile });
-      },
-      (err: unknown) => {
-        if (cancelled) return;
-        const message = err instanceof Error ? err.message : "Couldn't load your profile.";
-        settle({ status: "error", message });
-      },
-    );
-    return () => {
-      cancelled = true;
-    };
-  }, [enabled, key, getToken]);
+    if (signedOutByUser) profileStore.clear();
+  }, [signedOutByUser]);
 
-  const state: ProfileState = result?.key === key ? result.state : { status: "loading" };
-
-  useEffect(() => {
-    function receive(from: string | undefined, profile: ProfileRecord | null) {
-      if (from !== email) return;
-      published.current += 1;
-      setResult({ key, state: { status: "ready", profile } });
-    }
-    sharedSetters.add(receive);
-    return () => {
-      sharedSetters.delete(receive);
-    };
-  }, [email, key]);
+  const state: ProfileState =
+    account === null || retrying === account || !settled || settled.account !== account ? { status: "loading" } : settled.value.shown;
 
   /** Replaces the loaded profile after a save (or null after a delete), here and in every other useProfile. */
   const setProfile = useCallback(
     (profile: ProfileRecord | null) => {
-      for (const receive of sharedSetters) receive(email, profile);
+      if (account === null) return;
+      profileStore.update((current) => (current.account === account ? { shown: { status: "ready", profile }, transient: false } : null));
     },
-    [email],
+    [account],
   );
-  const reload = useCallback(() => setAttempt((n) => n + 1), []);
+  const reload = useCallback(() => {
+    if (account === null) return;
+    const retry = ++retries.current;
+    setRetrying(account);
+    void profileStore.loadWithToken(account, getToken, loadProfile, { force: true }).then(() => {
+      if (retries.current === retry) setRetrying(null);
+    });
+  }, [account, getToken]);
 
   return { state, setProfile, reload };
 }

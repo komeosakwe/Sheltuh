@@ -40,6 +40,7 @@ import { directionsHref } from "@/lib/maps";
 import { venueLines } from "@/lib/place";
 import { externalPriceFromLabel, formatFeedPriceParts, isSoldOut, startingPrice } from "@/lib/pricing";
 import { goesToSeatPage, quickBuyLabel } from "@/lib/quick-buy";
+import { EVENT_PAGE_PHOTO_SIZES } from "@/lib/responsive-image";
 import { soonFields, type SoonFields } from "@/lib/soon";
 import { DEFAULT_REFUND_POLICY, REFUND_ACL_STATEMENT, refundTermsLine } from "@/lib/refund-policy";
 import { organiserProfileHref } from "@/lib/sample-organisers";
@@ -362,6 +363,8 @@ export default function EventDetailsView({
               title={event.title}
               priority
               fit="auto"
+              // Not in the editor's preview, whose photo is the organiser's draft or upload (used as it is).
+              sizes={preview ? undefined : EVENT_PAGE_PHOTO_SIZES}
               className="aspect-[4/3] max-h-[22svh] w-full rounded-card max-sm:[@media(max-height:700px)]:max-h-[calc(22svh-0.5rem)] sm:aspect-video sm:max-h-none md:aspect-[7/2] lg:aspect-[3/2]"
             />
             {!missing?.when && <DateChip event={event} size="page" className="absolute top-2 left-2 sm:top-4 sm:left-4" />}

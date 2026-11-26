@@ -122,6 +122,33 @@ describe("member profile settings (/account)", () => {
     await waitFor(() => expect(updateMyProfile).toHaveBeenCalledWith({ bio: null, instagramHandle: null }, expect.any(Function)));
   });
 
+  it("when the profile changes under the form (its recheck, another tab), untouched fields follow it and Save sends only what was edited", async () => {
+    updateMyProfile.mockImplementation(async (input: object) => ({ ...PROFILE, displayName: "Mia Tran", ...input }));
+    const props = { getToken: vi.fn().mockResolvedValue("t"), onSaved: vi.fn(), onMissing: vi.fn(), returnTo: "/account" };
+    const { rerender } = render(<MemberProfileSettings profile={PROFILE} {...props} />);
+    fireEvent.change(screen.getByLabelText("Bio (optional)"), { target: { value: "Zines and gigs" } });
+    // The page's shared copy is checked again: the name was changed in another tab.
+    rerender(<MemberProfileSettings profile={{ ...PROFILE, displayName: "Mia Tran", instagramHandle: "mia.tran" }} {...props} />);
+    expect(screen.getByLabelText("Display name")).toHaveValue("Mia Tran");
+    expect(screen.getByLabelText("Instagram username (optional)")).toHaveValue("mia.tran");
+    expect(screen.getByLabelText("Bio (optional)")).toHaveValue("Zines and gigs");
+    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+    // Only the bio: never the old name sent back over the new one.
+    await waitFor(() => expect(updateMyProfile).toHaveBeenCalledWith({ bio: "Zines and gigs" }, expect.any(Function)));
+  });
+
+  it("a field the person has edited keeps their words when the profile changes under it, and is the one sent", async () => {
+    updateMyProfile.mockImplementation(async (input: object) => ({ ...PROFILE, ...input }));
+    const props = { getToken: vi.fn().mockResolvedValue("t"), onSaved: vi.fn(), onMissing: vi.fn(), returnTo: "/account" };
+    const { rerender } = render(<MemberProfileSettings profile={PROFILE} {...props} />);
+    fireEvent.change(screen.getByLabelText("Display name"), { target: { value: "Mimi" } });
+    rerender(<MemberProfileSettings profile={{ ...PROFILE, displayName: "Mia Tran", profileVisible: true }} {...props} />);
+    expect(screen.getByLabelText("Display name")).toHaveValue("Mimi");
+    expect(screen.getByRole("checkbox", { name: "Show my profile to other members" })).toBeChecked();
+    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+    await waitFor(() => expect(updateMyProfile).toHaveBeenCalledWith({ displayName: "Mimi" }, expect.any(Function)));
+  });
+
   it("counts the bio down from 200 and refuses more, focused, before sending", async () => {
     renderSettings();
     const bio = screen.getByLabelText("Bio (optional)");

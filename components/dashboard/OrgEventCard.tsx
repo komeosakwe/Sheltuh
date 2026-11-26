@@ -5,6 +5,7 @@ import { useState, type ReactNode } from "react";
 import type { OrganiserEventSummary } from "@/lib/api/types";
 import { eventMeta, nothingTakenYet, salesLine, soldLine } from "@/lib/organiser-dashboard";
 import { manageEventHref } from "@/lib/organiser-nav";
+import { responsivePhoto } from "@/lib/responsive-image";
 import { continuesStage, STAGE_PILL } from "./event-stage";
 import ProgressBar from "./ui/ProgressBar";
 import StatusPill from "./ui/StatusPill";
@@ -17,12 +18,16 @@ import StatusPill from "./ui/StatusPill";
 function CardImage({ event }: { event: Pick<OrganiserEventSummary, "imageUrl" | "imageFocus"> }) {
   const [failed, setFailed] = useState<string | null>(null);
   const url = event.imageUrl && failed !== event.imageUrl ? event.imageUrl : null;
+  // The Events tab's one, two and three columns; the Overview's two at most.
+  const photo = url ? responsivePhoto(url, "(min-width: 1280px) 33vw, (min-width: 640px) 50vw, 100vw") : null;
   return (
     <div data-card-image={url ? "photo" : "none"} className="h-35 w-full shrink-0 overflow-clip rounded-card bg-hover">
-      {url && (
+      {url && photo && (
         // eslint-disable-next-line @next/next/no-img-element -- the event's own same-origin photo; sized by its box
         <img
-          src={url}
+          src={photo.src}
+          srcSet={photo.srcSet}
+          sizes={photo.sizes}
           alt=""
           loading="lazy"
           decoding="async"

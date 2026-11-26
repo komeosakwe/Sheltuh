@@ -1,11 +1,11 @@
 import { vi } from "vitest";
 import { sameAccount, type AccountRef } from "@/lib/auth/account";
-import { AuthContext, SessionExpiredError, type AuthContextValue } from "@/lib/auth/AuthContext";
+import { AccountMismatchError, AuthContext, SessionExpiredError, type AuthContextValue } from "@/lib/auth/AuthContext";
 
 /**
  * A fully-controllable signed-in auth value for mounting components without a real Supabase project.
  * Its `getAccessTokenFor` (unless overridden) is `getAccessToken` for this value's own account,
- * and `SessionExpiredError` for anyone else's (or when signed out), as the real one is.
+ * `AccountMismatchError` for anyone else's, and `SessionExpiredError` when signed out, as the real one is.
  */
 export function fakeAuthValue(overrides: Partial<AuthContextValue> = {}): AuthContextValue {
   const value: AuthContextValue = {
@@ -30,7 +30,8 @@ export function fakeAuthValue(overrides: Partial<AuthContextValue> = {}): AuthCo
     getAccessTokenFor: vi.fn(async (account: AccountRef) => {
       const live: AccountRef | undefined =
         value.status === "signed-in" ? { userId: value.userId, email: value.email } : undefined;
-      if (!sameAccount(live, account)) throw new SessionExpiredError();
+      if (!live) throw new SessionExpiredError();
+      if (!sameAccount(live, account)) throw new AccountMismatchError();
       return value.getAccessToken();
     }),
     ...overrides,
@@ -61,8 +62,9 @@ export function switchableSession(initial: AccountRef | undefined) {
     },
     auth: {
       getAccessTokenFor: vi.fn(async (account: AccountRef) => {
-        if (!sameAccount(live, account)) throw new SessionExpiredError();
-        return `${live?.userId ?? live?.email}-token`;
+        if (!live) throw new SessionExpiredError();
+        if (!sameAccount(live, account)) throw new AccountMismatchError();
+        return `${live.userId ?? live.email}-token`;
       }),
     } satisfies Partial<AuthContextValue>,
   };

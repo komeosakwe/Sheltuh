@@ -11,6 +11,7 @@ import { cardGoing, cardGoingFaces, cardState, cardWhenParts, cardWhereLabel, ca
 import { soonFields } from "@/lib/soon";
 import type { TrendingSignal } from "@/lib/home-sections";
 import type { SheltuhEvent } from "@/lib/types";
+import { CARD_PHOTO_SIZES } from "@/lib/responsive-image";
 
 /** The image box: 2:1 at every width (Round 2 §1.5), radius 16 (the rules' card anatomy). */
 const MEDIA = "aspect-[2/1]";
@@ -166,6 +167,7 @@ export default function EventCard({
           title={event.title}
           fit="poster"
           priority={priority}
+          sizes={CARD_PHOTO_SIZES}
           // Sold out: the image at 60%. Ended: greyed; it's still there to look at, but nothing's on.
           className={`${MEDIA} w-full ${state === "ended" ? "grayscale" : state === "sold-out" ? "opacity-60" : ""}`.trim()}
         />

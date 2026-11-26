@@ -49,6 +49,7 @@ export default function SceneEventRow({ event, selected, onLocate, hasLocation, 
         title={event.title}
         imageUrl={event.imageUrl}
         imageFocus={event.imageFocus}
+        sizes="(min-width: 1280px) 160px, (min-width: 640px) 96px, 80px"
         className="size-20 shrink-0 overflow-hidden rounded-control sm:size-24 xl:size-40"
       />
 

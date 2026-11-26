@@ -7,14 +7,14 @@ import { getSupabaseBrowserClient } from "@/lib/supabase/browser";
 import type { AccountRef } from "./account";
 import { isNewAccount } from "./new-account";
 import { oauthCallbackUrl, oauthQueryParams, type OAuthProvider } from "./oauth";
-import { accessTokenFor, createSessionResolver, SessionExpiredError } from "./session-token";
+import { AccountMismatchError, accessTokenFor, createSessionResolver, SessionExpiredError } from "./session-token";
 import { announceUserSignOut, endsSession, lastUserSignOut, onUserSignOut } from "./sign-out-signal";
 import { HumanCheckError, isCaptchaFailure } from "./turnstile";
 import { forgetOfferToken } from "@/lib/ticket-transfer-return";
 
 // Re-exported so components can `import { SessionExpiredError } from
 // "@/lib/auth/AuthContext"` alongside `useAuth` without a second import.
-export { SessionExpiredError };
+export { AccountMismatchError, SessionExpiredError };
 
 /**
  * setNewPassword saved the password, but signing out the account's other
@@ -146,8 +146,9 @@ export interface AuthContextValue extends AuthState {
   /**
    * `getAccessToken`, for `account` only: the session is read when this is
    * called (not from React state, which lags a sign-in in another tab), and
-   * if it's anyone else's this rejects with `SessionExpiredError` rather than
-   * hand over their token. lib/auth/useAccountOwner.ts binds it to a form's owner.
+   * if it's anyone else's this rejects with `AccountMismatchError` (a
+   * `SessionExpiredError`) rather than hand over their token; with no session,
+   * `SessionExpiredError`. lib/auth/useAccountOwner.ts binds it to a form's owner.
    */
   getAccessTokenFor: (account: AccountRef) => Promise<string>;
 }

@@ -81,6 +81,7 @@ export default function SceneMapEventCard({
           title={event.title}
           imageUrl={event.imageUrl}
           imageFocus={event.imageFocus}
+          sizes={sheet ? "80px" : "288px"}
           className={sheet ? "h-20 w-20 shrink-0 overflow-hidden rounded-control" : "aspect-[3/2] w-full"}
         />
         <div className={`min-w-0 ${sheet ? "flex-1 pr-1" : "px-4 pt-3"}`}>

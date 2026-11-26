@@ -17,6 +17,7 @@ import type { SheltuhEvent } from "@/lib/types";
 import { useFavourites } from "./FavouritesProvider";
 import SavedEventCard from "./SavedEventCard";
 import { LoadingState } from "@/components/ui/ProgressLoader";
+import { SAVED_GRID } from "@/components/ui/grids";
 
 /** Saved events per page (the API's most). */
 export const SAVED_PAGE_SIZE = 50;
@@ -24,13 +25,6 @@ export const SAVED_PAGE_SIZE = 50;
 export const SAVED_STEP = 6;
 /** From here a line under the filters says "{n} of 500 saved". */
 const NEAR_CAP = 450;
-
-/**
- * Saved's own grid (Latte's Saved frames): one card per row on phones, two from 768px (328px cards
- * at 768) and three from 1280px; 16px across and 24px down (16 down on phones). The cards carry
- * their own 16px padding.
- */
-export const SAVED_GRID = "grid grid-cols-1 gap-4 md:grid-cols-2 md:gap-y-6 xl:grid-cols-3";
 
 /** "Show 6 more" (the frames' small outline button, Label/Tag), 44px to touch. My tickets' Show more and Try again too. */
 export const SHOW_MORE_CLASS =

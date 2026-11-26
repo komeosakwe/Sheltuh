@@ -237,6 +237,56 @@ describe("EventArt fit=contain", () => {
     expect(shown[0]).not.toHaveClass("object-cover");
   });
 
+  it("with `sizes`, serves the photo at its box's size from the optimizer; the backdrop reuses the copy the browser chose (no second download)", () => {
+    const { container } = render(
+      <EventArt poster={poster} title="x" imageUrl="/events/wide.jpg" fit="contain" sizes="(min-width: 768px) 50vw, 100vw" />,
+    );
+    const img = container.querySelector("img") as HTMLImageElement;
+    expect(img).toHaveAttribute("sizes", "(min-width: 768px) 50vw, 100vw");
+    expect(img.getAttribute("srcset")).toContain("/_next/image?url=%2Fevents%2Fwide.jpg&w=640&q=75 640w");
+    const chosen = "http://localhost/_next/image?url=%2Fevents%2Fwide.jpg&w=828&q=75";
+    Object.defineProperty(img, "currentSrc", { value: chosen });
+    Object.defineProperty(img, "naturalWidth", { value: 828 });
+    Object.defineProperty(img, "naturalHeight", { value: 466 });
+    fireEvent.load(img);
+    expect((container.querySelector("[data-art-backdrop]") as HTMLElement).style.backgroundImage).toBe(`url("${chosen}")`);
+  });
+
+  it("settles on a photo that had already loaded when it mounted (a cached copy) without re-rendering forever", () => {
+    const complete = Object.getOwnPropertyDescriptor(HTMLImageElement.prototype, "complete");
+    const currentSrc = Object.getOwnPropertyDescriptor(HTMLImageElement.prototype, "currentSrc");
+    const naturalWidth = Object.getOwnPropertyDescriptor(HTMLImageElement.prototype, "naturalWidth");
+    Object.defineProperty(HTMLImageElement.prototype, "complete", { configurable: true, get: () => true });
+    Object.defineProperty(HTMLImageElement.prototype, "currentSrc", { configurable: true, get: () => "http://localhost/_next/image?url=%2Fevents%2Fwide.jpg&w=640&q=75" });
+    Object.defineProperty(HTMLImageElement.prototype, "naturalWidth", { configurable: true, get: () => 640 });
+    try {
+      const { container, rerender } = render(<EventArt poster={poster} title="x" imageUrl="/events/wide.jpg" fit="contain" sizes="100vw" />);
+      rerender(<EventArt poster={poster} title="x" imageUrl="/events/wide.jpg" fit="contain" sizes="100vw" />);
+      expect(container.querySelector("[data-art-backdrop]")).not.toBeNull();
+    } finally {
+      for (const [name, descriptor] of [["complete", complete], ["currentSrc", currentSrc], ["naturalWidth", naturalWidth]] as const) {
+        if (descriptor) Object.defineProperty(HTMLImageElement.prototype, name, descriptor);
+        else Reflect.deleteProperty(HTMLImageElement.prototype, name);
+      }
+    }
+  });
+
+  it("an organiser's event photo stays a plain src even with `sizes`: never through the optimizer (its copy would outlive a takedown)", () => {
+    const src = "/api/events/5b0e1c8a-3f7d-4e2b-9a61-0c8d7e6f5a4b/image?v=1730000000";
+    const { container } = render(<EventArt poster={poster} title="x" imageUrl={src} fit="contain" sizes="100vw" />);
+    const img = container.querySelector("img") as HTMLImageElement;
+    expect(img).toHaveAttribute("src", src);
+    expect(img).not.toHaveAttribute("srcset");
+    expect(img).not.toHaveAttribute("sizes");
+  });
+
+  it("without `sizes` (an editor preview, a small mark), uses the photo as it is", () => {
+    const { container } = render(<EventArt poster={poster} title="x" imageUrl="/events/wide.jpg" />);
+    const img = container.querySelector("img") as HTMLImageElement;
+    expect(img).toHaveAttribute("src", "/events/wide.jpg");
+    expect(img).not.toHaveAttribute("srcset");
+  });
+
   it("puts the photo's focus on the backdrop only", () => {
     const { container } = render(
       <EventArt poster={poster} title="x" imageUrl="/events/p.jpg" fit="contain" imageFocus={{ x: 30, y: 60 }} />,

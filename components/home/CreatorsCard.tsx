@@ -29,7 +29,7 @@ export default function CreatorsCard({ className = "" }: { className?: string })
           <p className="body-s font-medium text-muted">{CREATORS_LINE}</p>
         </div>
         <div aria-hidden="true" className="overflow-hidden rounded-card lg:w-100 lg:shrink-0">
-          <EventArt poster={HOME_CREATORS.poster} imageUrl={HOME_CREATORS.imageUrl} title="" className="aspect-[2/1] w-full lg:aspect-[3/1]" />
+          <EventArt poster={HOME_CREATORS.poster} imageUrl={HOME_CREATORS.imageUrl} title="" sizes="(min-width: 1024px) 400px, 100vw" className="aspect-[2/1] w-full lg:aspect-[3/1]" />
         </div>
         <ButtonLink href="/organisers/apply" variant="outline" className="self-start lg:self-auto">
           List your event
