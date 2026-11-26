@@ -92,22 +92,23 @@ function QrCodeReady({ eventId, ready }: { eventId: string; ready: Extract<Event
         <LinkQrImage matrix={matrix} label={`QR code for ${address}`} className="size-56 sm:size-64" />
       </div>
 
-      <div className="flex min-w-0 flex-col gap-6">
+      <div className="flex min-w-0 max-w-xl flex-col gap-6">
         <div className="flex flex-col gap-1">
           <p className="eyebrow text-muted">Opens</p>
-          <p className="text-base leading-6 font-semibold break-all">{address}</p>
+          <p className="text-base leading-6 font-semibold wrap-anywhere">{address}</p>
           <p className="text-sm leading-5 text-muted">Your event page. It isn’t a ticket, so it won’t get anyone in at the door.</p>
         </div>
 
         <div className="flex flex-col items-start gap-3">
-          <div className="flex flex-wrap gap-2">
-            <Button className="min-h-11" busy={pngBusy} onClick={() => void downloadPng()}>
+          {/* Stacked full width on phones, in a row from 640px. */}
+          <div className="flex w-full flex-col gap-2 sm:flex-row sm:flex-wrap">
+            <Button className="min-h-11 w-full sm:w-auto" busy={pngBusy} onClick={() => void downloadPng()}>
               {pngBusy ? "Preparing…" : "Download PNG"}
             </Button>
-            <Button variant="outline" className="min-h-11" onClick={downloadSvg}>
+            <Button variant="outline" className="min-h-11 w-full sm:w-auto" onClick={downloadSvg}>
               Download SVG
             </Button>
-            <ButtonLink variant="outline" className="min-h-11" href={eventQrSignHref(eventId)}>
+            <ButtonLink variant="outline" className="min-h-11 w-full sm:w-auto" href={eventQrSignHref(eventId)}>
               Printable sign
             </ButtonLink>
           </div>
