@@ -1829,17 +1829,21 @@ h4 {
   }
   .qr-sign-action {
     flex-shrink: 0;
-    margin-top: 3cqw;
-    font-size: 6cqw;
+    margin-top: 0.5cqw;
+    font-size: 4.5cqw;
     font-weight: 700;
-    line-height: 1.1;
+    line-height: 1.15;
     letter-spacing: -0.015em;
+  }
+  /* Never bigger than the title it serves: the smallest title step is 4.75cqw. */
+  .qr-sign-title[data-size="sm"] ~ .qr-sign-action {
+    font-size: 4cqw;
   }
   .qr-sign-address {
     flex-shrink: 0;
     max-width: 100%;
     margin-top: 1.5cqw;
-    font-size: 3.2cqw;
+    font-size: 2.8cqw;
     font-weight: 500;
     line-height: 1.3;
     overflow-wrap: anywhere;
