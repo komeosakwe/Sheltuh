@@ -197,10 +197,15 @@ describe("EventQrCode", () => {
     expect(screen.queryByRole("img", { name: /QR code for/ })).toBeNull();
   });
 
-  it.each(["draft", "pending_review", "rejected"] as const)("a %s event has no code, and no tracking link is made", async (status) => {
+  it.each([
+    ["draft", "Publish your event first", "The QR code opens your event’s page, so you’ll get it once the event is live."],
+    ["rejected", "Publish your event first", "The QR code opens your event’s page, so you’ll get it once the event is live."],
+    ["pending_review", "Your event is in review", "You’ll get the code once it’s approved and live."],
+  ] as const)("a %s event has no code (“%s”), and no tracking link is made", async (status, title, body) => {
     api.getMyEvent.mockResolvedValue(event({ status }));
     renderWith(<EventQrCode eventId="evt-1" />);
-    expect(await screen.findByText("Publish your event first")).toBeInTheDocument();
+    expect(await screen.findByText(title)).toBeInTheDocument();
+    expect(screen.getByText(body)).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Go to your event" })).toHaveAttribute("href", "/dashboard/evt-1");
     expect(api.ensureQrTrackingLink).not.toHaveBeenCalled();
     expect(screen.queryByRole("img", { name: /QR code for/ })).toBeNull();

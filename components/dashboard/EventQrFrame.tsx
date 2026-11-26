@@ -138,14 +138,16 @@ export default function EventQrFrame({
       )}
       {state.status === "unpublished" && (
         <EmptyState
-          title="Publish your event first"
+          title={state.event.status === "pending_review" ? "Your event is in review" : "Publish your event first"}
           action={
             <ButtonLink size="lg" variant="outline" href={manageEventHref(eventId)}>
               Go to your event
             </ButtonLink>
           }
         >
-          The QR code opens your event’s page, so you’ll get it once the event is live.
+          {state.event.status === "pending_review"
+            ? "You’ll get the code once it’s approved and live."
+            : "The QR code opens your event’s page, so you’ll get it once the event is live."}
         </EmptyState>
       )}
       {state.status === "ready" && children(state)}
