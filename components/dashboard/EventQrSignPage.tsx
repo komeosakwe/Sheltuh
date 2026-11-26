@@ -51,10 +51,10 @@ function SignReady({ ready }: { ready: Extract<EventQrState, { status: "ready" }
     <div className="flex flex-col gap-6">
       {/* The chosen paper's print page (constant CSS, never built from the event). */}
       <style>{SIGN_PAGE_CSS[paper]}</style>
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+      <div className="flex flex-col flex-wrap gap-4 md:flex-row md:items-end md:justify-between">
         <fieldset className="flex min-w-0 flex-col gap-2">
           <legend className="eyebrow mb-2 text-muted">Paper size</legend>
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
             {SIGN_PAPERS.map((option) => (
               <label
                 key={option}
@@ -73,11 +73,11 @@ function SignReady({ ready }: { ready: Extract<EventQrState, { status: "ready" }
             ))}
           </div>
         </fieldset>
-        <div className="flex flex-col items-start gap-2 sm:items-end">
+        <div className="flex flex-col items-start gap-2 md:items-end">
           <Button className="min-h-11" aria-describedby={hintId} onClick={() => void printWhenFontsReady()}>
             Print or save as PDF
           </Button>
-          <p id={hintId} className="text-sm leading-5 text-muted sm:text-right">
+          <p id={hintId} className="text-sm leading-5 text-muted md:text-right">
             Choose {SIGN_PAPER_LABEL[paper]} paper, portrait, at 100%.
           </p>
         </div>
