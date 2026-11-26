@@ -12,8 +12,12 @@ import { EVENTS_HREF, eventQrHref, eventQrSignHref, manageEventHref } from "@/li
 import { withNext } from "@/lib/safe-next-path";
 import type { EventQrState } from "./useEventQr";
 
-/** The ways back, above the header: to the Events tab and the event (the QR page), or to the QR page (the sign). */
-function BackLinks({ eventId, from }: { eventId: string; from: "qr" | "sign" }) {
+/**
+ * The ways back, above the header: to the Events tab and the event (the QR page), or to the QR page (the
+ * sign). "Manage event", as the Events card calls the event's page ("Manage →"); not for an event that
+ * wasn't found (`found` false), which has no page to manage.
+ */
+function BackLinks({ eventId, from, found }: { eventId: string; from: "qr" | "sign"; found: boolean }) {
   return (
     <nav aria-label="Event" className="mb-6 flex flex-wrap gap-x-6">
       {from === "sign" ? (
@@ -21,9 +25,11 @@ function BackLinks({ eventId, from }: { eventId: string; from: "qr" | "sign" }) 
       ) : (
         <>
           <BackLink href={EVENTS_HREF}>Events</BackLink>
-          <Link href={manageEventHref(eventId)} className={backLinkClass}>
-            Edit event
-          </Link>
+          {found && (
+            <Link href={manageEventHref(eventId)} className={backLinkClass}>
+              Manage event
+            </Link>
+          )}
         </>
       )}
     </nav>
@@ -53,7 +59,7 @@ export default function EventQrFrame({
   retry: () => void;
   children: (ready: Extract<EventQrState, { status: "ready" }>) => ReactNode;
 }) {
-  const back = <BackLinks eventId={eventId} from={from} />;
+  const back = <BackLinks eventId={eventId} from={from} found={state.status !== "not-found"} />;
   // After Try again, focus goes to the page's h1 once the new state has settled: the button is gone by then,
   // and the heading is where the answer (the code, an error, not found) starts.
   const heading = useRef<HTMLHeadingElement>(null);

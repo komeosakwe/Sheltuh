@@ -99,7 +99,7 @@ describe("EventQrCode", () => {
     expect(screen.getByText(/If you delete it, this code stops counting/)).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Printable sign" })).toHaveAttribute("href", "/dashboard/events/evt-1/qr/sign");
     expect(screen.getByRole("link", { name: "Analytics" })).toHaveAttribute("href", "/dashboard/events/evt-1/analytics");
-    expect(screen.getByRole("link", { name: "Edit event" })).toHaveAttribute("href", "/dashboard/evt-1");
+    expect(screen.getByRole("link", { name: "Manage event" })).toHaveAttribute("href", "/dashboard/evt-1");
     // The back link's arrow is for the eye only: its name is the word.
     const back = screen.getByRole("link", { name: "Events" });
     expect(back).toHaveAttribute("href", "/dashboard/events");
@@ -238,6 +238,9 @@ describe("EventQrCode", () => {
     renderWith(<EventQrCode eventId="evt-1" />);
     expect(await screen.findByRole("heading", { level: 1, name: "Event not found" })).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Back to events" })).toHaveAttribute("href", "/dashboard/events");
+    // No event to manage: only the way back to the list.
+    expect(screen.queryByRole("link", { name: "Manage event" })).toBeNull();
+    expect(screen.getByRole("link", { name: "Events" })).toBeInTheDocument();
     expect(api.ensureQrTrackingLink).not.toHaveBeenCalled();
   });
 
