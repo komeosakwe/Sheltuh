@@ -329,6 +329,16 @@ describe("EventQrSignPage", () => {
     expect(within(sheet).getByText("Scan for tickets")).toBeInTheDocument();
     expect(within(sheet).getByText("sheltuh.com.au/events/night-market")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "QR code" })).toHaveAttribute("href", "/dashboard/events/evt-1/qr");
+    // The same details as text above the preview, for proofreading on a phone.
+    const says = screen.getByText("The sign says:").parentElement!;
+    expect(sheet.contains(says)).toBe(false);
+    const seen = (el: Element, drop: string) => {
+      const copy = el.cloneNode(true) as Element;
+      copy.querySelectorAll(drop).forEach((e) => e.remove());
+      return (copy.textContent ?? "").replace(/\s+/g, " ").trim();
+    };
+    expect(seen(says, ".sr-only")).toBe("The sign says: Sat 5 Dec, 5:00 pm – 8:00 pm · Perth time (AWST) · The Tote, Northbridge, WA");
+    expect(seen(says, '[aria-hidden="true"]')).toBe("The sign says: Sat 5 Dec, 5:00 pm – 8:00 pm, Perth time (AWST), The Tote, Northbridge, WA");
   });
 
   it("“Scan to see the event” for a free or externally ticketed event", async () => {

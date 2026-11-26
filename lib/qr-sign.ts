@@ -82,3 +82,12 @@ export function signText(
     address: displayUrl(url),
   };
 }
+
+/**
+ * The sign's details in reading order, for the line above the preview ("The
+ * sign says: …"), so they can be proofread where the preview is small: the
+ * date, the zone and the place (left out when there's none).
+ */
+export function signSummary(text: Pick<SignText, "when" | "zone" | "place">): string[] {
+  return [text.when, text.zone, text.place].filter(Boolean);
+}

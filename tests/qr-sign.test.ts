@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { EventRecord, TicketTypeInput } from "@/lib/api/types";
-import { SCAN_FOR_TICKETS, SCAN_TO_SEE, SIGN_PAGE_CSS, signCallToAction, signText, signTitleSize } from "@/lib/qr-sign";
+import { SCAN_FOR_TICKETS, SCAN_TO_SEE, SIGN_PAGE_CSS, signCallToAction, signSummary, signText, signTitleSize } from "@/lib/qr-sign";
 
 type SignEvent = Parameters<typeof signText>[0];
 
@@ -87,5 +87,16 @@ describe("SIGN_PAGE_CSS", () => {
       a4: "@page { size: A4 portrait; margin: 0; }",
       a5: "@page { size: A5 portrait; margin: 0; }",
     });
+  });
+});
+
+describe("signSummary", () => {
+  it("is the date, the zone and the place, leaving out a missing place", () => {
+    expect(signSummary({ when: "Sat 5 Dec, 8:00 pm", zone: "Melbourne time (AEDT)", place: "The Tote, Collingwood, VIC" })).toEqual([
+      "Sat 5 Dec, 8:00 pm",
+      "Melbourne time (AEDT)",
+      "The Tote, Collingwood, VIC",
+    ]);
+    expect(signSummary({ when: "Sat 5 Dec, 8:00 pm", zone: "Melbourne time (AEDT)", place: "" })).toEqual(["Sat 5 Dec, 8:00 pm", "Melbourne time (AEDT)"]);
   });
 });
