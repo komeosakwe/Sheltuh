@@ -239,11 +239,11 @@ for (const vp of [
 }
 
 // Owner request (26 Oct 2026): on a phone, Save and Share are on the first screen too, above the buy bar, with a
-// two-line title (the redesign's title is 32px on phones, so the longest sample title still takes two lines).
-// Since the owner's event reference (13 Nov 2026) the details are two icon groups (the venue with its address and
-// Get directions on lines of their own). "Hosted by" is the title's byline, above the facts (owner, 27 Nov 2026; from
-// Round 2 until then it came after the actions below 1024px). This must hold on a 667px-tall phone (an iPhone SE)
-// as on a full-height phone (390×844, 375×812, and 370×812 where a slightly wider font wraps one more line).
+// two-line title (the redesign's title is 32px on phones, so the longest sample title still takes two lines). Since
+// the owner chose Option A (27 Nov 2026) they're on the photo's top-right corner, the first thing under the header,
+// and every other action sits on its object: Add to calendar under the date, the venue itself the directions link,
+// "Hosted by" the title's byline. This must hold on a 667px-tall phone (an iPhone SE) as on a full-height phone
+// (390×844, 375×812, and 370×812 where a slightly wider font wraps one more line).
 for (const vp of [
   { width: 390, height: 844 },
   { width: 375, height: 812 },
@@ -253,51 +253,62 @@ for (const vp of [
   test.describe(`Save and Share on the first screen at ${vp.width}×${vp.height}`, () => {
     test.use({ viewport: vp });
 
-    test("laneway-projections-after-dark: the actions row ends above the buy bar", async ({ page }) => {
+    test("laneway-projections-after-dark: Save and Share are on the photo, under the header and above the buy bar", async ({ page }) => {
       await mockApi(page);
       await page.goto("/events/laneway-projections-after-dark");
       const h1 = page.getByRole("heading", { level: 1 });
       await expect(h1).toBeVisible({ timeout: 30_000 });
       expect(await page.evaluate(() => window.scrollY)).toBe(0);
 
-      // The case it's for: a two-line title, and the venue's full group (its name, the address under it and Get
-      // directions under that: the owner's event reference, 13 Nov 2026). The title shows as entered (Round 2
-      // §1.7: no CSS capitals), which is narrower: one line at 390, still two at 375 and 370.
+      // The case it's for: a two-line title, and the venue's full group (its name with the address under it, one
+      // directions link). The title shows as entered (Round 2 §1.7: no CSS capitals), which is narrower: one line at
+      // 390, still two at 375 and 370.
       const lines = (el: HTMLElement) => Math.round(el.getBoundingClientRect().height / parseFloat(getComputedStyle(el).lineHeight));
       expect(await h1.evaluate(lines)).toBe(vp.width >= 390 ? 1 : 2);
-      const address = page.locator("[data-event-facts] [data-directions]");
       await expect(page.locator("[data-event-facts] [data-venue-address]")).toBeVisible();
 
       const bar = await page.locator("[data-buy-bar]").boundingBox();
-      if (!bar) throw new Error("no buy bar");
+      const header = await page.locator("header").first().boundingBox();
+      const photo = await page.locator("[data-event-actions]").locator("xpath=..").boundingBox();
+      if (!bar || !header || !photo) throw new Error("not laid out");
       const actions = page.locator("[data-event-actions]");
       const save = actions.getByRole("link", { name: "Sign in to save Laneway Projections: After Dark" });
       const share = actions.getByRole("button", { name: "Share Laneway Projections: After Dark" });
       for (const control of [save, share]) {
         const box = await control.boundingBox();
         if (!box) throw new Error("not laid out");
+        // A 48px target (44px is the floor) around a 40px mark.
         expect(box.height).toBeGreaterThanOrEqual(44);
-        // With room to spare (4px), not touching the bar.
+        expect(box.width).toBeGreaterThanOrEqual(44);
+        // Wholly in view: under the sticky header, and with room to spare (4px) above the bar, not touching it.
+        expect(box.y).toBeGreaterThanOrEqual(header.y + header.height);
         expect(box.y + box.height).toBeLessThanOrEqual(bar.y - 4);
+        // On the photo, inside its box.
+        expect(box.x).toBeGreaterThanOrEqual(photo.x);
+        expect(box.x + box.width).toBeLessThanOrEqual(photo.x + photo.width + 0.5);
+        expect(box.y).toBeGreaterThanOrEqual(photo.y);
+        expect(box.y + box.height).toBeLessThanOrEqual(photo.y + photo.height + 0.5);
       }
-      // Add to calendar (in the same row since the redesign, the owner's event mock) keeps its 44px target, and
-      // doesn't overlap Get directions above it.
-      const calendar = await actions.getByRole("button", { name: "Add to calendar" }).boundingBox();
-      const addressBox = await address.boundingBox();
-      if (!calendar || !addressBox) throw new Error("not laid out");
+      // Add to calendar, under the date, keeps its 44px target, above the venue link and clear of it; the venue link
+      // (its name and address) is a 44px target too, and the facts end above the bar.
+      const calendar = await page.locator("[data-event-when]").getByRole("button", { name: "Add to calendar" }).boundingBox();
+      const venue = await page.locator("[data-event-facts] [data-directions]").boundingBox();
+      if (!calendar || !venue) throw new Error("not laid out");
       expect(calendar.height).toBeGreaterThanOrEqual(44);
-      expect(calendar.y).toBeGreaterThanOrEqual(addressBox.y + addressBox.height);
+      expect(venue.height).toBeGreaterThanOrEqual(44);
+      expect(calendar.y + calendar.height).toBeLessThanOrEqual(venue.y);
+      expect(venue.y + venue.height).toBeLessThanOrEqual(bar.y);
       await noSidewaysScroll(page);
     });
   });
 }
 
-// The redesign's Who's going row: below lg it comes after Save, Share and Add to calendar, so an event with a
-// going count keeps them above the bar too (UX review, PR 4).
+// Who's going's row: below lg it comes after the facts, so an event with a going count keeps Save and Share above the
+// bar too (UX review, PR 4); they're on the photo, before the title (owner, 27 Nov 2026: Option A).
 test.describe("Save and Share on the first screen with a going count, at 390×844", () => {
   test.use({ viewport: { width: 390, height: 844 } });
 
-  test("laneway-projections-after-dark with 42 going: the actions row still ends above the buy bar, the row under it", async ({ page }) => {
+  test("laneway-projections-after-dark with 42 going: Save and Share still end above the buy bar, the row under the facts", async ({ page }) => {
     await mockApi(page);
     await page.route(/\/api\/events\/[^/]+\/going$/, (route) => route.fulfill({ json: { count: 42, countHidden: false, closed: false } }));
     await page.goto("/events/laneway-projections-after-dark");
@@ -317,11 +328,14 @@ test.describe("Save and Share on the first screen with a going count, at 390×84
     }
     const actionsBox = await actions.boundingBox();
     const rowBox = await row.boundingBox();
-    // Hosted by is the title's byline, above the actions (owner, 27 Nov 2026), and Who's going comes after them.
+    // Save and Share on the photo, above the title and its byline; Who's going after the facts.
     const organiserBox = await page.locator("[data-event-organiser]").boundingBox();
-    if (!actionsBox || !rowBox || !organiserBox) throw new Error("not laid out");
-    expect(actionsBox.y).toBeGreaterThanOrEqual(organiserBox.y + organiserBox.height);
-    expect(rowBox.y).toBeGreaterThanOrEqual(actionsBox.y + actionsBox.height);
+    const factsBox = await page.locator("[data-event-facts]").boundingBox();
+    const h1Box = await page.getByRole("heading", { level: 1 }).boundingBox();
+    if (!actionsBox || !rowBox || !organiserBox || !factsBox || !h1Box) throw new Error("not laid out");
+    expect(actionsBox.y + actionsBox.height).toBeLessThanOrEqual(h1Box.y);
+    expect(factsBox.y).toBeGreaterThanOrEqual(organiserBox.y + organiserBox.height);
+    expect(rowBox.y).toBeGreaterThanOrEqual(factsBox.y + factsBox.height);
     // Its button is the rules' Secondary M: 48px.
     expect((await row.getByRole("link").last().boundingBox())?.height).toBe(48);
     await noSidewaysScroll(page);
@@ -382,6 +396,47 @@ test.describe("live event page that can't load", () => {
     const title = page.getByRole("heading", { level: 1, name: "Neon Static" });
     await expect(title).toBeFocused();
     await expect(page).toHaveTitle("Neon Static — Sheltüh");
+  });
+});
+
+// Option A from 640px (owner, 27 Nov 2026): Save and Share are labelled chips on the photo's top-right corner, 44px tall
+// and 12px in; the sticky ticket panel is just the price and the one orange action; the back link is back.
+test.describe("Save and Share on the photo at 1440×900", () => {
+  test.use({ viewport: { width: 1440, height: 900 } });
+
+  test("labelled 44px chips on the photo; the panel only the price and Buy tickets", async ({ page }) => {
+    await mockApi(page);
+    await page.goto("/events/neon-static");
+    await expect(page.getByRole("heading", { level: 1, name: "Neon Static" })).toBeVisible({ timeout: 30_000 });
+    await page.evaluate(() => document.fonts.ready);
+    await expect(page.getByRole("link", { name: "Back to all events" })).toBeVisible();
+
+    const actions = page.locator("[data-event-actions]");
+    const photo = await actions.locator("xpath=..").boundingBox();
+    const share = actions.getByRole("button", { name: "Share Neon Static" });
+    const save = actions.getByRole("link", { name: "Sign in to save Neon Static" });
+    await expect(share).toHaveText("ShareCopied");
+    await expect(share.getByText("Share", { exact: true })).toBeVisible();
+    await expect(save.getByText("Save", { exact: true })).toBeVisible();
+    const [shareBox, saveBox] = await Promise.all([share.boundingBox(), save.boundingBox()]);
+    if (!photo || !shareBox || !saveBox) throw new Error("not laid out");
+    for (const box of [shareBox, saveBox]) {
+      expect(box.height).toBe(44);
+      expect(Math.round(box.y - photo.y)).toBe(12);
+    }
+    expect(Math.round(photo.x + photo.width - (saveBox.x + saveBox.width))).toBe(12);
+    expect(Math.round(saveBox.x - (shareBox.x + shareBox.width))).toBe(8);
+
+    // The panel: the price and the one orange action, nothing else.
+    const panel = page.locator("[data-ticket-panel]");
+    await expect(panel).toBeVisible();
+    await expect(panel).toContainText("From A$32.30");
+    await expect(panel.getByRole("link", { name: "Buy tickets" })).toBeVisible();
+    // Nothing else to press in it: no Save, Share or Add to calendar.
+    await expect(panel.getByRole("link")).toHaveCount(1);
+    await expect(panel.getByRole("button")).toHaveCount(0);
+    await expect(page.locator("[data-event-when]").getByRole("button", { name: "Add to calendar" })).toBeVisible();
+    await noSidewaysScroll(page);
   });
 });
 
@@ -524,13 +579,15 @@ for (const width of [375, 1280]) {
       if (!event) throw new Error("no sample");
       const address = `${event.venueName}, ${event.venueAddress}`;
 
-      // Get directions, its own link under the address, out to Google Maps in a new tab.
-      const directions = page.getByRole("link", { name: `Get directions to ${address} (opens Google Maps in a new tab)` });
+      // The venue and its address are the directions link (owner, 27 Nov 2026: Option A), out to Google Maps in a new tab.
+      const directions = page.getByRole("link", { name: `${address}: get directions (opens Google Maps in a new tab)` });
       await expect(directions).toHaveAttribute("href", `https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(address)}`);
       await expect(directions).toHaveAttribute("target", "_blank");
       await expect(directions).toHaveAttribute("rel", "noopener noreferrer");
-      await expect(directions).toHaveText("Get directions");
+      await expect(directions).toHaveText(`${event.venueName}${event.venueAddress}`);
+      await expect(page.getByText("Get directions", { exact: true })).toHaveCount(0);
       await expect(page.locator("[data-event-facts] [data-venue-address]")).toHaveText(event.venueAddress);
+      expect((await directions.boundingBox())?.height ?? 0).toBeGreaterThanOrEqual(44);
 
       // The zone in effect at the start (a week out from now: AEST or AEDT).
       await expect(page.getByText(/^Melbourne time \((AEST|AEDT)\)$/)).toBeVisible();
@@ -890,7 +947,8 @@ for (const vp of [
 }
 
 // The owner's event reference (13 Nov 2026), at the three phone widths: the details as two icon groups, "Hosted by"
-// as the title's byline with the name the link (owner, 27 Nov 2026), Save / Share / Calendar as equal 48px one-line controls, ticket rows each with their own stepper,
+// as the title's byline with the name the link (owner, 27 Nov 2026), Save and Share as 40px marks on the photo, Add to
+// calendar under the date and the venue the directions link (owner, 27 Nov 2026: Option A), ticket rows each with their own stepper,
 // and the sticky bar's starting price before a choice and the total after. Edge cases: a long title, venue and
 // address, several long-named tiers, and a sold-out event. Fixtures live here only (never in the sample data).
 // EVENT_SHOTS=<dir> saves screenshots of each for visual review.
@@ -971,14 +1029,14 @@ for (const width of [320, 390, 430]) {
   test.describe(`event page reference layout at ${width}px`, () => {
     test.use({ viewport: { width, height: 844 }, hasTouch: true });
 
-    test("details groups, Hosted by, the action row, ticket rows and the bar before and after a choice", async ({ page }) => {
+    test("details groups, Hosted by, Save and Share on the photo, ticket rows and the bar before and after a choice", async ({ page }) => {
       await mockApi(page);
       await page.goto("/events/neon-static");
       await expect(page.getByRole("heading", { level: 1, name: "Neon Static" })).toBeVisible({ timeout: 30_000 });
       await page.evaluate(() => document.fonts.ready);
 
-      // Two groups, each an icon beside its text: When (the range, then the zone) and Where (venue, address,
-      // Get directions).
+      // Two groups, each an icon beside its text: When (the range, the zone, then Add to calendar) and Where (the venue
+      // and its address, one directions link).
       for (const group of ["[data-event-when]", "[data-event-where]"]) {
         const icon = await page.locator(`${group} dt svg`).boundingBox();
         const text = await page.locator(`${group} dd`).boundingBox();
@@ -986,25 +1044,38 @@ for (const width of [320, 390, 430]) {
         expect(icon.x + icon.width).toBeLessThanOrEqual(text.x);
       }
       await expect(page.locator("[data-event-where] [data-venue-address]")).toBeVisible();
-      await expect(page.locator("[data-event-where] [data-directions]")).toHaveText("Get directions");
+      await expect(page.locator("[data-event-where] [data-directions]")).toHaveText("Warehouse 99 Rupert Street, Collingwood VIC 3066");
+      await expect(page.locator("[data-event-when]").getByRole("button", { name: "Add to calendar" })).toHaveText("Add to calendar");
 
       // Hosted by, the title's byline, with the name the link to the profile.
       await expectByline(page, "Static Collective");
 
-      // Save, Share and Calendar: equal 48px controls, each label on one line.
+      // Share then Save on the photo's top-right corner: 48px targets that touch, around white 40px marks 8px in from
+      // the photo's edges and 8px apart, icons only (their words come from 640px). No date chip on the photo.
       const actions = page.locator("[data-event-actions]");
-      const controls = [
-        actions.getByRole("link", { name: "Sign in to save Neon Static" }),
-        actions.getByRole("button", { name: "Share Neon Static" }),
-        actions.getByRole("button", { name: "Add to calendar" }),
-      ];
-      await expect(controls[2]).toHaveText("Calendar");
+      const photo = await actions.locator("xpath=..").boundingBox();
+      const controls = [actions.getByRole("button", { name: "Share Neon Static" }), actions.getByRole("link", { name: "Sign in to save Neon Static" })];
+      const marks = await Promise.all(controls.map((c) => c.locator("[data-surface='paper']").boundingBox()));
+      const targets = await Promise.all(controls.map((c) => c.boundingBox()));
+      if (!photo || marks.some((m) => !m) || targets.some((t) => !t)) throw new Error("Save and Share not laid out");
+      const [shareMark, saveMark] = marks as NonNullable<(typeof marks)[number]>[];
+      const [shareTarget, saveTarget] = targets as NonNullable<(typeof targets)[number]>[];
+      for (const t of [shareTarget, saveTarget]) expect([t.width, t.height]).toEqual([48, 48]);
+      for (const m of [shareMark, saveMark]) expect([m.width, m.height]).toEqual([40, 40]);
+      expect(Math.round(photo.x + photo.width - (saveMark.x + saveMark.width))).toBe(8);
+      expect(Math.round(saveMark.y - photo.y)).toBe(8);
+      expect(Math.round(shareMark.y - photo.y)).toBe(8);
+      expect(Math.round(saveMark.x - (shareMark.x + shareMark.width))).toBe(8);
       for (const control of controls) {
-        const box = await control.boundingBox();
-        expect(box?.height).toBe(48);
-        // Nothing clipped or pushed out of the control.
-        expect(await control.evaluate((el) => el.scrollWidth <= el.clientWidth)).toBe(true);
+        await expect(control.getByText(/^(Save|Share)$/)).toBeHidden();
+        expect(await control.evaluate((el) => getComputedStyle(el.firstElementChild as Element).backgroundColor)).toBe("rgb(255, 255, 255)");
       }
+      await expect(page.locator("[data-date-chip]")).toHaveCount(0);
+      // No back link on a phone (from 640px only), and the photo 8px under the header.
+      await expect(page.getByRole("link", { name: "Back to all events" })).toBeHidden();
+      const header = await page.locator("header").first().boundingBox();
+      if (!header) throw new Error("no header");
+      expect(Math.round(photo.y - (header.y + header.height))).toBe(8);
 
       // Before a choice: the bar's starting price, and Choose tickets (it never checks out yet).
       const bar = page.locator("[data-buy-bar]");
@@ -1098,15 +1169,15 @@ for (const width of [320, 390, 430]) {
   });
 }
 
-// UX review (13 Nov 2026): with enlarged text (the root font at 125–200%), Save / Share / Calendar never spill out
-// of their buttons, the ticket stepper still fits its row, and a tall buy bar drops its date line so its action
-// is whole. EVENT_SHOTS=<dir> saves the probes.
+// UX review (13 Nov 2026): with enlarged text (the root font at 125–200%), Save and Share stay on the photo with their
+// icons inside their marks, Add to calendar stays clear of the venue link, the ticket stepper still fits its row, and
+// a tall buy bar drops its date line so its action is whole. EVENT_SHOTS=<dir> saves the probes.
 for (const width of [320, 390]) {
   for (const scale of [125, 150, 200]) {
     test.describe(`large text at ${width}px, ${scale}%`, () => {
       test.use({ viewport: { width, height: 844 }, hasTouch: true });
 
-      test("the action row, the ticket rows and the buy bar keep everything inside", async ({ page }) => {
+      test("Save and Share, the facts, the ticket rows and the buy bar keep everything inside", async ({ page }) => {
         await mockApi(page);
         await page.goto("/events/neon-static");
         await expect(page.getByRole("heading", { level: 1, name: "Neon Static" })).toBeVisible({ timeout: 30_000 });
@@ -1115,19 +1186,34 @@ for (const width of [320, 390]) {
 
         const actions = page.locator("[data-event-actions]");
         await actions.scrollIntoViewIfNeeded();
-        for (const control of await actions.locator("a, button").all()) {
-          // Nothing spills sideways out of a control, and its icon and label don't overlap.
-          expect(await control.evaluate((el) => el.scrollWidth <= el.clientWidth + 1)).toBe(true);
-          const icon = await control.locator("svg").boundingBox();
-          const label = await control.locator("span:not(.sr-only)").first().boundingBox();
+        const photo = await actions.locator("xpath=..").boundingBox();
+        if (!photo) throw new Error("no photo");
+        const controls = await actions.locator("a, button").all();
+        expect(controls).toHaveLength(2);
+        for (const control of controls) {
+          // Each stays on the photo, its icon inside its white mark, and the mark inside the target.
           const box = await control.boundingBox();
-          if (!icon || !label || !box) throw new Error("not laid out");
-          expect(icon.width).toBeGreaterThanOrEqual(15);
-          const overlaps = icon.x < label.x + label.width && label.x < icon.x + icon.width && icon.y < label.y + label.height && label.y < icon.y + icon.height;
-          expect(overlaps).toBe(false);
-          expect(label.x + label.width).toBeLessThanOrEqual(box.x + box.width + 1);
+          const mark = await control.locator("[data-surface='paper']").boundingBox();
+          const icon = await control.locator("svg").boundingBox();
+          if (!box || !mark || !icon) throw new Error("not laid out");
           expect(box.height).toBeGreaterThanOrEqual(48);
+          expect(icon.width).toBeGreaterThanOrEqual(15);
+          for (const [inner, outer] of [
+            [icon, mark],
+            [mark, box],
+            [box, photo],
+          ] as const) {
+            expect(inner.x).toBeGreaterThanOrEqual(outer.x - 1);
+            expect(inner.y).toBeGreaterThanOrEqual(outer.y - 1);
+            expect(inner.x + inner.width).toBeLessThanOrEqual(outer.x + outer.width + 1);
+            expect(inner.y + inner.height).toBeLessThanOrEqual(outer.y + outer.height + 1);
+          }
         }
+        // Add to calendar (a 44px target in rem, so it grows with the text) stays above the venue link, not over it.
+        const calendar = await page.locator("[data-event-when]").getByRole("button", { name: "Add to calendar" }).boundingBox();
+        const venue = await page.locator("[data-event-facts] [data-directions]").boundingBox();
+        if (!calendar || !venue) throw new Error("facts not laid out");
+        expect(calendar.y + calendar.height).toBeLessThanOrEqual(venue.y + 1);
         if (process.env.EVENT_SHOTS) await actions.screenshot({ path: `${process.env.EVENT_SHOTS}/event-after2-text${scale}-${width}-actions.png` });
 
         // The byline wraps inside its row with larger text, between the title and the facts.
