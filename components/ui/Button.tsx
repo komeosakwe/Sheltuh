@@ -43,7 +43,7 @@ export const secondaryActionClass =
  * The event page's photo marks (SaveButton's `variant="photo"` and ShareButton's `look="photo"`; owner, 27 Nov
  * 2026: Option A): a 40px white rounded square with a black 20px icon in a 48px target below 640px; from 640px a
  * 44px chip, as tall as its target, with a 16px icon and its word. Paper and
- * ink in both themes, as the card overlay and the date chip are (they sit on a photo): `data-surface="paper"` on
+ * ink in both themes, as the card overlay is (they sit on a photo): `data-surface="paper"` on
  * the mark pins its tokens to Light, so its cream hover (`--hover`) is cream in Dark too. That rule is unlayered
  * (globals.css) and paints the mark white, so the hover fill needs `!` to win over it. Keyboard focus: the target's
  * own outline gives way to a two-tone ring on the mark, black against the white mark and white outside that, so it
