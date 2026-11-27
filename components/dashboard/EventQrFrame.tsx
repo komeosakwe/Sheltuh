@@ -1,0 +1,158 @@
+"use client";
+
+import Link from "next/link";
+import { useEffect, useRef, type ReactNode } from "react";
+import { Button, ButtonLink } from "@/components/ui/Button";
+import BackLink, { backLinkClass } from "@/components/ui/BackLink";
+import { LoadingState } from "@/components/ui/ProgressLoader";
+import { EmptyState, Notice } from "@/components/ui/Section";
+import Strap from "@/components/ui/Strap";
+import { SUPPORT_EMAIL } from "@/lib/contact";
+import { EVENTS_HREF, eventQrHref, eventQrSignHref, manageEventHref } from "@/lib/organiser-nav";
+import { withNext } from "@/lib/safe-next-path";
+import type { EventQrState } from "./useEventQr";
+
+/**
+ * The ways back, above the header: to the Events tab and the event (the QR page), or to the QR page (the
+ * sign). "Manage event", as the Events card calls the event's page ("Manage →"); not for an event that
+ * wasn't found (`found` false), which has no page to manage.
+ */
+function BackLinks({ eventId, from, found }: { eventId: string; from: "qr" | "sign"; found: boolean }) {
+  return (
+    <nav aria-label="Event" className="mb-6 flex flex-wrap gap-x-6">
+      {from === "sign" ? (
+        <BackLink href={eventQrHref(eventId)}>QR code</BackLink>
+      ) : (
+        <>
+          <BackLink href={EVENTS_HREF}>Events</BackLink>
+          {found && (
+            <Link href={manageEventHref(eventId)} className={backLinkClass}>
+              Manage event
+            </Link>
+          )}
+        </>
+      )}
+    </nav>
+  );
+}
+
+/**
+ * The QR page's and the sign's frame: the way back, the header (the h1 and
+ * the event's title once known), then either `children` with the loaded code
+ * or the state that stands in for it (loading; an error with Try again, or
+ * Sign in when the session has ended, or nothing to retry when it can't
+ * help; not found; not published yet).
+ */
+export default function EventQrFrame({
+  eventId,
+  from,
+  title,
+  state,
+  retry,
+  children,
+}: {
+  eventId: string;
+  from: "qr" | "sign";
+  /** The h1: "QR code" or "Printable sign". */
+  title: string;
+  state: EventQrState;
+  retry: () => void;
+  children: (ready: Extract<EventQrState, { status: "ready" }>) => ReactNode;
+}) {
+  const back = <BackLinks eventId={eventId} from={from} found={state.status !== "not-found"} />;
+  // After Try again, focus goes to the page's h1 once the new state has settled: the button is gone by then,
+  // and the heading is where the answer (the code, an error, not found) starts.
+  const heading = useRef<HTMLHeadingElement>(null);
+  const retried = useRef(false);
+  const settled = state.status !== "loading";
+  useEffect(() => {
+    if (!settled || !retried.current) return;
+    retried.current = false;
+    heading.current?.focus();
+  }, [settled, state]);
+  function tryAgain() {
+    retried.current = true;
+    retry();
+  }
+
+  if (state.status === "not-found") {
+    return (
+      <>
+        {back}
+        <EmptyState
+          headingLevel={1}
+          titleRef={heading}
+          title="Event not found"
+          action={
+            <ButtonLink size="lg" variant="outline" href={EVENTS_HREF}>
+              Back to events
+            </ButtonLink>
+          }
+        >
+          It may have been deleted, or it belongs to another organiser account.
+        </EmptyState>
+      </>
+    );
+  }
+
+  const event = state.status === "ready" || state.status === "unpublished" ? state.event : null;
+  return (
+    <>
+      {back}
+      <header className="mb-8 flex flex-col gap-3">
+        <Strap label="QR code" rule={false} />
+        <h1 ref={heading} tabIndex={-1} className="display-md break-words outline-offset-2 focus:outline-none!">
+          {title}
+        </h1>
+        {event && <p className="meta break-words text-muted">{event.title || "Untitled event"}</p>}
+      </header>
+      {state.status === "loading" && (
+        <div aria-busy="true" className="min-h-48">
+          <LoadingState text="Getting the QR code ready…" announce />
+        </div>
+      )}
+      {state.status === "error" && (
+        <div className="flex flex-col items-start gap-3">
+          <Notice tone="danger" role="alert">
+            {state.message}
+            {state.permanent && (
+              <>
+                {" "}
+                <a href={`mailto:${SUPPORT_EMAIL}`} className="font-semibold underline underline-offset-4">
+                  Contact Sheltüh
+                </a>
+                .
+              </>
+            )}
+          </Notice>
+          {state.reauth ? (
+            <ButtonLink size="lg" href={withNext("/login", from === "sign" ? eventQrSignHref(eventId) : eventQrHref(eventId))}>
+              Sign in
+            </ButtonLink>
+          ) : (
+            !state.permanent && (
+              <Button variant="outline" size="lg" onClick={tryAgain}>
+                Try again
+              </Button>
+            )
+          )}
+        </div>
+      )}
+      {state.status === "unpublished" && (
+        <EmptyState
+          title={state.event.status === "pending_review" ? "Your event is in review" : "Publish your event first"}
+          action={
+            <ButtonLink size="lg" variant="outline" href={manageEventHref(eventId)}>
+              Go to your event
+            </ButtonLink>
+          }
+        >
+          {state.event.status === "pending_review"
+            ? "You’ll get the code once it’s approved and live."
+            : "The QR code opens your event’s page, so you’ll get it once the event is live."}
+        </EmptyState>
+      )}
+      {state.status === "ready" && children(state)}
+    </>
+  );
+}

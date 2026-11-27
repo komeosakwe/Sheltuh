@@ -1,4 +1,5 @@
 import type { EventRecord, EventStatus } from "./api/types";
+import { eventQrHref } from "./organiser-nav";
 import { ticketProviderName } from "./ticketing";
 
 /**
@@ -14,7 +15,8 @@ import { ticketProviderName } from "./ticketing";
  *   external event's check-in is a 409: it has no admissions).
  * - The seat map only for a reserved-seating event (it has a map), which an
  *   external event never has. The page shows any status (locked once approved).
- * - The public page (/events/{slug}) only while published (404 otherwise).
+ * - The public page (/events/{slug}) only while published (404 otherwise),
+ *   and so its QR code (/dashboard/events/{id}/qr), which opens it.
  */
 
 /** The dashboard's status words. `unpublished`: approved once, since taken down (back to draft). */
@@ -68,7 +70,15 @@ export function canEditEvent(event: Pick<EventRecord, "status">): boolean {
   return event.status === "draft" || event.status === "rejected";
 }
 
-export type OrganiserEventActionKind = "edit" | "view" | "orders" | "analytics" | "check-in" | "seat-map" | "public-page";
+export type OrganiserEventActionKind =
+  | "edit"
+  | "view"
+  | "public-page"
+  | "qr-code"
+  | "orders"
+  | "analytics"
+  | "check-in"
+  | "seat-map";
 
 export interface OrganiserEventAction {
   kind: OrganiserEventActionKind;
@@ -82,7 +92,8 @@ export interface OrganiserEventAction {
 /**
  * The actions that apply to this event, in a fixed order, the main one first:
  * Edit (draft, rejected), View submission (pending), or View public page
- * (published; View, for the read-only editor, only if it has no slug).
+ * (published; View, for the read-only editor, only if it has no slug), then
+ * QR code (published), Orders, Analytics, Check-in and Seat map as they apply.
  */
 export function organiserEventActions(
   event: Pick<EventRecord, "eventId" | "slug" | "title" | "status" | "ticketingMode" | "seating">,
@@ -111,6 +122,10 @@ export function organiserEventActions(
     actions.push({ kind: "view", label: "View submission", name: `View submission for ${title}`, href: `/dashboard/${id}` });
   } else {
     actions.push({ kind: "view", label: "View", name: `View ${title}`, href: `/dashboard/${id}` });
+  }
+  // The poster code opens the public page, so only while there is one (docs/architecture.md, "Event QR codes").
+  if (publicPage) {
+    actions.push({ kind: "qr-code", label: "QR code", name: `QR code for ${title}`, href: eventQrHref(event.eventId) });
   }
   // Who bought: a published event's editor is locked, so this row is the organiser's way in.
   if (published && !external) {
