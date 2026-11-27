@@ -1258,6 +1258,56 @@ for (const width of [320, 390, 430]) {
   });
 }
 
+// Review (PR 113): on an event with a clip, the photo carries Save and Share at its top right and the Play chip at its
+// bottom left; with large text both grow (they're sized in rem), and on a 22svh phone photo they could meet.
+const CLIP_EVENT: PublicEvent = {
+  ...asPublic("neon-static"),
+  clip: {
+    url: "/api/events/evt-neon-static/clip?v=1761000000000",
+    durationMs: 12_000,
+    width: 1080,
+    height: 1920,
+    description: "The band plays under purple lights.",
+  },
+};
+
+for (const { width, scale } of [
+  { width: 390, scale: 100 },
+  { width: 320, scale: 200 },
+  { width: 375, scale: 200 },
+  { width: 390, scale: 200 },
+]) {
+  test.describe(`a clip's Play and the photo marks at ${width}px, ${scale}% text`, () => {
+    test.use({ viewport: { width, height: 844 }, hasTouch: true });
+
+    test("never overlap, and all stay on the photo", async ({ page }) => {
+      await mockEvent(page, CLIP_EVENT);
+      await page.goto("/events/neon-static");
+      await expect(page.getByRole("heading", { level: 1, name: "Neon Static" })).toBeVisible({ timeout: 30_000 });
+      if (scale !== 100) await page.addStyleTag({ content: `html{font-size:${scale}% !important}` });
+      await page.evaluate(() => document.fonts.ready);
+      const play = page.locator("[data-clip-play]");
+      await expect(play).toBeVisible();
+      const actions = page.locator("[data-event-actions]");
+      const photo = await actions.locator("xpath=..").boundingBox();
+      const playBox = await play.boundingBox();
+      if (!photo || !playBox) throw new Error("not laid out");
+      const inside = (b: { x: number; y: number; width: number; height: number }) =>
+        b.x >= photo.x - 0.5 && b.y >= photo.y - 0.5 && b.x + b.width <= photo.x + photo.width + 0.5 && b.y + b.height <= photo.y + photo.height + 0.5;
+      expect(inside(playBox)).toBe(true);
+      for (const control of await actions.locator("a, button").all()) {
+        const box = await control.boundingBox();
+        if (!box) throw new Error("mark not laid out");
+        expect(inside(box)).toBe(true);
+        const overlaps =
+          box.x < playBox.x + playBox.width && playBox.x < box.x + box.width && box.y < playBox.y + playBox.height && playBox.y < box.y + box.height;
+        expect(overlaps).toBe(false);
+      }
+      if (process.env.EVENT_SHOTS) await page.screenshot({ path: `${process.env.EVENT_SHOTS}/clip-marks-${width}-text${scale}.png` });
+    });
+  });
+}
+
 // Review (PR 113): the venue link with one line (an address that names its place, so nothing under it) was only 24px
 // tall on a phone. It's 44px, with the line still beside the pin.
 test.describe("a one-line venue link at 390px", () => {

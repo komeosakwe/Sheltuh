@@ -347,10 +347,13 @@ export default function EventDetailsView({
               already gives the date). The page's LCP image. On phones never more than 22% of the screen's height,
               so the title and facts fit above the buy bar (owner request, 26 Oct 2026: e2e/event-page.spec.ts). On a short phone (below 640px wide and up to 700px tall,
               an iPhone SE's 667) 8px less: what the phone header gained (56 to 64px, the "Header / Mobile" board),
-              so everything under the photo sits where it did there; taller phones have room and keep the 22%. A
-              7:2 strip on tablets; 3:2 beside
-              the panel from 1024px. An event's clip Play sits on its bottom-left (docs/design/event-clips.md §5.3);
-              absolutely placed, so nothing shifts. */}
+              so everything under the photo sits where it did there; taller phones have room and keep the 22%. Never
+              under 7rem, though: room for Save and Share (top right, 0.25rem in, 3rem) over an event's clip Play
+              (bottom left, 2.75rem, 0.5rem in) with 0.5rem between. They're sized in rem, so with large text the 22%
+              strip got too short for both and they met (review, PR 113); this floor grows with them. At the default
+              text size it's 112px, under any phone's 22%, so it never shows there. A
+              7:2 strip on tablets; 3:2 beside the panel from 1024px. An event's clip Play sits on its bottom-left
+              (docs/design/event-clips.md §5.3); absolutely placed, so nothing shifts. */}
           <div className="relative lg:col-span-7 xl:col-span-8">
             <EventArt
               poster={event.poster}
@@ -361,7 +364,7 @@ export default function EventDetailsView({
               fit="auto"
               // Not in the editor's preview, whose photo is the organiser's draft or upload (used as it is).
               sizes={preview ? undefined : EVENT_PAGE_PHOTO_SIZES}
-              className="aspect-[4/3] max-h-[22svh] w-full rounded-card max-sm:[@media(max-height:700px)]:max-h-[calc(22svh-0.5rem)] sm:aspect-video sm:max-h-none md:aspect-[7/2] lg:aspect-[3/2]"
+              className="aspect-[4/3] max-h-[22svh] min-h-28 w-full rounded-card max-sm:[@media(max-height:700px)]:max-h-[calc(22svh-0.5rem)] sm:aspect-video sm:max-h-none md:aspect-[7/2] lg:aspect-[3/2]"
             />
             <ClipPlayButton event={event} size="hero" className="absolute bottom-2 left-2 sm:bottom-4 sm:left-4" />
             {/* Save (the page's one Save) and Share, on the photo's top-right corner as the heart is on every event
