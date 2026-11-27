@@ -1,8 +1,6 @@
 "use client";
 
 import { useEffect, useId, useRef, useState } from "react";
-import { CalendarIcon } from "@/components/home/icons";
-import { actionRowClass, actionRowLabelClass } from "@/components/ui/Button";
 import { googleCalendarUrl, icsFilename, outlookCalendarUrl, type CalendarEvent } from "@/lib/calendar";
 import { eventCalendarPath, publicEventUrl } from "@/lib/event-url";
 
@@ -30,7 +28,9 @@ type Links = { google: string; outlook: string };
 
 /**
  * "Add to calendar" (docs/design/brand-direction-one.md §6.7): a disclosure
- * with plain links.
+ * with plain links: underlined words with a chevron, the list opening under
+ * them from their left edge. On the event page it's the line under the date
+ * (owner, 27 Nov 2026: Option A).
  *
  * - **Apple Calendar** goes to the event's `.ics` URL on this site
  *   (`/events/{slug}/calendar.ics`, served inline as text/calendar), so
@@ -51,16 +51,9 @@ type Links = { google: string; outlook: string };
 export default function AddToCalendar({
   event,
   className = "",
-  look = "link",
 }: {
   event: CalendarEvent;
   className?: string;
-  /**
-   * `link`: underlined words with a chevron, inline after other text. `button`: the rules' Secondary button,
-   * filling its box (the event page's action row, beside Save and Share), a calendar icon and "Calendar" (named
-   * "Add to calendar"); its menu opens from the button's right edge, so a button at the end of a row keeps it on screen.
-   */
-  look?: "link" | "button";
 }) {
   const [links, setLinks] = useState<Links | null>(null);
   const [android, setAndroid] = useState(false);
@@ -126,7 +119,7 @@ export default function AddToCalendar({
   return (
     <div
       ref={rootRef}
-      className={`relative ${look === "button" ? "" : "w-fit "}${className}`.trim()}
+      className={`relative w-fit ${className}`.trim()}
       onKeyDown={(e) => {
         if (e.key === "Escape" && open) {
           e.stopPropagation();
@@ -148,26 +141,10 @@ export default function AddToCalendar({
         onClick={toggle}
         aria-expanded={open}
         aria-controls={open ? menuId : undefined}
-        className={
-          look === "button"
-            ? actionRowClass
-            : "-ml-0.5 inline-flex min-h-11 items-center gap-1 px-0.5 text-sm font-semibold underline underline-offset-4"
-        }
-        // The button look shows "Calendar" beside its icon (a third of a row has room for one word); its name is the
-        // whole action, which contains the visible word (WCAG 2.5.3), so "click Calendar" still works by voice.
-        aria-label={look === "button" ? "Add to calendar" : undefined}
+        className="-ml-0.5 inline-flex min-h-11 items-center gap-1 px-0.5 text-sm font-semibold underline underline-offset-4 hover:decoration-2"
       >
-        {look === "button" ? (
-          <>
-            <CalendarIcon className="size-4 shrink-0" />
-            <span className={actionRowLabelClass}>Calendar</span>
-          </>
-        ) : (
-          <>
-            Add to calendar
-            <ChevronIcon open={open} />
-          </>
-        )}
+        Add to calendar
+        <ChevronIcon open={open} />
       </button>
       {/* Always in the page, so the message is announced when it appears. */}
       <p role="status" className="text-sm text-muted empty:hidden">
@@ -176,7 +153,7 @@ export default function AddToCalendar({
       {links && (
         <ul
           id={menuId}
-          className={`absolute top-full ${look === "button" ? "right-0" : "left-0"} z-30 mt-1 w-64 max-w-[calc(100vw-2.5rem)] rounded-control border border-foreground bg-card py-1`}
+          className="absolute top-full left-0 z-30 mt-1 w-64 max-w-[calc(100vw-2.5rem)] rounded-control border border-foreground bg-card py-1"
         >
           {android ? [google, apple] : [apple, google]}
           <li>

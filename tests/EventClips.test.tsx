@@ -309,7 +309,7 @@ describe("the event page's photo (§5.3)", () => {
   it("an event without a clip keeps the same box and has no Play", () => {
     const { container } = withProviders(<EventDetailsView event={{ ...event, clip: undefined }} demo />);
     expect(screen.queryByRole("button", { name: /^Play clip/ })).toBeNull();
-    const art = container.querySelector("[data-date-chip]")?.parentElement?.firstElementChild;
+    const art = container.querySelector("[data-event-actions]")?.parentElement?.firstElementChild;
     expect(art).toHaveClass("aspect-[4/3]", "w-full");
   });
 });

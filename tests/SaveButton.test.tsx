@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { FavouritesProvider } from "@/components/favourites/FavouritesProvider";
 import SaveButton, { type SaveButtonVariant } from "@/components/favourites/SaveButton";
@@ -204,20 +204,51 @@ describe("SaveButton — live", () => {
     expect(bar()).toBeNull();
   });
 
-  // The rules' Secondary button: the 1.5px foreground stroke, black with a white label on hover, 48px.
-  it("the event page's action keeps its visible 'Save' label inside the name, as a 48px Secondary button", async () => {
-    const button = await readyHeart([], undefined, "action");
+  // The event page's photo mark (owner, 27 Nov 2026: Option A): a 40px white square in a 48px target below 640px, a
+  // labelled 44px chip from 640px; "Save" is in the button (shown from 640px) and starts the name.
+  it("the event page's photo mark: a 40px mark in a 48px target, its 'Save' word from 640px, inside the name", async () => {
+    const button = await readyHeart([], undefined, "photo");
+    expect(button).toHaveAttribute("data-save-variant", "photo");
     expect(button).toHaveTextContent("Save");
     expect(button).toHaveAccessibleName("Save Night Market");
-    expect(button).toHaveClass("min-h-12", "border-control", "border-foreground", "rounded-control", "hover:bg-foreground", "hover:text-background");
-    // Not the grey fill any more, and not the .btn component (it has its own icon row).
-    expect(button).not.toHaveClass("bg-surface");
-    expect(button.className).not.toMatch(/(?:^|\s)btn(?:-|\s|$)/);
+    expect(button).toHaveClass("size-12", "sm:size-auto", "sm:min-h-11");
+    const mark = button.firstElementChild as HTMLElement;
+    expect(mark).toHaveClass("size-10", "bg-paper", "text-ink", "rounded-control", "sm:h-11");
+    expect(within(mark).getByText("Save")).toHaveClass("hidden", "sm:inline");
+    // The icon: 20px alone, 16px beside its word.
+    expect(button.querySelector("svg")).toHaveClass("size-5", "sm:size-4");
+  });
+
+  // On a photo in both themes: the mark's tokens are pinned to Light, so its cream hover stays cream in Dark (Dark's
+  // --hover is near-black, which would hide the black heart), and keyboard focus is a two-tone ring (black hugging the
+  // white mark, white outside it) that shows on any photo; never orange.
+  it("the photo mark: paper in both themes, a cream hover, a two-tone focus ring, and the page's outline dropped", async () => {
+    const button = await readyHeart([], undefined, "photo");
+    const mark = button.firstElementChild as HTMLElement;
+    expect(mark).toHaveAttribute("data-surface", "paper");
+    expect(mark).toHaveClass("group-hover/save:bg-hover!");
+    expect(button).toHaveClass("group/save", "focus-visible:outline-none!");
+    expect(mark).toHaveClass(
+      "group-focus-visible/save:ring-2",
+      "group-focus-visible/save:ring-paper",
+      "group-focus-visible/save:ring-offset-2",
+      "group-focus-visible/save:ring-offset-ink",
+      "motion-safe:group-active/save:scale-90",
+    );
+    expect(`${button.className} ${mark.className}`).not.toMatch(/signal|orange/);
+  });
+
+  it("the photo mark signed out is the sign-in link, with the same mark and word", () => {
+    renderHeart(signedOut(), "photo");
+    const link = screen.getByRole("link", { name: "Sign in to save Night Market" });
+    expect(link).toHaveClass("size-12", "focus-visible:outline-none!");
+    expect(link.firstElementChild).toHaveAttribute("data-surface", "paper");
+    expect(link).toHaveTextContent("Save");
   });
 
   // The rules' card anatomy: "stays a heart, outline → filled orange" (a non-text mark, 3.4:1 on white).
   it("fills the heart orange once saved, on a card and on the event page", async () => {
-    for (const variant of ["overlay", "action"] as const) {
+    for (const variant of ["overlay", "photo"] as const) {
       const button = await readyHeart(["evt-1"], undefined, variant);
       const icon = button.querySelector("svg");
       expect(icon).toHaveAttribute("fill", "currentColor");

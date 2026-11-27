@@ -6,29 +6,20 @@ import { cardDateChip, type EventStartFields } from "@/lib/event-card";
  * white with black text in both themes (it sits on a photo), the day at 24px.
  * The weekday is black too, never orange: small orange type fails on white. Decorative (`aria-hidden`): the
  * card's meta line says the same date in words. All three in Instrument Sans, as written ("Sat",
- * "14", "Nov"), never in capitals (owner decision, 13 Nov 2026).
+ * "14", "Nov"), never in capitals (owner decision, 13 Nov 2026). Not shown anywhere at the moment: event cards
+ * dropped it (owner, 13 Nov 2026) and so did the event page's photo (owner, 27 Nov 2026).
  */
-export default function DateChip({
-  event,
-  size = "card",
-  className = "",
-}: {
-  event: EventStartFields;
-  /** `page`: the event page's photo (the owner's event mock), a step larger from 1024px. */
-  size?: "card" | "page";
-  className?: string;
-}) {
+export default function DateChip({ event, className = "" }: { event: EventStartFields; className?: string }) {
   const { weekday, day, month } = cardDateChip(event);
-  const page = size === "page";
   return (
     <span
       aria-hidden="true"
       data-date-chip=""
-      className={`flex flex-col items-center rounded-badge bg-paper text-ink ${page ? "w-10 py-2 lg:w-16 lg:py-3" : "w-10 py-2"} ${className}`.trim()}
+      className={`flex w-10 flex-col items-center rounded-badge bg-paper py-2 text-ink ${className}`.trim()}
     >
-      <span className={page ? "mono-s lg:mono-m" : "mono-s"}>{weekday}</span>
-      <span className={`font-semibold tabular-nums ${page ? "text-2xl leading-6 lg:date-chip-day-lg" : "text-2xl leading-6"}`}>{day}</span>
-      <span className={page ? "mono-s lg:mono-m" : "mono-s"}>{month}</span>
+      <span className="mono-s">{weekday}</span>
+      <span className="text-2xl leading-6 font-semibold tabular-nums">{day}</span>
+      <span className="mono-s">{month}</span>
     </span>
   );
 }

@@ -81,25 +81,29 @@ describe("heart placements", () => {
     expect(heart).toHaveClass("z-10");
   });
 
-  // Refinement (owner, 22 Oct 2026): one Save on the event page, in the secondary row under the title,
-  // the same at every width and whether or not there's a buy bar; the bar is just the price and the action.
-  it("event page: exactly one Save control, in the Save and Share row; none in the buy bar", () => {
+  // Refinement (owner, 22 Oct 2026): one Save on the event page, the same at every width and whether or not there's a
+  // buy bar; the bar is just the price and the action. Since 27 Nov 2026 (owner, Option A) it's on the photo, beside
+  // Share, as the heart is on every card.
+  it("event page: exactly one Save control, on the photo beside Share; none in the buy bar", () => {
     // Before the sample event ends: an ended event has no buy bar (A7). Only Date is faked.
     vi.useFakeTimers({ toFake: ["Date"] });
     vi.setSystemTime(new Date("2026-09-01T00:00:00.000Z"));
     const { container } = withHearts(<EventDetailsView event={EVENT} demo />);
     const hearts = screen.getAllByRole("button", { name: `Save ${EVENT.title}` });
     expect(hearts).toHaveLength(1);
-    expect(hearts[0]).toHaveAttribute("data-save-variant", "action");
+    expect(hearts[0]).toHaveAttribute("data-save-variant", "photo");
     expect(hearts[0]).toHaveTextContent("Save");
-    expect(hearts[0].closest("[data-event-actions]")).not.toBeNull();
+    const onPhoto = hearts[0].closest<HTMLElement>("[data-event-actions]");
+    if (!onPhoto) throw new Error("Save isn't with Share");
+    expect(onPhoto).toHaveClass("absolute");
+    expect(within(onPhoto).getByRole("button", { name: `Share ${EVENT.title}` })).toBeInTheDocument();
     const buyBar = container.querySelector<HTMLElement>("[data-buy-bar]");
     if (!buyBar) throw new Error("buy bar not rendered");
     expect(within(buyBar).queryByRole("button")).toBeNull();
     expect(within(buyBar).getAllByRole("link")).toHaveLength(1);
   });
 
-  it("event page, ended: still exactly one Save, in the same row", () => {
+  it("event page, ended: still exactly one Save, in the same place", () => {
     vi.useFakeTimers({ toFake: ["Date"] });
     vi.setSystemTime(new Date("2027-01-01T00:00:00.000Z"));
     const { container } = withHearts(<EventDetailsView event={EVENT} demo />);

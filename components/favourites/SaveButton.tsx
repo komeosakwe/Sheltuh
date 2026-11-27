@@ -2,13 +2,13 @@
 
 import Link from "next/link";
 import type { MouseEvent } from "react";
-import { actionRowClass, actionRowLabelClass } from "@/components/ui/Button";
+import { photoMarkClass, photoMarkLabelClass, photoMarkTargetClass } from "@/components/ui/Button";
 import { withNext } from "@/lib/safe-next-path";
 import type { SaveTarget } from "./favourites-store";
 import { useFavourites } from "./FavouritesProvider";
 import HeartIcon from "./HeartIcon";
 
-export type SaveButtonVariant = "overlay" | "glass" | "plain" | "action";
+export type SaveButtonVariant = "overlay" | "glass" | "plain" | "photo";
 
 /**
  * The 44px+ hit area and the visible mark, per variant and state. Saved, the heart fills Signal
@@ -17,12 +17,12 @@ export type SaveButtonVariant = "overlay" | "glass" | "plain" | "action";
 function classes(variant: SaveButtonVariant, saved: boolean) {
   const heart = saved ? "text-signal" : "";
   switch (variant) {
-    // The event page's action row, beside Share and Calendar: the page's one Save.
-    case "action":
+    // The event page's photo, in its top-right corner beside Share (owner, 27 Nov 2026: Option A): the page's one Save.
+    case "photo":
       return {
-        target: `group/save ${actionRowClass}`,
-        mark: null,
-        icon: `size-4 shrink-0 motion-safe:transition-transform motion-safe:duration-150 motion-safe:group-active/save:scale-90 ${heart}`.trim(),
+        target: `group/save ${photoMarkTargetClass}`,
+        mark: photoMarkClass("save"),
+        icon: `size-5 shrink-0 sm:size-4 ${heart}`.trim(),
       };
     case "plain":
       return {
@@ -76,17 +76,14 @@ export default function SaveButton({
 
   const saved = favourites.status === "ready" && favourites.isSaved(event.id);
   const c = classes(variant, saved);
-  const content = (
-    <>
-      {c.mark ? (
-        <span className={c.mark}>
-          <HeartIcon filled={saved} className={c.icon} />
-        </span>
-      ) : (
-        <HeartIcon filled={saved} className={c.icon} />
-      )}
-      {variant === "action" && <span className={actionRowLabelClass}>Save</span>}
-    </>
+  // The photo's mark carries its word from 640px; "Save" whether or not it's saved (the fixed name, §5.2).
+  const content = c.mark ? (
+    <span className={c.mark} data-surface={variant === "photo" ? "paper" : undefined}>
+      <HeartIcon filled={saved} className={c.icon} />
+      {variant === "photo" && <span className={photoMarkLabelClass}>Save</span>}
+    </span>
+  ) : (
+    <HeartIcon filled={saved} className={c.icon} />
   );
 
   if (favourites.signedOut) {

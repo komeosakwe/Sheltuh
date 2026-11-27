@@ -22,9 +22,8 @@ import ShareButton from "@/components/ShareButton";
 import TicketSelector from "@/components/TicketSelector";
 import TicketsHashFocus from "@/components/TicketsHashFocus";
 import BackLink from "@/components/ui/BackLink";
-import { actionRowGridClass, buttonClass } from "@/components/ui/Button";
+import { buttonClass } from "@/components/ui/Button";
 import CategoryTag from "@/components/ui/CategoryTag";
-import DateChip from "@/components/ui/DateChip";
 import SoonTag from "@/components/ui/SoonTag";
 import { Panel } from "@/components/ui/Section";
 import ExternalGoing from "@/components/ExternalGoing";
@@ -203,22 +202,23 @@ function whenLabel(startsAt: string, endsAt: string | undefined, timeZone: strin
 /**
  * The event page (the owner's event mock; the audit's fix: "make the hero the event card, enlarged").
  *
- * From 1024px: the photo (radius 16, with the date chip) on the left; on the right the tags (the
- * category, and a short age tag only when the organiser gave an age restriction), the title in display
- * type, "Hosted by {organiser}" as a byline under it (the name the link to their profile), the date and
- * the venue as two groups with an icon each (the venue with Get directions), the Who's going row, and the
- * ticket panel: the all-inclusive "From A$X incl. booking fee", the one orange action (Buy tickets, Free
- * tickets, Join waitlist, Choose seats, or the outside ticket link) and Save, Share and Add to calendar as
- * Secondary buttons. The panel sticks under the header while the details scroll by. Below the photo: the tickets (#tickets: the selector, seats, outside link
+ * From 1024px: the photo (radius 16; no date chip, the date line under the title says it) on the left; on
+ * the right the tags (the category, and a short age tag only when the organiser gave an age restriction),
+ * the title in display type, "Hosted by {organiser}" as a byline under it (the name the link to their
+ * profile), the date and the venue as two groups with an icon each (the date with Add to calendar under it,
+ * the venue itself the directions link), the Who's going row, and the ticket panel: just the all-inclusive
+ * "From A$X incl. booking fee" and the one orange action (Buy tickets, Free tickets, Join waitlist, Choose
+ * seats, or the outside ticket link). The panel sticks under the header while the details scroll by. Save
+ * and Share sit on the photo's top-right corner, each action on its object (owner, 27 Nov 2026: Option A;
+ * no row of buttons at any width). Below the photo: the tickets (#tickets: the selector, seats, outside link
  * or waitlist), About, Who's Going, Before you go (the organiser's note, when there is one), Location,
  * Refunds, Good to know, the Organiser card and Report this event; then "More from {organiser}" and
  * "Similar nearby", each the one EventCard, loaded after the first paint.
  *
  * Phones and tablets: one column in the same reading order, with the panel's price and action in the
- * sticky bottom buy bar instead (one orange action in view), so the panel is just Save, Share and Add to
- * calendar under the facts. The bar sticks to the bottom of the screen all the way down and settles under
- * the content at the very end; once the event has ended there's no bar (nothing's for sale, and the
- * tickets section says so).
+ * sticky bottom buy bar instead (one orange action in view), and no panel. The bar sticks to the bottom of
+ * the screen all the way down and settles under the content at the very end; once the event has ended
+ * there's no bar (nothing's for sale, and the tickets section says so).
  *
  * An external event (tickets sold on another site) has a "Buy tickets" link (never naming the site)
  * instead of the ticket selector, and no price or Who's Going of ours (docs/architecture.md, "External
@@ -322,12 +322,18 @@ export default function EventDetailsView({
     ) : null;
 
   return (
-    // Phones: tight above the photo, so the title, date, venue and Save and Share are on the first screen,
-    // above the sticky buy bar (e2e/event-page.spec.ts).
+    // Phones: 8px above the photo (it never touches the header), so the title, date, venue, and Save and Share on the
+    // photo, are on the first screen, above the sticky buy bar (e2e/event-page.spec.ts).
     // Below lg a buy bar is last on the page and settles there at the very end: no bottom padding
     // then, so it meets the footer instead of leaving a white strip under it (owner, 30 Oct 2026).
-    <div className={`page-container flex flex-col gap-2 sm:pt-6 lg:pt-8 ${hasBuyBar ? "pb-0 lg:pb-24" : "pb-12 lg:pb-24"}`}>
-      {!preview && <BackLink href="/">Back to all events</BackLink>}
+    <div className={`page-container flex flex-col gap-2 pt-2 sm:pt-6 lg:pt-8 ${hasBuyBar ? "pb-0 lg:pb-24" : "pb-12 lg:pb-24"}`}>
+      {/* From 640px only (owner, 27 Nov 2026: Option A, S2). On a phone the way home is the header's wordmark and the
+          browser's own back, and the photo comes first. Hidden, not removed: it adds no gap (display: none). */}
+      {!preview && (
+        <div className="max-sm:hidden">
+          <BackLink href="/">Back to all events</BackLink>
+        </div>
+      )}
 
       {/* Live only: one cookie-free view count per session, and finishing a save
           started before signing in. Neither renders anything. */}
@@ -347,9 +353,9 @@ export default function EventDetailsView({
           (always closed, with no request, for an external event), and one read of the organiser's profile. */}
       <GoingScope event={event} preview={Boolean(preview)} demo={demo}>
         <div className="grid grid-cols-1 gap-y-2 sm:gap-y-6 lg:grid-cols-12 lg:gap-x-8 lg:gap-y-24">
-          {/* The photo, with the date chip on it (decorative: the date line says it). The page's LCP image. On
-              phones never more than 22% of the screen's height, so the title, facts, Save and Share fit above
-              the buy bar (owner request, 26 Oct 2026: e2e/event-page.spec.ts). On a short phone (below 640px wide and up to 700px tall,
+          {/* The photo, with Save and Share on it; no date chip (owner, 27 Nov 2026: the date line under the title
+              already gives the date). The page's LCP image. On phones never more than 22% of the screen's height,
+              so the title and facts fit above the buy bar (owner request, 26 Oct 2026: e2e/event-page.spec.ts). On a short phone (below 640px wide and up to 700px tall,
               an iPhone SE's 667) 8px less: what the phone header gained (56 to 64px, the "Header / Mobile" board),
               so everything under the photo sits where it did there; taller phones have room and keep the 22%. A
               7:2 strip on tablets; 3:2 beside
@@ -367,8 +373,18 @@ export default function EventDetailsView({
               sizes={preview ? undefined : EVENT_PAGE_PHOTO_SIZES}
               className="aspect-[4/3] max-h-[22svh] w-full rounded-card max-sm:[@media(max-height:700px)]:max-h-[calc(22svh-0.5rem)] sm:aspect-video sm:max-h-none md:aspect-[7/2] lg:aspect-[3/2]"
             />
-            {!missing?.when && <DateChip event={event} size="page" className="absolute top-2 left-2 sm:top-4 sm:left-4" />}
             <ClipPlayButton event={event} size="hero" className="absolute bottom-2 left-2 sm:bottom-4 sm:left-4" />
+            {/* Save (the page's one Save) and Share, on the photo's top-right corner as the heart is on every event
+                card (owner, 27 Nov 2026: Option A). Below 640px two 40px white marks in 48px targets that touch, so
+                the marks are 8px in from the photo's edges and 8px apart; from 640px labelled 44px chips, 12px in
+                and 8px apart. They come before the title in reading and tab order, since they're drawn before it
+                (DOM order follows what you see), and each name carries the title ("Save {title}", "Share {title}"),
+                so it makes sense on its own. In the editor's preview too (inert there), so organisers see what
+                covers their photo's corner. */}
+            <div data-event-actions="" className="absolute top-1 right-1 flex sm:top-3 sm:right-3 sm:gap-2">
+              <ShareButton slug={event.slug} title={event.title} text={shareText} look="photo" />
+              <SaveButton event={saveTarget} variant="photo" />
+            </div>
           </div>
 
           {/* The key facts and the ticket panel: beside the photo from lg, and down the page with it (its rows
@@ -395,7 +411,7 @@ export default function EventDetailsView({
                 {name}" with the name itself the link to their profile (plain text with no profile). 8px under the
                 title. The name is an inline-block, so a long name (or 200% text) drops under "Hosted by" and wraps
                 there; below lg its 10px padding, cancelled by an equal negative margin, makes a 44px target on one
-                line (as min-h-11 does for Get directions) that grows with the name, never overlapping the lines
+                line (as Add to calendar's does under the date) that grows with the name, never overlapping the lines
                 around it. */}
             <div data-event-organiser="" className="-mt-1 flex items-center gap-2">
               {/* Their profile mark (32px): their logo in the avatar square, or their initials (no logo, the demo, or
@@ -426,8 +442,8 @@ export default function EventDetailsView({
             </div>
             {/* The one date/time and venue block (no second copy further down), as two groups with an icon each (the
                 owner's event reference, 13 Nov 2026), in Instrument Sans as written: when (16px 500), its zone under it
-                (14px, muted); where: the venue (16px 500), its full address under it, and a separate Get directions
-                link. Long names and addresses wrap. */}
+                (14px, muted) and Add to calendar under that; where: the venue (16px 500) and its full address under it,
+                together the directions link (owner, 27 Nov 2026: Option A). Long names and addresses wrap. */}
             <dl data-event-facts="" className="mt-1 flex flex-col gap-3">
               <div data-event-when="" className="flex gap-3">
                 <dt className="flex shrink-0 pt-0.5">
@@ -455,6 +471,10 @@ export default function EventDetailsView({
                   {!missing?.when && (
                     <p className="body-s text-muted">{formatTimeZoneLabel(event.startsAt, zone, event.state)}</p>
                   )}
+                  {/* Add to calendar on the date it adds (owner, 27 Nov 2026: Option A): a 44px target that takes only
+                      its 24px line (10px over the zone line above and into the 12px gap below, neither pressable).
+                      None for a draft without a date. */}
+                  {!missing?.when && <AddToCalendar event={event} className="-my-2.5" />}
                 </dd>
               </div>
               <div data-event-where="" className="flex gap-3">
@@ -468,59 +488,59 @@ export default function EventDetailsView({
                   </dd>
                 ) : (
                   <dd className="flex min-w-0 flex-col items-start">
-                    {venueLine && <p className="body-m font-medium break-words">{venueLine}</p>}
-                    {addressLine && (
-                      <p data-venue-address="" className="body-s break-words text-muted">
-                        {addressLine}
-                      </p>
-                    )}
-                    {directions && (
-                      // Its own link under the address (lib/maps.ts: the maps app where there is one, a new tab
-                      // otherwise). Named in full: it starts with the visible words, holds the address, and says
-                      // where it goes and that it opens a new tab. A 44px target on phones that takes only its
-                      // 24px line in the column (the address above it isn't pressable, and the 12px gap below
-                      // keeps it clear of the row below); 24px with a pointer.
+                    {directions ? (
+                      // The venue is the directions link (owner, 27 Nov 2026: Option A, S1): its name and its address
+                      // together, one target (24 + 20 = 44px tall), the name underlined with ↗ after it (it goes
+                      // elsewhere: lib/maps.ts, Google Maps in a new tab). Named in full: the visible words first
+                      // (WCAG 2.5.3), then where it goes and that it opens a new tab. A link, so iOS adds no address
+                      // link of its own over the address (and app/layout.tsx turns that off site-wide).
                       <a
                         href={directions}
                         target="_blank"
                         rel="noopener noreferrer"
                         data-directions=""
-                        aria-label={`Get directions to ${address} (opens Google Maps in a new tab)`}
-                        className="body-s inline-flex min-h-11 items-center gap-1 font-medium underline underline-offset-4 hover:decoration-2 max-lg:-my-2.5 lg:mt-1 lg:min-h-6"
+                        aria-label={`${address}: get directions (opens Google Maps in a new tab)`}
+                        className="group/dir flex max-w-full flex-col items-start"
                       >
-                        Get directions
-                        <ArrowUpRightIcon className="size-4 shrink-0" />
+                        {venueLine && (
+                          <span className="body-m font-medium break-words underline decoration-1 underline-offset-4 group-hover/dir:decoration-2">
+                            {venueLine}
+                            <ArrowUpRightIcon className="ml-1 inline size-4 align-[-2px]" />
+                          </span>
+                        )}
+                        {addressLine && (
+                          <span data-venue-address="" className="body-s break-words text-muted">
+                            {addressLine}
+                          </span>
+                        )}
                       </a>
+                    ) : (
+                      <>
+                        {venueLine && <p className="body-m font-medium break-words">{venueLine}</p>}
+                        {addressLine && (
+                          <p data-venue-address="" className="body-s break-words text-muted">
+                            {addressLine}
+                          </p>
+                        )}
+                      </>
                     )}
                   </dd>
                 )}
               </div>
             </dl>
-            {/* The ticket panel: sticky under the header from lg while the details scroll by, boxed when it has a price
-                and action (none once the event has ended, or before anything's on sale), and last in the column there
-                (after Who's going, as in the mock). Below lg its price and action are the buy bar's, so it's just the
-                secondary row, straight after the facts so Save and Share stay above the bar. */}
-            <div
-              data-ticket-panel=""
-              className={`flex flex-col gap-4 lg:order-last lg:mt-2 ${panelBuy ? "lg:rounded-card lg:border lg:border-foreground lg:p-6" : ""} ${preview ? "" : "lg:sticky lg:top-[calc(var(--header-h)+2rem)]"}`}
-            >
-              {panelBuy && (
-                <div className="max-lg:hidden">
-                  <h2 className="sr-only">Price and tickets</h2>
-                  {panelBuy}
-                </div>
-              )}
-              {/* The one secondary row: Save (the page's only Save), Share and Add to calendar, a third each. Top-aligned,
-                  so Share's "Link copied" under it pushes the page down rather than covering anything. */}
-              {/* A container, so the row can follow the text size (components/ui/Button.tsx actionRowClass). */}
-              <div className="@container">
-                <div data-event-actions="" className={actionRowGridClass}>
-                  <SaveButton event={saveTarget} variant="action" />
-                  <ShareButton slug={event.slug} title={event.title} text={shareText} fill />
-                  {!missing?.when && <AddToCalendar event={event} look="button" />}
-                </div>
+            {/* The ticket panel, from lg only: just the price and the one orange action (owner, 27 Nov 2026: Option A;
+                Save and Share are on the photo), boxed, sticky under the header while the details scroll by, and last
+                in the column (after Who's going, as in the mock). None once the event has ended, or before anything's
+                on sale; below lg the buy bar has them, so there's no panel at all (and no empty gap). */}
+            {panelBuy && (
+              <div
+                data-ticket-panel=""
+                className={`max-lg:hidden lg:order-last lg:mt-2 lg:rounded-card lg:border lg:border-foreground lg:p-6 ${preview ? "" : "lg:sticky lg:top-[calc(var(--header-h)+2rem)]"}`}
+              >
+                <h2 className="sr-only">Price and tickets</h2>
+                {panelBuy}
               </div>
-            </div>
+            )}
             {/* Who's going (the owner's event mock): the count, a few faces and I'm going (or See who's going, View
                 attendees), to the panel further down. Nothing while there's no count to show and nothing to do. */}
             {!preview && <WhosGoingCard />}
@@ -638,7 +658,7 @@ export default function EventDetailsView({
           )}
 
           {/* Buy bar, below lg only, on an ink surface: compact (the price and the one ticket
-              action; Save is in the row under the title). Sticky to the bottom of the viewport
+              action; Save is on the photo). Sticky to the bottom of the viewport
               all the way down the page, and last in the grid, so it settles under the content at
               the very end rather than covering it. Focus scrolls clear of it (globals.css pads
               by --buybar-h), and its bottom padding clears the home indicator. The page

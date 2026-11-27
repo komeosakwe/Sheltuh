@@ -269,7 +269,7 @@ describe("ShareButton with a path (an organiser's profile)", () => {
     expect(label("copied")).toHaveClass("invisible");
   });
 
-  it("without copiedInLabel the label stays Share and Link copied shows beside it (the event page)", async () => {
+  it("without copiedInLabel the label stays Share and Link copied shows beside it", async () => {
     const writeText = vi.fn().mockResolvedValue(undefined);
     setNavigator({ clipboard: { writeText } });
     renderShare();
@@ -279,6 +279,51 @@ describe("ShareButton with a path (an organiser's profile)", () => {
     expect(button).not.toHaveTextContent("Copied");
     expect(button).toHaveAccessibleName("Share Neon Static");
     expect(screen.getByRole("status")).not.toHaveClass("sr-only");
+  });
+
+  // The event page's photo mark (owner, 27 Nov 2026: Option A): Save's mark, with the share icon.
+  it("look=photo: the photo mark (icon alone below 640px, 'Share' from 640px), the check and 'Copied' after a copy, nothing shown over the photo", async () => {
+    vi.useFakeTimers();
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    setNavigator({ clipboard: { writeText } });
+    const { container } = render(<ShareButton slug="neon-static" title="Neon Static" look="photo" />);
+    const button = screen.getByRole("button", { name: "Share Neon Static" });
+    expect(button).toHaveAttribute("data-share-look", "photo");
+    // The target: 48px below 640px, 44px tall from 640px; the page's outline gives way to the mark's ring.
+    expect(button).toHaveClass("group/share", "size-12", "sm:size-auto", "sm:min-h-11", "focus-visible:outline-none!");
+    const mark = button.firstElementChild as HTMLElement;
+    expect(mark).toHaveAttribute("data-surface", "paper");
+    expect(mark).toHaveClass(
+      "size-10",
+      "bg-paper",
+      "text-ink",
+      "sm:h-11",
+      "group-hover/share:bg-hover!",
+      "group-focus-visible/share:ring-paper",
+      "group-focus-visible/share:ring-offset-ink",
+      "motion-safe:group-active/share:scale-90",
+    );
+    expect(button.querySelector("svg")).toHaveClass("size-5", "sm:size-4");
+    const label = (which: "share" | "copied") => container.querySelector(`[data-share-label="${which}"]`);
+    // The word only from 640px, in one grid cell with "Copied" so the chip never changes width.
+    expect(label("share")?.parentElement?.parentElement).toHaveClass("hidden", "sm:inline");
+    expect(label("copied")).toHaveClass("invisible");
+    const before = button.querySelector("svg")?.innerHTML;
+
+    await act(async () => fireEvent.click(button));
+    expect(writeText).toHaveBeenCalledWith(SHARED);
+    // The check in place of the share icon, at every width, and "Copied" from 640px.
+    expect(button.querySelector("svg")?.innerHTML).not.toBe(before);
+    expect(button.querySelector("svg")).toHaveClass("size-5", "sm:size-4");
+    expect(label("copied")).not.toHaveClass("invisible");
+    expect(button).toHaveAccessibleName("Copied. Share Neon Static");
+    // Said, never drawn over the photo.
+    const status = screen.getByRole("status");
+    expect(status).toHaveTextContent("Link copied");
+    expect(status).toHaveClass("sr-only");
+    act(() => vi.advanceTimersByTime(4000));
+    expect(button).toHaveAccessibleName("Share Neon Static");
+    expect(button.querySelector("svg")?.innerHTML).toBe(before);
   });
 });
 
@@ -343,6 +388,21 @@ describe("AddToCalendar", () => {
     expect(screen.queryByRole("link")).toBeNull();
     expect(trigger).toHaveFocus();
     expect(nav.share).toBeUndefined();
+  });
+
+  // The one look (the event page's line under the date since 27 Nov 2026, Option A): underlined words and a chevron in a
+  // 44px target; the list opens under it from its left edge, inside the screen.
+  it("is underlined words with a chevron, a 44px target, and the list hangs from its left edge", () => {
+    const { container } = render(<AddToCalendar event={event} className="-my-2.5" />);
+    const trigger = screen.getByRole("button", { name: "Add to calendar" });
+    expect(trigger).toHaveTextContent(/^Add to calendar$/);
+    expect(trigger).not.toHaveAttribute("aria-label");
+    expect(trigger).toHaveClass("min-h-11", "underline", "font-semibold", "text-sm");
+    expect(trigger.querySelector("svg")).toHaveAttribute("aria-hidden", "true");
+    expect(container.firstElementChild).toHaveClass("relative", "w-fit", "-my-2.5");
+    fireEvent.click(trigger);
+    expect(screen.getByRole("list")).toHaveClass("absolute", "top-full", "left-0", "max-w-[calc(100vw-2.5rem)]");
+    expect(trigger.querySelector("svg")).toHaveClass("rotate-180", "motion-safe:transition-transform");
   });
 
   it("puts Google first on Android", () => {
