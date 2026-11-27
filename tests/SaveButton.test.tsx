@@ -260,6 +260,19 @@ describe("SaveButton — live", () => {
   });
 });
 
+describe("SaveButton — the card's white heart in Dark (overlay)", () => {
+  // Dark's --hover is near-black: under the black heart it hid the mark on hover. Pinned to Light, it stays cream.
+  it("pins the mark to Light (paper), so its hover is cream in both themes; the glass mark keeps its own fill", async () => {
+    const button = await readyHeart();
+    const mark = button.firstElementChild as HTMLElement;
+    expect(mark).toHaveAttribute("data-surface", "paper");
+    expect(mark).toHaveClass("group-hover/save:bg-hover!");
+    cleanup();
+    const glass = await readyHeart([], undefined, "glass");
+    expect(glass.firstElementChild).not.toHaveAttribute("data-surface");
+  });
+});
+
 describe("SaveButton — focus on a photo (overlay)", () => {
   it("rings the 32px mark, black on a white gap, instead of the outline that can vanish into dark art; never orange; the page's outline is dropped (!important beats the unlayered rule), so there's one ring", async () => {
     const button = await readyHeart();

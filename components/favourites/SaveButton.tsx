@@ -32,12 +32,14 @@ function classes(variant: SaveButtonVariant, saved: boolean) {
       };
     // An event card's photo corner (the rules' card anatomy and icon button): a 32px white
     // rounded square with a black heart, in a 48px target on phones and a 40px one from 768px.
-    // White and black in both themes (it sits on a photo, which can be dark or light). Keyboard
-    // focus rings the mark, black on a white gap that shows on any photo (never orange).
+    // White and black in both themes (it sits on a photo, which can be dark or light): the mark pins
+    // its tokens to Light (data-surface="paper", below), so its cream hover is cream in Dark too, not
+    // Dark's near-black under the black heart; `!` because that unlayered rule paints the mark white.
+    // Keyboard focus rings the mark, black on a white gap that shows on any photo (never orange).
     case "overlay":
       return {
         target: "group/save flex size-12 items-center justify-center rounded-control focus-visible:outline-none! md:size-10",
-        mark: "flex size-8 items-center justify-center rounded-control bg-paper text-ink motion-safe:transition-transform motion-safe:duration-150 motion-safe:group-active/save:scale-90 group-hover/save:bg-hover group-focus-visible/save:ring-2 group-focus-visible/save:ring-ink group-focus-visible/save:ring-offset-2 group-focus-visible/save:ring-offset-paper",
+        mark: "flex size-8 items-center justify-center rounded-control bg-paper text-ink motion-safe:transition-transform motion-safe:duration-150 motion-safe:group-active/save:scale-90 group-hover/save:bg-hover! group-focus-visible/save:ring-2 group-focus-visible/save:ring-ink group-focus-visible/save:ring-offset-2 group-focus-visible/save:ring-offset-paper",
         icon: `size-5 ${heart}`.trim(),
       };
     // The This weekend card's photo corner (owner's mockup, 8 Nov 2026): a 32px rounded square of
@@ -78,7 +80,8 @@ export default function SaveButton({
   const c = classes(variant, saved);
   // The photo's mark carries its word from 640px; "Save" whether or not it's saved (the fixed name, §5.2).
   const content = c.mark ? (
-    <span className={c.mark} data-surface={variant === "photo" ? "paper" : undefined}>
+    // Paper and ink in both themes for the white marks (not the glass one, which paints its own dim fill).
+    <span className={c.mark} data-surface={variant === "photo" || variant === "overlay" ? "paper" : undefined}>
       <HeartIcon filled={saved} className={c.icon} />
       {variant === "photo" && <span className={photoMarkLabelClass}>Save</span>}
     </span>
