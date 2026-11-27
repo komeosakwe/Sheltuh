@@ -483,14 +483,16 @@ export default function EventDetailsView({
                       // together, one target (24 + 20 = 44px tall), the name underlined with ↗ after it (it goes
                       // elsewhere: lib/maps.ts, Google Maps in a new tab). Named in full: the visible words first
                       // (WCAG 2.5.3), then where it goes and that it opens a new tab. A link, so iOS adds no address
-                      // link of its own over the address (and app/layout.tsx turns that off site-wide).
+                      // link of its own over the address (and app/layout.tsx turns that off site-wide). Below lg never
+                      // under 44px, even with one line (no address under the venue): the line stays at the top, beside
+                      // the pin, and the target runs on below it.
                       <a
                         href={directions}
                         target="_blank"
                         rel="noopener noreferrer"
                         data-directions=""
                         aria-label={`${address}: get directions (opens Google Maps in a new tab)`}
-                        className="group/dir flex max-w-full flex-col items-start"
+                        className="group/dir flex max-w-full flex-col items-start max-lg:min-h-11"
                       >
                         {venueLine && (
                           <span className="body-m font-medium break-words underline decoration-1 underline-offset-4 group-hover/dir:decoration-2">

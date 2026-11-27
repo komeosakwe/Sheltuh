@@ -1258,6 +1258,33 @@ for (const width of [320, 390, 430]) {
   });
 }
 
+// Review (PR 113): the venue link with one line (an address that names its place, so nothing under it) was only 24px
+// tall on a phone. It's 44px, with the line still beside the pin.
+test.describe("a one-line venue link at 390px", () => {
+  test.use({ viewport: { width: 390, height: 844 }, hasTouch: true });
+
+  test("is a 44px target, its line level with the pin, clear of Add to calendar", async ({ page }) => {
+    await mockEvent(page, { ...asPublic("neon-static"), venueName: "", venueAddress: "9 Rupert Street, Collingwood VIC 3066" });
+    await page.goto("/events/neon-static");
+    await expect(page.getByRole("heading", { level: 1, name: "Neon Static" })).toBeVisible({ timeout: 30_000 });
+    const link = page.locator("[data-event-where] [data-directions]");
+    await expect(link).toHaveText("9 Rupert Street, Collingwood VIC 3066");
+    await expect(link.locator("[data-venue-address]")).toHaveCount(0);
+    const [box, line, pin, calendar] = await Promise.all([
+      link.boundingBox(),
+      link.locator("span").first().boundingBox(),
+      page.locator("[data-event-where] dt svg").boundingBox(),
+      page.locator("[data-event-when]").getByRole("button", { name: "Add to calendar" }).boundingBox(),
+    ]);
+    if (!box || !line || !pin || !calendar) throw new Error("not laid out");
+    expect(box.height).toBeGreaterThanOrEqual(44);
+    // The line at the top of the target, its middle within 4px of the pin's.
+    expect(Math.abs(line.y + line.height / 2 - (pin.y + pin.height / 2))).toBeLessThanOrEqual(4);
+    expect(calendar.y + calendar.height).toBeLessThanOrEqual(box.y + 0.5);
+    await noSidewaysScroll(page);
+  });
+});
+
 // UX review (13 Nov 2026): with enlarged text (the root font at 125–200%), Save and Share stay on the photo with their
 // icons inside their marks, Add to calendar stays clear of the venue link, the ticket stepper still fits its row, and
 // a tall buy bar drops its date line so its action is whole. EVENT_SHOTS=<dir> saves the probes.

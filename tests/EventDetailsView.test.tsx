@@ -569,6 +569,19 @@ describe("EventDetailsView Where: the venue is the directions link", () => {
     expect(within(where).getByText(event.venueAddress)).not.toHaveClass("underline");
     expect(link).toHaveClass("group/dir", "flex", "flex-col");
   });
+
+  it("is never under 44px below lg, even as one line (an address that names its place: no second line)", () => {
+    const event = { ...findEvent("neon-static"), venueName: "", venueAddress: "9 Rupert Street, Collingwood VIC 3066", suburb: "Collingwood", state: "VIC" as const };
+    render(<EventDetailsView event={event} demo />);
+    const where = screen.getByText("Where").closest("div");
+    if (!where) throw new Error("Where row not rendered");
+    const link = within(where).getByRole("link");
+    expect(link).toHaveAccessibleName("9 Rupert Street, Collingwood VIC 3066: get directions (opens Google Maps in a new tab)");
+    expect(link.querySelector("[data-venue-address]")).toBeNull();
+    // 44px below lg; the line stays at the top, beside the pin (no centring).
+    expect(link).toHaveClass("max-lg:min-h-11", "items-start");
+    expect(link.className).not.toMatch(/justify-center/);
+  });
 });
 
 describe("EventDetailsView organiser row", () => {
