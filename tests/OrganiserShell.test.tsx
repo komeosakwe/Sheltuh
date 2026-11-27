@@ -101,6 +101,8 @@ describe("organiser nav places", () => {
     expect(organiserSectionFor("/dashboard/new")).toBe("events");
     expect(organiserSectionFor("/dashboard/evt-1")).toBe("events");
     expect(organiserSectionFor("/dashboard/events/evt-1/orders")).toBe("events");
+    expect(organiserSectionFor("/dashboard/events/evt-1/qr")).toBe("events");
+    expect(organiserSectionFor("/dashboard/events/evt-1/qr/sign")).toBe("events");
     expect(organiserSectionFor("/dashboard/payouts")).toBe("payouts");
     expect(organiserSectionFor("/dashboard/profile")).toBe("profile");
     expect(organiserSectionFor("/dashboard/analytics")).toBe("analytics");
@@ -179,6 +181,7 @@ describe("OrganiserShell — an approved organiser", () => {
     ["/dashboard/new", "Events", "true"],
     ["/dashboard/evt-1", "Events", "true"],
     ["/dashboard/events/evt-1/orders", "Events", "true"],
+    ["/dashboard/events/evt-1/qr", "Events", "true"],
     ["/dashboard/events/evt-1/analytics", "Analytics", "true"],
   ])("at %s, %s is current (aria-current=%s) in both the sidebar and the rail, and only it", (path, label, state) => {
     renderShell(path);

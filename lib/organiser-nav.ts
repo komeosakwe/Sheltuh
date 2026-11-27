@@ -37,6 +37,16 @@ export function manageEventHref(eventId: string): string {
   return `/dashboard/${encodeURIComponent(eventId)}`;
 }
 
+/** An event's QR code (docs/architecture.md, "Event QR codes"). */
+export function eventQrHref(eventId: string): string {
+  return `/dashboard/events/${encodeURIComponent(eventId)}/qr`;
+}
+
+/** An event's printable QR sign. */
+export function eventQrSignHref(eventId: string): string {
+  return `${eventQrHref(eventId)}/sign`;
+}
+
 export const ORGANISER_NAV: OrganiserNavLink[] = [
   { key: "overview", label: "Overview", href: OVERVIEW_HREF, icon: "grid" },
   { key: "events", label: "Events", href: EVENTS_HREF, icon: "calendar" },

@@ -48,6 +48,23 @@ describe("EditEventPageContent", () => {
   });
 
   it.each([
+    ["a Sheltüh-ticketed", "sheltuh"],
+    ["an external-ticketing", "external"],
+  ])("links %s published event's QR code, after Analytics", async (_what, ticketingMode) => {
+    renderPage("published", { ticketingMode });
+    const link = await screen.findByRole("link", { name: "QR code" });
+    expect(link).toHaveAttribute("href", "/dashboard/events/evt-1/qr");
+    expect(link).toHaveClass("min-h-11");
+    expect(screen.getByRole("link", { name: "Analytics" }).compareDocumentPosition(link) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it.each(["draft", "pending_review", "rejected"])("has no QR code link for a %s event (its page isn't public)", async (status) => {
+    renderPage(status);
+    await screen.findByRole("link", { name: "Analytics" });
+    expect(screen.queryByRole("link", { name: "QR code" })).toBeNull();
+  });
+
+  it.each([
     ["an unpublished event", "draft", "sheltuh"],
     ["a pending event", "pending_review", "sheltuh"],
     ["a rejected event", "rejected", "sheltuh"],

@@ -239,7 +239,7 @@ test("keyboard: Create event, the chips, then each card's ··· and Manage; ·�
   await page.keyboard.press("Enter");
   const menu = page.getByRole("menu", { name: "More for Here & Now" });
   await expect(menu).toBeVisible();
-  await expect(menu.getByRole("menuitem")).toHaveText(["View public page", "Orders", "Analytics", "Check-in"]);
+  await expect(menu.getByRole("menuitem")).toHaveText(["View public page", "QR code", "Orders", "Analytics", "Check-in"]);
   await expect(menu.getByRole("menuitem", { name: "View public page" })).toBeFocused();
   await page.keyboard.press("Escape");
   await expect(menu).toBeHidden();

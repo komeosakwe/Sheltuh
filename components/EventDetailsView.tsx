@@ -34,7 +34,7 @@ import WhosGoingCard from "@/components/whos-going/WhosGoingCard";
 import { ageTagLabel } from "@/lib/age-tag";
 import { SUPPORT_EMAIL } from "@/lib/contact";
 import { isSafeTicketUrl, reportEventHref } from "@/lib/event-url";
-import { eventZone, formatEventDateShort, formatEventDateTimeRange, formatEventTime, formatTimeZoneLabel, zoneSuffix } from "@/lib/format";
+import { eventZone, formatEventDateShort, formatEventPageWhen, formatEventTime, formatTimeZoneLabel, zoneSuffix } from "@/lib/format";
 import { directionsHref } from "@/lib/maps";
 import { venueLines } from "@/lib/place";
 import { externalPriceFromLabel, formatFeedPriceParts, isSoldOut, startingPrice } from "@/lib/pricing";
@@ -190,16 +190,6 @@ function BookingInfo({ event }: { event: SheltuhEvent }) {
 }
 
 /**
- * "Fri 25 Sep, 8:00 pm – Sat 26 Sep, midnight": the shared range, in the
- * event's zone (labelled below it), with midnight said in words (people
- * misread "12:00 am"). The formatter always writes the hour as "12:00 am"
- * for midnight, so this is a whole-word swap.
- */
-function whenLabel(startsAt: string, endsAt: string | undefined, timeZone: string): string {
-  return formatEventDateTimeRange(startsAt, endsAt, timeZone).replace(/\b12:00 am\b/g, "midnight");
-}
-
-/**
  * The event page (the owner's event mock; the audit's fix: "make the hero the event card, enlarged").
  *
  * From 1024px: the photo (radius 16; no date chip, the date line under the title says it) on the left; on
@@ -259,7 +249,7 @@ export default function EventDetailsView({
   const externalFrom = externalPriceFromLabel(event);
   // The event's own zone (Melbourne when it has none), named under the time.
   const zone = eventZone(event.timeZone);
-  const when = whenLabel(event.startsAt, event.endsAt, zone);
+  const when = formatEventPageWhen(event.startsAt, event.endsAt, zone);
   // The buy bar's action: to #tickets, where a sold-out event has its waitlist
   // (§6.10, §6.11). Once an event has ended there's nothing to buy, so there's
   // no bar (docs/design/mobile-redesign.md §6.5).

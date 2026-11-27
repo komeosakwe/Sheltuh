@@ -2997,7 +2997,8 @@ external events happen elsewhere: their sales figures are zero.
 **Tracking links**: up to 20 per event, each a server-made code shared as
 `/events/{slug}?ref={code}`. A view or checkout carrying the code is counted
 under it. Deleting a link keeps its numbers (shown without a label); the URL
-still opens the event, but nothing more is counted under it.
+still opens the event, but nothing more is counted under it. An event's QR code
+uses one of the 20, labelled "QR code" (see "Event QR codes").
 
 **Sales** come from `paid` orders only (free orders are A$0 paid orders;
 pending, failed, refunded and refund-pending ones are left out), counted on
@@ -3065,6 +3066,72 @@ which the API and the UI both use; see "Booking fee"). It's either
 buyer-paid or absorbed by the organiser, set per ticket type. Either way the
 platform keeps it. The Fees figure sums each order's recorded
 `application_fee_cents`, so a range spanning a fee change mixes both rates.
+
+## Event QR codes
+
+A published event's poster code: `/dashboard/events/{id}/qr`
+(`components/dashboard/EventQrCode.tsx`), reached from the Events tab's
+card menu ("QR code", after "View public page": `organiserEventActions` in
+`lib/organiser-events.ts`) and the event's own page (a "QR code" button
+beside Analytics, published only). Approved organisers, own events only
+(`AnalyticsGate`, `getMyEvent`: anyone else's is the API's 404, shown as
+"Event not found"). In demo mode the gate says accounts aren't configured
+and nothing calls the API.
+
+- **What it opens.** The event's "QR code" tracking link
+  (`ensureQrTrackingLink` in `lib/api/analytics.ts`): the existing one
+  (label compared ignoring case, as the API does), else a new one. Any 409
+  reads the list again first (another tab may have made it, taking the
+  label or the 20th place) and uses the QR link if it's there; otherwise a
+  label 409 is an error and a cap 409 means the code opens the plain
+  `/events/{slug}` on `NEXT_PUBLIC_SITE_URL` (or the page's origin), with a
+  notice that it isn't tracked. It's only ever called for a published event,
+  so a draft never gets a link. That check is the page's only: the
+  tracking-link API makes a link for any of the organiser's own events
+  (accepted: it's their event, and a draft's link counts nothing until the
+  page is public). The load (`components/dashboard/useEventQr.ts`) uses
+  `useAccountToken` and is shared only per account and event, so one
+  account never sees another's after a switch. Deleting the "QR code" link stops the
+  printed code counting (it still opens the event), and the next visit
+  makes a new link, so a different code: the page warns about this.
+  Analytics counts the page views a code brings, not scans.
+- **The symbol** (`lib/link-qr.ts`): plain, no centre ü (owner decision, 26
+  Nov 2026; the ü stays a ticket's mark, `docs/design/ticket-email.md`
+  §12 Q4). Byte mode at level Q, raised to H where the size allows, capped
+  at version 10 (a longer URL gets no code). A tracked URL is version 6 for a
+  typical slug and version 9 for the longest (87 characters). Only http(s)
+  URLs are encoded. `tests/link-qr-decode.test.tsx` decodes every rendering
+  with ZXing.
+- **Downloads**, all made in the browser (no route, no server code, no
+  migration: the browser can't save a Bearer-protected file through a link,
+  and `public/sw.js` caches image URLs for a week): an SVG (`linkQrSvg`: the
+  white plate with the 4-module quiet zone and one black path, nothing
+  else: no text or metadata) and a PNG about 2000 px square
+  (`lib/link-qr-png.ts`, whole-pixel modules on a canvas), both saved with
+  `saveBlob` as `sheltuh-{slug}-qr.svg|png`.
+- **The printable sign** (`/dashboard/events/{id}/qr/sign`,
+  `components/dashboard/EventQrSignPage.tsx` and `EventQrSign.tsx`, words in
+  `lib/qr-sign.ts`): an HTML page printed by the browser ("Print or save as
+  PDF"), A4 or A5 portrait. The title (the event page's display face), the
+  date and time in the event's own zone as the event page says them
+  (`formatEventPageWhen`, `formatTimeZoneLabel`), the venue and suburb, the
+  code as vector SVG (its black area up to about 118mm on A4, 83mm on A5),
+  "Scan for tickets" (paid Sheltüh tickets) or "Scan to see the event" (free,
+  or ticketed elsewhere), the short address, and the wordmark at the foot.
+  The page repeats the details as text above the preview, for proofreading
+  on a phone.
+  Black on white in every theme. Sized in container units (`.qr-sign` in
+  `app/globals.css`), so the preview is the printed page; printing shows the
+  sheet alone (`[data-print-sheet]`: everything else is `display: none`) at
+  the paper's size with no margin (`SIGN_PAGE_CSS`, a constant). The title
+  and venue are React text, never markup. A browser that ignores `@page
+  size` prints on whatever paper its dialog has chosen.
+- **Slugs are permanent**, which is what keeps printed codes working: a slug
+  is chosen once, on create (`withUniqueSlug` in
+  `lib/server/handlers/events.ts`), and no edit (the organiser's or an
+  admin's) writes it; `tests/server/admin-authoring.test.ts` checks an
+  admin's retitle keeps it. Changing that would need redirects from old
+  slugs first.
 
 ## Organiser orders
 
@@ -6267,6 +6334,17 @@ What that means:
   `lib/api/profiles.ts`; tests `tests/server/profile-photos.test.ts`.
 - `components/tickets/TicketQr.tsx` / `lib/ticket-qr.ts`: the ticket QR,
   as inline SVG on `/checkout/success` and as a PNG in the ticket email.
+- Event QR codes (see "Event QR codes"): pages
+  `app/dashboard/events/[id]/qr/page.tsx` and `…/qr/sign/page.tsx` over
+  `components/dashboard/EventQrCode.tsx` and `EventQrSignPage.tsx` (shared
+  `EventQrFrame.tsx`, `useEventQr.ts`, `LinkQrImage.tsx`, the sheet
+  `EventQrSign.tsx`); `lib/link-qr.ts` (symbol, SVG, PNG layout, file name,
+  short address), `lib/link-qr-png.ts` (browser PNG), `lib/qr-sign.ts` (the
+  sign's words), `ensureQrTrackingLink` in `lib/api/analytics.ts`, `.qr-sign`
+  and the print rules in `app/globals.css`; tests `tests/link-qr.test.ts`,
+  `tests/link-qr-decode.test.tsx`, `tests/qr-sign.test.ts`,
+  `tests/api-qr-tracking-link.test.ts`, `tests/EventQrCode.test.tsx`,
+  `e2e/organiser-qr.spec.ts`.
 - Organiser profile cover and categories: covers in
   `supabase/migrations/20261128000000_organiser_covers.sql`,
   `lib/server/organiser-cover.ts` (re-encoding, sharing `decoder` and
