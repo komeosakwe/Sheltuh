@@ -69,7 +69,7 @@ export function PinIcon({ className = "h-3 w-3" }: { className?: string }) {
   );
 }
 
-/** A plain ↗ arrow: the event page's "Get directions" under the venue (the owner's event reference, 13 Nov 2026). */
+/** A plain ↗ arrow: after the event page's venue, which is the directions link (owner, 27 Nov 2026: Option A). */
 export function ArrowUpRightIcon({ className = "size-4 shrink-0" }: { className?: string }) {
   return (
     <svg {...common} strokeWidth={2} className={className}>

@@ -711,7 +711,7 @@ test.describe("ended event at 375px", () => {
   test.use({ viewport: { width: 375, height: 812 } });
 
   // A7 (accessibility review, 22 Oct 2026): no buy bar at all once the event has ended.
-  test("no buy bar; the tickets panel says it has ended, and Save stays by the title", async ({ page }) => {
+  test("no buy bar; the tickets panel says it has ended, and Save stays on the photo", async ({ page }) => {
     const ended = { ...asPublic("neon-static"), startsAt: new Date(Date.now() - 2 * DAY).toISOString(), endsAt: new Date(Date.now() - 2 * DAY + 4 * 3600_000).toISOString() };
     await page.route("**/api/**", (route) => {
       const url = new URL(route.request().url());
@@ -722,7 +722,8 @@ test.describe("ended event at 375px", () => {
     await page.goto("/events/neon-static");
     await expect(page.locator("#tickets")).toContainText("This event has ended.", { timeout: 30_000 });
     await expect(page.locator("[data-buy-bar]")).toHaveCount(0);
-    // Signed out, Save is a sign-in link; the one by the title stays.
+    // Signed out, Save is a sign-in link; the one on the photo stays (owner, 27 Nov 2026: Option A).
+    await expect(page.locator("[data-event-actions]").getByRole("link", { name: "Sign in to save Neon Static" })).toHaveCount(1);
     await expect(page.getByRole("link", { name: "Sign in to save Neon Static" })).toHaveCount(1);
     await expect(page.getByRole("link", { name: "Sign in to save Neon Static" })).toBeVisible();
     // No refunds row where nothing can be bought (A6).
