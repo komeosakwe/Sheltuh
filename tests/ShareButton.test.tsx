@@ -1,8 +1,8 @@
 // @vitest-environment jsdom
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, expectTypeOf, it, vi } from "vitest";
 import AddToCalendar from "@/components/AddToCalendar";
-import ShareButton from "@/components/ShareButton";
+import ShareButton, { type ShareButtonProps } from "@/components/ShareButton";
 import { sampleEvents } from "@/lib/sample-events";
 
 type Nav = { share?: unknown; canShare?: unknown; clipboard?: unknown };
@@ -324,6 +324,20 @@ describe("ShareButton with a path (an organiser's profile)", () => {
     act(() => vi.advanceTimersByTime(4000));
     expect(button).toHaveAccessibleName("Share Neon Static");
     expect(button.querySelector("svg")?.innerHTML).toBe(before);
+  });
+});
+
+// The photo mark has its own words, look and copied state: `look="photo"` takes no `label`, `buttonClassName` or
+// `copiedInLabel` (checked by tsc).
+describe("ShareButton props", () => {
+  it("won't combine look=photo with a label, a button look or copiedInLabel", () => {
+    const base = { slug: "neon-static", title: "Neon Static" } as const;
+    expectTypeOf({ ...base, look: "photo" as const }).toExtend<ShareButtonProps>();
+    expectTypeOf({ ...base, label: "Share event", buttonClassName: "chip" }).toExtend<ShareButtonProps>();
+    expectTypeOf({ ...base, copiedInLabel: true }).toExtend<ShareButtonProps>();
+    expectTypeOf({ ...base, look: "photo" as const, label: "Share event" }).not.toExtend<ShareButtonProps>();
+    expectTypeOf({ ...base, look: "photo" as const, buttonClassName: "chip" }).not.toExtend<ShareButtonProps>();
+    expectTypeOf({ ...base, look: "photo" as const, copiedInLabel: true }).not.toExtend<ShareButtonProps>();
   });
 });
 

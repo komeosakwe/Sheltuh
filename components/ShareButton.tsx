@@ -79,6 +79,51 @@ function isAbort(err: unknown): boolean {
  * copy by hand. The link is the page alone, never the address bar's query
  * (so a tracking `?ref=` isn't passed on).
  */
+/**
+ * How the button looks: the event page's photo mark (`look="photo"`), or the Secondary button, optionally with its
+ * own words (`label`) and look (`buttonClassName`) or "Copied" in its label (`copiedInLabel`). One or the other: the
+ * photo mark has its own words, look and copied state, so it takes none of those.
+ */
+type ShareLook =
+  | {
+      /**
+       * The event page's mark on its photo, beside Save (owner, 27 Nov 2026: Option A; components/ui/Button.tsx
+       * photoMarkClass). The icon alone below 640px, with "Share" from 640px; after a copy, the check for a few
+       * seconds, and "Copied" in place of "Share" from 640px, as `copiedInLabel` does (which it implies). "Link
+       * copied" is said, never shown, so nothing is drawn over the photo.
+       */
+      look: "photo";
+      copiedInLabel?: never;
+      label?: never;
+      buttonClassName?: never;
+    }
+  | {
+      look?: undefined;
+      /**
+       * After a copy, the button itself reads "Copied" (with a check) for a few seconds, and is named "Copied. Share
+       * {title}" meanwhile; "Link copied" is said but not shown. The button is always as wide as "Copied", so a row
+       * it shares (the organiser profile's Follow and Share) never changes.
+       */
+      copiedInLabel?: boolean;
+      /**
+       * Other words on the button, with no icon and an arrow after them (the organiser Overview's
+       * "Share event →" chip): it's then named "{label}: {title}", so the name starts with what's shown.
+       */
+      label?: string;
+      /** The button's look in place of the Secondary button's (with `label`). */
+      buttonClassName?: string;
+    };
+
+export type ShareButtonProps = ShareTarget &
+  ShareLook & {
+    title: string;
+    /** The copy-by-hand popover's field label. */
+    copyLabel?: string;
+    /** The share sheet's message, e.g. "{title} · {Sat 24 Oct, 7:00 pm} · {venue}". */
+    text?: string;
+    className?: string;
+  };
+
 export default function ShareButton({
   slug,
   path,
@@ -90,34 +135,7 @@ export default function ShareButton({
   copiedInLabel = false,
   label,
   buttonClassName,
-}: ShareTarget & {
-  title: string;
-  /** The copy-by-hand popover's field label. */
-  copyLabel?: string;
-  /**
-   * After a copy, the button itself reads "Copied" (with a check) for a few seconds, and is named "Copied. Share
-   * {title}" meanwhile; "Link copied" is said but not shown. The button is always as wide as "Copied", so a row it
-   * shares (the organiser profile's Follow and Share) never changes.
-   */
-  copiedInLabel?: boolean;
-  /**
-   * `photo`: the event page's mark on its photo, beside Save (owner, 27 Nov 2026: Option A; components/ui/Button.tsx
-   * photoMarkClass). The icon alone below 640px, with "Share" from 640px; after a copy, the check for a few seconds,
-   * and "Copied" in place of "Share" from 640px, as `copiedInLabel` (which it implies). "Link copied" is said, never
-   * shown, so nothing is drawn over the photo.
-   */
-  look?: "photo";
-  /** The share sheet's message, e.g. "{title} · {Sat 24 Oct, 7:00 pm} · {venue}". */
-  text?: string;
-  className?: string;
-  /**
-   * Other words on the button, with no icon and an arrow after them (the organiser Overview's
-   * "Share event →" chip): it's then named "{label}: {title}", so the name starts with what's shown.
-   */
-  label?: string;
-  /** The button's look in place of the Secondary button's (with `label`). */
-  buttonClassName?: string;
-}) {
+}: ShareButtonProps) {
   const [status, setStatus] = useState("");
   const [manualUrl, setManualUrl] = useState<string | null>(null);
   const [manualHint, setManualHint] = useState("");
