@@ -14,14 +14,14 @@ export type SaveButtonVariant = "overlay" | "glass" | "plain" | "photo";
  * The 44px+ hit area and the visible mark, per variant and state. Saved, the heart fills Signal
  * Orange (the rules' card anatomy: "outline → filled orange"; a non-text mark, 3.4:1 on white).
  */
-function classes(variant: SaveButtonVariant, saved: boolean) {
+function classes(variant: SaveButtonVariant, saved: boolean, onPoster: boolean) {
   const heart = saved ? "text-signal" : "";
   switch (variant) {
     // The event page's photo, in its top-right corner beside Share (owner, 27 Nov 2026: Option A): the page's one Save.
     case "photo":
       return {
         target: `group/save ${photoMarkTargetClass}`,
-        mark: photoMarkClass("save"),
+        mark: photoMarkClass("save", onPoster),
         icon: `size-5 shrink-0 sm:size-4 ${heart}`.trim(),
       };
     case "plain":
@@ -69,16 +69,19 @@ export default function SaveButton({
   event,
   variant,
   className = "",
+  onPoster = false,
 }: {
   event: SaveTarget;
   variant: SaveButtonVariant;
   className?: string;
+  /** `photo` only: the event has no photo, just the generated poster, so the white mark gets a faint edge. */
+  onPoster?: boolean;
 }) {
   const favourites = useFavourites();
   if (!favourites) return null;
 
   const saved = favourites.status === "ready" && favourites.isSaved(event.id);
-  const c = classes(variant, saved);
+  const c = classes(variant, saved, onPoster);
   // The photo's mark carries its word from 640px; "Save" whether or not it's saved (the fixed name, §5.2).
   const content = c.mark ? (
     // Paper and ink in both themes for the white marks (not the glass one, which paints its own dim fill).

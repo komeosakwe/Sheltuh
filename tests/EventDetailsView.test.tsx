@@ -495,6 +495,32 @@ describe("EventDetailsView brand layout (brand-direction-one.md §6.10)", () => 
     expect(container.querySelector(".\\@container [data-event-actions]")).toBeNull();
   });
 
+  // Review (PR 113): on the generated poster (no photo), which can be paper-toned, the white marks had no edge.
+  it("gives the photo marks a faint ink edge only when there's no photo, just the generated poster", () => {
+    const withPhoto = findEvent("neon-static");
+    for (const [event, edged] of [
+      [withPhoto, false],
+      [{ ...withPhoto, imageUrl: undefined }, true],
+    ] as const) {
+      const { container, unmount } = render(
+        <FakeAuthProvider value={fakeAuthValue({ configured: false, status: "signed-out" })}>
+          <FavouritesProvider>
+            <EventDetailsView event={event} demo />
+          </FavouritesProvider>
+        </FakeAuthProvider>,
+      );
+      const marks = [...container.querySelectorAll<HTMLElement>("[data-event-actions] [data-surface='paper']")];
+      expect(marks).toHaveLength(2);
+      for (const mark of marks) {
+        if (edged) expect(mark).toHaveClass("ring-1", "ring-ink/10");
+        else expect(mark).not.toHaveClass("ring-1");
+        // Focus still draws its own two-tone ring over it.
+        expect(mark.className).toMatch(/group-focus-visible\/(save|share):ring-2/);
+      }
+      unmount();
+    }
+  });
+
   it("names the Tickets and Good to know sections by their headings (region landmarks)", () => {
     render(<EventDetailsView event={findEvent("neon-static")} demo />);
     expect(screen.getByRole("region", { name: "Choose your tickets" })).toBeInTheDocument();

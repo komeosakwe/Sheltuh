@@ -93,12 +93,15 @@ type ShareLook =
        * copied" is said, never shown, so nothing is drawn over the photo.
        */
       look: "photo";
+      /** The event has no photo, just the generated poster: the white mark gets a faint edge (photoMarkClass). */
+      onPoster?: boolean;
       copiedInLabel?: never;
       label?: never;
       buttonClassName?: never;
     }
   | {
       look?: undefined;
+      onPoster?: never;
       /**
        * After a copy, the button itself reads "Copied" (with a check) for a few seconds, and is named "Copied. Share
        * {title}" meanwhile; "Link copied" is said but not shown. The button is always as wide as "Copied", so a row
@@ -131,6 +134,7 @@ export default function ShareButton({
   text,
   className = "",
   look,
+  onPoster = false,
   copyLabel = "Link to this event",
   copiedInLabel = false,
   label,
@@ -286,7 +290,7 @@ export default function ShareButton({
         className={photo ? `group/share ${photoMarkTargetClass}` : (buttonClassName ?? secondaryActionClass)}
       >
         {photo ? (
-          <span className={photoMarkClass("share")} data-surface="paper">
+          <span className={photoMarkClass("share", onPoster)} data-surface="paper">
             {copied ? <CopiedIcon className={iconClass} /> : <ShareIcon className={iconClass} />}
             <span className={photoMarkLabelClass}>{swapLabel(copied)}</span>
           </span>

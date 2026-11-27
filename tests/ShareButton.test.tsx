@@ -338,6 +338,9 @@ describe("ShareButton props", () => {
     expectTypeOf({ ...base, look: "photo" as const, label: "Share event" }).not.toExtend<ShareButtonProps>();
     expectTypeOf({ ...base, look: "photo" as const, buttonClassName: "chip" }).not.toExtend<ShareButtonProps>();
     expectTypeOf({ ...base, look: "photo" as const, copiedInLabel: true }).not.toExtend<ShareButtonProps>();
+    // The poster edge is the photo mark's alone.
+    expectTypeOf({ ...base, look: "photo" as const, onPoster: true }).toExtend<ShareButtonProps>();
+    expectTypeOf({ ...base, onPoster: true }).not.toExtend<ShareButtonProps>();
   });
 });
 

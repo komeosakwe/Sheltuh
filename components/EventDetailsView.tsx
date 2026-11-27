@@ -372,8 +372,9 @@ export default function EventDetailsView({
                 so it makes sense on its own. In the editor's preview too (inert there), so organisers see what
                 covers their photo's corner. */}
             <div data-event-actions="" className="absolute top-1 right-1 flex sm:top-3 sm:right-3 sm:gap-2">
-              <ShareButton slug={event.slug} title={event.title} text={shareText} look="photo" />
-              <SaveButton event={saveTarget} variant="photo" />
+              {/* No photo, just the generated poster (which can be paper-toned): the marks get a faint edge. */}
+              <ShareButton slug={event.slug} title={event.title} text={shareText} look="photo" onPoster={!event.imageUrl} />
+              <SaveButton event={saveTarget} variant="photo" onPoster={!event.imageUrl} />
             </div>
           </div>
 

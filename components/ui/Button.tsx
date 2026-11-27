@@ -53,15 +53,20 @@ export const secondaryActionClass =
 export const photoMarkTargetClass =
   "flex size-12 items-center justify-center rounded-control focus-visible:outline-hidden! sm:size-auto sm:min-h-11";
 
-/** The photo mark itself, inside its target (see photoMarkTargetClass). `group` is the target's group name. */
-export function photoMarkClass(group: "save" | "share") {
+/**
+ * The photo mark itself, inside its target (see photoMarkTargetClass). `group` is the target's group name. `onPoster`:
+ * there's no photo, only the generated poster (EventArt), which can be paper-toned, so the white mark gets a faint ink
+ * edge of its own (keyboard focus still draws its two-tone ring over it).
+ */
+export function photoMarkClass(group: "save" | "share", onPoster = false) {
   const hover = group === "save" ? "group-hover/save:bg-hover!" : "group-hover/share:bg-hover!";
   const focus =
     group === "save"
       ? "group-focus-visible/save:ring-2 group-focus-visible/save:ring-paper group-focus-visible/save:ring-offset-2 group-focus-visible/save:ring-offset-ink"
       : "group-focus-visible/share:ring-2 group-focus-visible/share:ring-paper group-focus-visible/share:ring-offset-2 group-focus-visible/share:ring-offset-ink";
   const press = group === "save" ? "motion-safe:group-active/save:scale-90" : "motion-safe:group-active/share:scale-90";
-  return `flex size-10 items-center justify-center rounded-control bg-paper text-ink motion-safe:transition motion-safe:duration-150 motion-safe:ease-out ${press} ${hover} ${focus} sm:h-11 sm:w-auto sm:gap-1.5 sm:px-3`;
+  const edge = onPoster ? "ring-1 ring-ink/10" : "";
+  return `flex size-10 items-center justify-center rounded-control bg-paper text-ink ${edge} motion-safe:transition motion-safe:duration-150 motion-safe:ease-out ${press} ${hover} ${focus} sm:h-11 sm:w-auto sm:gap-1.5 sm:px-3`.replace(/\s+/g, " ");
 }
 
 /** The photo mark's word, from 640px ("Save", "Share"): 14/20, 600. */
