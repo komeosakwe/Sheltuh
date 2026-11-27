@@ -602,6 +602,53 @@ test.describe("add to calendar at 375px", () => {
   });
 });
 
+// Review (PR 113): with 200% text the list (16rem wide) hung from the link, an icon's width in, and ran off the right
+// edge at 320 and 375. It's narrowed to the screen less its gutters and moved left to fit.
+for (const width of [320, 375]) {
+  test.describe(`add to calendar at ${width}px with 200% text`, () => {
+    test.use({ viewport: { width, height: 844 }, hasTouch: true });
+
+    test("the open list stays inside the screen and adds no sideways scroll", async ({ page }) => {
+      await mockApi(page);
+      await page.goto("/events/neon-static");
+      await expect(page.getByRole("heading", { level: 1, name: "Neon Static" })).toBeVisible({ timeout: 30_000 });
+      await page.addStyleTag({ content: "html{font-size:200% !important}" });
+      await page.evaluate(() => document.fonts.ready);
+      const trigger = page.locator("[data-event-when]").getByRole("button", { name: "Add to calendar" });
+      await trigger.scrollIntoViewIfNeeded();
+      // The page's own sideways overflow before the list opens: at 320px with 200% text the site footer's theme
+      // switch already reaches past the edge (outside this page's scope, as the large-text checks below note).
+      const overflow = () => page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+      const before = await overflow();
+      await trigger.click();
+      await expect(trigger).toHaveAttribute("aria-expanded", "true");
+      const menu = page.locator(`#${await trigger.getAttribute("aria-controls")}`);
+      await expect(menu.getByRole("link")).toHaveCount(4);
+      const box = await menu.boundingBox();
+      if (!box) throw new Error("menu not laid out");
+      expect(box.x).toBeGreaterThanOrEqual(0);
+      expect(box.x + box.width).toBeLessThanOrEqual(width);
+      // Every row inside it, whole.
+      for (const link of await menu.getByRole("link").all()) {
+        const row = await link.boundingBox();
+        if (!row) throw new Error("row not laid out");
+        expect(row.x + row.width).toBeLessThanOrEqual(width);
+      }
+      // Opening it adds no sideways scroll, and nothing on the event page itself reaches past the edge.
+      expect(await overflow()).toBeLessThanOrEqual(Math.max(0, before));
+      const wide = await page.evaluate(() =>
+        [...document.querySelectorAll("main *")]
+          .filter((el) => !el.closest("footer") && el.getBoundingClientRect().right > window.innerWidth + 1)
+          .map((el) => `${el.tagName} ${(el.textContent ?? "").slice(0, 30)}`),
+      );
+      expect(wide).toEqual([]);
+      if (process.env.EVENT_SHOTS) await page.screenshot({ path: `${process.env.EVENT_SHOTS}/calendar-list-${width}-text200.png` });
+      await page.keyboard.press("Escape");
+      await expect(menu).toHaveCount(0);
+    });
+  });
+}
+
 // The event page's P1 items (docs/design/mobile-redesign.md §6.4.2, §6.5), at a phone and a desktop width.
 for (const width of [375, 1280]) {
   test.describe(`event details at ${width}px`, () => {

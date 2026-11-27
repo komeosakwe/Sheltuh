@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useId, useRef, useState } from "react";
+import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import { googleCalendarUrl, icsFilename, outlookCalendarUrl, type CalendarEvent } from "@/lib/calendar";
 import { eventCalendarPath, publicEventUrl } from "@/lib/event-url";
 
@@ -29,7 +29,8 @@ type Links = { google: string; outlook: string };
 /**
  * "Add to calendar" (docs/design/brand-direction-one.md §6.7): a disclosure
  * with plain links: underlined words with a chevron, the list opening under
- * them from their left edge. On the event page it's the line under the date
+ * them from their left edge (moved left, and narrowed, as far as it must to
+ * stay on screen). On the event page it's the line under the date
  * (owner, 27 Nov 2026: Option A).
  *
  * - **Apple Calendar** goes to the event's `.ics` URL on this site
@@ -60,8 +61,31 @@ export default function AddToCalendar({
   const [unavailable, setUnavailable] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
+  const listRef = useRef<HTMLUListElement>(null);
   const menuId = useId();
   const open = links !== null;
+
+  // The list hangs from the link's left edge, but never past the screen's: wherever the link sits (an icon's width in
+  // on the event page) and however large the text (its 16rem width doubles at 200%), it's at most the screen less a
+  // 1rem gutter each side, and moves left as far as it must to end 1rem in from the right edge. Measured before
+  // paint, and again when the window resizes.
+  useLayoutEffect(() => {
+    if (!open) return;
+    const place = () => {
+      const list = listRef.current;
+      if (!list) return;
+      const root = document.documentElement;
+      const viewport = root.clientWidth;
+      const gutter = parseFloat(getComputedStyle(root).fontSize) || 16;
+      list.style.maxWidth = `${Math.max(0, viewport - 2 * gutter)}px`;
+      list.style.left = "0px";
+      const over = list.getBoundingClientRect().right - (viewport - gutter);
+      if (over > 0) list.style.left = `${-over}px`;
+    };
+    place();
+    window.addEventListener("resize", place);
+    return () => window.removeEventListener("resize", place);
+  }, [open]);
 
   useEffect(() => {
     if (!open) return;
@@ -152,8 +176,9 @@ export default function AddToCalendar({
       </p>
       {links && (
         <ul
+          ref={listRef}
           id={menuId}
-          className="absolute top-full left-0 z-30 mt-1 w-64 max-w-[calc(100vw-2.5rem)] rounded-control border border-foreground bg-card py-1"
+          className="absolute top-full left-0 z-30 mt-1 w-64 max-w-[calc(100vw-2rem)] rounded-control border border-foreground bg-card py-1"
         >
           {android ? [google, apple] : [apple, google]}
           <li>

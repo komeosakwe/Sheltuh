@@ -415,8 +415,34 @@ describe("AddToCalendar", () => {
     expect(trigger.querySelector("svg")).toHaveAttribute("aria-hidden", "true");
     expect(container.firstElementChild).toHaveClass("relative", "w-fit", "-my-2.5");
     fireEvent.click(trigger);
-    expect(screen.getByRole("list")).toHaveClass("absolute", "top-full", "left-0", "max-w-[calc(100vw-2.5rem)]");
+    expect(screen.getByRole("list")).toHaveClass("absolute", "top-full", "left-0", "max-w-[calc(100vw-2rem)]");
     expect(trigger.querySelector("svg")).toHaveClass("rotate-180", "motion-safe:transition-transform");
+  });
+
+  // Large text and a link an icon's width in (the event page at 320px with 200% text) used to push the list past the
+  // right edge. It's measured as it opens: at most the screen less a 1rem gutter each side, moved left to fit.
+  it("keeps the open list on screen: narrowed to the screen less its gutters, and moved left as far as it must", () => {
+    const width = Object.getOwnPropertyDescriptor(Element.prototype, "clientWidth");
+    Object.defineProperty(document.documentElement, "clientWidth", { configurable: true, value: 320 });
+    const rect = vi.spyOn(HTMLUListElement.prototype, "getBoundingClientRect").mockReturnValue(
+      { left: 96, right: 400, width: 304, top: 0, bottom: 200, height: 200, x: 96, y: 0, toJSON: () => ({}) } as DOMRect,
+    );
+    try {
+      render(<AddToCalendar event={event} />);
+      fireEvent.click(screen.getByRole("button", { name: "Add to calendar" }));
+      const list = screen.getByRole("list");
+      // 320 less 16px a side; its right edge (400) moved in to 304.
+      expect(list.style.maxWidth).toBe("288px");
+      expect(list.style.left).toBe("-96px");
+      // Already inside: it stays at the link's left edge.
+      rect.mockReturnValue({ left: 16, right: 272, width: 256, top: 0, bottom: 200, height: 200, x: 16, y: 0, toJSON: () => ({}) } as DOMRect);
+      fireEvent(window, new Event("resize"));
+      expect(list.style.left).toBe("0px");
+    } finally {
+      rect.mockRestore();
+      if (width) Object.defineProperty(document.documentElement, "clientWidth", width);
+      else Reflect.deleteProperty(document.documentElement, "clientWidth");
+    }
   });
 
   it("puts Google first on Android", () => {
