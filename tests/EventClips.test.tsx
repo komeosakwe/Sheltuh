@@ -292,6 +292,10 @@ describe("the event page's photo (§5.3)", () => {
     const { container } = withProviders(<EventDetailsView event={{ ...event, slug: "neon-static" }} demo />);
     const button = playButton();
     expect(button).toHaveTextContent("Play clip0:12");
+    // Its words go where the photo (a container) is too narrow for the whole chip (200% text at 320px); the glyph and
+    // the length stay, and the name is unchanged.
+    expect(within(button).getByText("Play clip")).toHaveClass("@max-[9rem]:hidden");
+    expect(button.parentElement).toHaveClass("@container");
     expect(button).toHaveClass("focus-visible:outline-hidden!");
     expect(button).toHaveClass("absolute", "bottom-2", "left-2", "sm:bottom-4", "sm:left-4", "h-11");
     const wrapper = button.parentElement as HTMLElement;

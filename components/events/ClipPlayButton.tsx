@@ -74,7 +74,12 @@ export default function ClipPlayButton({
           .trim()}
       >
         <PlayGlyph className="size-4" />
-        <span className="text-[0.8125rem] leading-4 font-semibold tracking-[0.02em] uppercase">Play clip</span>
+        {/* The words only where the photo (its container) has room for the whole chip: the chip can't be narrower than
+            its longest word, and with 200% text on a 320px phone ("PLAY" / "CLIP" over two lines, the glyph and the
+            length) it was the photo's whole width less its inset, so it ran past the photo's edge wherever the
+            font's metrics came out a fraction wider (review, PR 113). Under 9rem (rem: it follows the text size) it's
+            the glyph and the length alone, the card's compact chip; the name (aria-label) is unchanged. */}
+        <span className="text-[0.8125rem] leading-4 font-semibold tracking-[0.02em] uppercase @max-[9rem]:hidden">Play clip</span>
         {time}
       </button>
     );

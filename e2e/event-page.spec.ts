@@ -1294,14 +1294,33 @@ for (const { width, scale } of [
       if (!photo || !playBox) throw new Error("not laid out");
       const inside = (b: { x: number; y: number; width: number; height: number }) =>
         b.x >= photo.x - 0.5 && b.y >= photo.y - 0.5 && b.x + b.width <= photo.x + photo.width + 0.5 && b.y + b.height <= photo.y + photo.height + 0.5;
-      expect(inside(playBox)).toBe(true);
+      // The measured boxes (x, y, width, height), and the chip's narrowest possible width, in every failure message, so
+      // a run elsewhere (other fonts) says what it saw.
+      const round = (b: { x: number; y: number; width: number; height: number }) => [b.x, b.y, b.width, b.height].map((n) => Math.round(n * 10) / 10);
+      const chipMin = await play.evaluate((el) => {
+        const clone = el.cloneNode(true) as HTMLElement;
+        clone.style.cssText = "position:absolute;visibility:hidden;width:min-content";
+        el.parentElement?.appendChild(clone);
+        const width = clone.getBoundingClientRect().width;
+        clone.remove();
+        return Math.round(width * 10) / 10;
+      });
+      const seen = { photo: round(photo), play: round(playBox), playMinWidth: chipMin, marks: [] as number[][] };
+      expect(inside(playBox), `Play off the photo: ${JSON.stringify(seen)}`).toBe(true);
+      // Not just this run's font metrics: even at its narrowest (min-content), the chip fits with its inset on the left
+      // and as much again on the right. (It was 240.2px in the 240px left beside its inset at 320px with 200% text:
+      // inside by rounding here, a pixel out on CI's Chromium.)
+      expect(playBox.x - photo.x + chipMin, `Play can't fit at its narrowest: ${JSON.stringify(seen)}`).toBeLessThanOrEqual(photo.width - (playBox.x - photo.x));
+      // Nothing clipped inside the chip either.
+      expect(await play.evaluate((el) => el.scrollWidth <= el.clientWidth), `Play's contents spill: ${JSON.stringify(seen)}`).toBe(true);
       for (const control of await actions.locator("a, button").all()) {
         const box = await control.boundingBox();
         if (!box) throw new Error("mark not laid out");
-        expect(inside(box)).toBe(true);
+        seen.marks.push(round(box));
+        expect(inside(box), `a mark off the photo: ${JSON.stringify(seen)}`).toBe(true);
         const overlaps =
           box.x < playBox.x + playBox.width && playBox.x < box.x + box.width && box.y < playBox.y + playBox.height && playBox.y < box.y + box.height;
-        expect(overlaps).toBe(false);
+        expect(overlaps, `a mark over the Play: ${JSON.stringify(seen)}`).toBe(false);
       }
       if (process.env.EVENT_SHOTS) await page.screenshot({ path: `${process.env.EVENT_SHOTS}/clip-marks-${width}-text${scale}.png` });
     });

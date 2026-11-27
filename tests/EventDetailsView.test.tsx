@@ -492,7 +492,9 @@ describe("EventDetailsView brand layout (brand-direction-one.md §6.10)", () => 
     // No row of Secondary buttons anywhere on the page.
     expect(container.querySelectorAll("[data-event-actions]")).toHaveLength(1);
     expect(container.querySelector("[data-ticket-panel] [data-event-actions]")).toBeNull();
-    expect(container.querySelector(".\\@container [data-event-actions]")).toBeNull();
+    expect(container.querySelector("[data-event-actions].grid")).toBeNull();
+    // The photo is a container, so the clip's Play can drop its words when the photo is narrow (ClipPlayButton).
+    expect(group.parentElement).toHaveClass("relative", "@container");
   });
 
   // Review (PR 113): on the generated poster (no photo), which can be paper-toned, the white marks had no edge.

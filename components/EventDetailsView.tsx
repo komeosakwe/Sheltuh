@@ -354,7 +354,9 @@ export default function EventDetailsView({
               text size it's 112px, under any phone's 22%, so it never shows there. A
               7:2 strip on tablets; 3:2 beside the panel from 1024px. An event's clip Play sits on its bottom-left
               (docs/design/event-clips.md §5.3); absolutely placed, so nothing shifts. */}
-          <div className="relative lg:col-span-7 xl:col-span-8">
+          {/* A container (inline size), so the clip's Play can drop its words when the photo is too narrow for them
+              (components/events/ClipPlayButton.tsx). */}
+          <div className="relative @container lg:col-span-7 xl:col-span-8">
             <EventArt
               poster={event.poster}
               imageUrl={event.imageUrl}
