@@ -56,7 +56,9 @@ export default function ClipPlayButton({
     <span className="text-xs leading-4 font-medium tabular-nums">{clipTimeLabel(clip.durationMs)}</span>
   );
   // The global :focus-visible outline isn't in a layer, so only an !important utility drops it for the ring.
-  const ring = "focus-visible:outline-none!";
+  // `outline-hidden`, not `outline-none`: in forced colours (where the ring, a box-shadow, isn't drawn) it's a
+  // transparent outline the system paints, so focus still shows.
+  const ring = "focus-visible:outline-hidden!";
 
   if (size === "hero") {
     return (

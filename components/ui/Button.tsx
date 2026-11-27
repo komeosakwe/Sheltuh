@@ -46,11 +46,12 @@ export const secondaryActionClass =
  * ink in both themes, as the card overlay is (they sit on a photo): `data-surface="paper"` on
  * the mark pins its tokens to Light, so its cream hover (`--hover`) is cream in Dark too. That rule is unlayered
  * (globals.css) and paints the mark white, so the hover fill needs `!` to win over it. Keyboard focus: the target's
- * own outline gives way to a two-tone ring on the mark, black against the white mark and white outside that, so it
+ * own outline gives way (`outline-hidden`, which forced colours still paint, as the ring there is gone) to a two-tone
+ * ring on the mark, black against the white mark and white outside that, so it
  * shows on any photo, dark or light (never orange). Pressed, the mark shrinks a little (motion-safe only).
  */
 export const photoMarkTargetClass =
-  "flex size-12 items-center justify-center rounded-control focus-visible:outline-none! sm:size-auto sm:min-h-11";
+  "flex size-12 items-center justify-center rounded-control focus-visible:outline-hidden! sm:size-auto sm:min-h-11";
 
 /** The photo mark itself, inside its target (see photoMarkTargetClass). `group` is the target's group name. */
 export function photoMarkClass(group: "save" | "share") {

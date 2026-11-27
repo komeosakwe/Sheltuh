@@ -440,6 +440,47 @@ test.describe("Save and Share on the photo at 1440×900", () => {
   });
 });
 
+// Forced colours (Windows High Contrast) don't draw box-shadows, so the photo marks' two-tone ring vanishes there. Their
+// own outline is `outline-hidden` (a transparent outline the system paints in forced colours), so focus still shows.
+test.describe("photo marks' focus in forced colours, at 390×844", () => {
+  test.use({ viewport: { width: 390, height: 844 } });
+
+  test("Share and Save keep a visible outline when focused; with colours on, the ring shows instead", async ({ page }) => {
+    await mockApi(page);
+    await page.goto("/events/neon-static");
+    await expect(page.getByRole("heading", { level: 1, name: "Neon Static" })).toBeVisible({ timeout: 30_000 });
+    const actions = page.locator("[data-event-actions]");
+    const share = actions.getByRole("button", { name: "Share Neon Static" });
+    const save = actions.getByRole("link", { name: "Sign in to save Neon Static" });
+    const outline = (el: HTMLElement | SVGElement) => {
+      const style = getComputedStyle(el);
+      return { style: style.outlineStyle, width: parseFloat(style.outlineWidth) };
+    };
+    const ring = (el: HTMLElement | SVGElement) => getComputedStyle(el.firstElementChild as Element).boxShadow;
+
+    // Colours on: no outline on the target; the mark's ring is the focus indicator.
+    await share.focus();
+    await page.keyboard.press("Tab");
+    await expect(save).toBeFocused();
+    expect((await save.evaluate(outline)).style).toBe("none");
+    await expect.poll(() => save.evaluate(ring)).not.toBe("none");
+
+    await page.emulateMedia({ forcedColors: "active" });
+    for (const [control, back] of [
+      [save, false],
+      [share, true],
+    ] as const) {
+      if (back) await page.keyboard.press("Shift+Tab");
+      await expect(control).toBeFocused();
+      const { style, width } = await control.evaluate(outline);
+      expect(style).not.toBe("none");
+      expect(width).toBeGreaterThanOrEqual(2);
+    }
+    // Not focused: no outline (it's a focus indicator only).
+    expect((await save.evaluate(outline)).style).toBe("none");
+  });
+});
+
 for (const width of [320, 375]) {
   test.describe(`share popover at ${width}px`, () => {
     test.use({ viewport: { width, height: 740 } });

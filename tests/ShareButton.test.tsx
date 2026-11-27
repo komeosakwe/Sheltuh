@@ -290,7 +290,7 @@ describe("ShareButton with a path (an organiser's profile)", () => {
     const button = screen.getByRole("button", { name: "Share Neon Static" });
     expect(button).toHaveAttribute("data-share-look", "photo");
     // The target: 48px below 640px, 44px tall from 640px; the page's outline gives way to the mark's ring.
-    expect(button).toHaveClass("group/share", "size-12", "sm:size-auto", "sm:min-h-11", "focus-visible:outline-none!");
+    expect(button).toHaveClass("group/share", "size-12", "sm:size-auto", "sm:min-h-11", "focus-visible:outline-hidden!");
     const mark = button.firstElementChild as HTMLElement;
     expect(mark).toHaveAttribute("data-surface", "paper");
     expect(mark).toHaveClass(

@@ -35,10 +35,11 @@ function classes(variant: SaveButtonVariant, saved: boolean) {
     // White and black in both themes (it sits on a photo, which can be dark or light): the mark pins
     // its tokens to Light (data-surface="paper", below), so its cream hover is cream in Dark too, not
     // Dark's near-black under the black heart; `!` because that unlayered rule paints the mark white.
-    // Keyboard focus rings the mark, black on a white gap that shows on any photo (never orange).
+    // Keyboard focus rings the mark, black on a white gap that shows on any photo (never orange); the
+    // target's outline is `outline-hidden`, which forced colours still paint (the ring isn't drawn there).
     case "overlay":
       return {
-        target: "group/save flex size-12 items-center justify-center rounded-control focus-visible:outline-none! md:size-10",
+        target: "group/save flex size-12 items-center justify-center rounded-control focus-visible:outline-hidden! md:size-10",
         mark: "flex size-8 items-center justify-center rounded-control bg-paper text-ink motion-safe:transition-transform motion-safe:duration-150 motion-safe:group-active/save:scale-90 group-hover/save:bg-hover! group-focus-visible/save:ring-2 group-focus-visible/save:ring-ink group-focus-visible/save:ring-offset-2 group-focus-visible/save:ring-offset-paper",
         icon: `size-5 ${heart}`.trim(),
       };
@@ -46,7 +47,7 @@ function classes(variant: SaveButtonVariant, saved: boolean) {
     // dimmed glass with a white edge and heart, in the same 44px target, with the overlay's focus ring.
     case "glass":
       return {
-        target: "group/save flex size-11 items-center justify-center rounded-control focus-visible:outline-none!",
+        target: "group/save flex size-11 items-center justify-center rounded-control focus-visible:outline-hidden!",
         mark: `flex size-8 items-center justify-center rounded-control border border-paper/90 text-paper backdrop-blur-sm motion-safe:transition-transform motion-safe:duration-150 motion-safe:group-active/save:scale-90 group-focus-visible/save:ring-2 group-focus-visible/save:ring-ink group-focus-visible/save:ring-offset-2 group-focus-visible/save:ring-offset-paper ${
           // At least 45% ink, so the white heart and edge keep 3.3:1 even over a white poster (WCAG 1.4.11).
           saved ? "bg-ink/65" : "bg-ink/45 group-hover/save:bg-ink/60"

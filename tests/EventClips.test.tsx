@@ -153,7 +153,7 @@ describe("the Play button (§5.1)", () => {
     // At the image's bottom-right, 8px in (visual QA, PR 1), clear of the date chip and Save.
     expect(button).toHaveClass("pointer-events-auto", "absolute", "bottom-2", "right-2", "min-h-11", "min-w-11");
     // One ring only: the page's own focus outline is dropped (!important beats the unlayered rule).
-    expect(button).toHaveClass("focus-visible:outline-none!");
+    expect(button).toHaveClass("focus-visible:outline-hidden!");
   });
 
   it("an ended event's chip keeps its colour (only the image is greyed)", () => {
@@ -292,7 +292,7 @@ describe("the event page's photo (§5.3)", () => {
     const { container } = withProviders(<EventDetailsView event={{ ...event, slug: "neon-static" }} demo />);
     const button = playButton();
     expect(button).toHaveTextContent("Play clip0:12");
-    expect(button).toHaveClass("focus-visible:outline-none!");
+    expect(button).toHaveClass("focus-visible:outline-hidden!");
     expect(button).toHaveClass("absolute", "bottom-2", "left-2", "sm:bottom-4", "sm:left-4", "h-11");
     const wrapper = button.parentElement as HTMLElement;
     expect(wrapper).toHaveClass("relative");

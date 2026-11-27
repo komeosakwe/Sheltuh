@@ -227,7 +227,7 @@ describe("SaveButton — live", () => {
     const mark = button.firstElementChild as HTMLElement;
     expect(mark).toHaveAttribute("data-surface", "paper");
     expect(mark).toHaveClass("group-hover/save:bg-hover!");
-    expect(button).toHaveClass("group/save", "focus-visible:outline-none!");
+    expect(button).toHaveClass("group/save", "focus-visible:outline-hidden!");
     expect(mark).toHaveClass(
       "group-focus-visible/save:ring-2",
       "group-focus-visible/save:ring-paper",
@@ -241,7 +241,7 @@ describe("SaveButton — live", () => {
   it("the photo mark signed out is the sign-in link, with the same mark and word", () => {
     renderHeart(signedOut(), "photo");
     const link = screen.getByRole("link", { name: "Sign in to save Night Market" });
-    expect(link).toHaveClass("size-12", "focus-visible:outline-none!");
+    expect(link).toHaveClass("size-12", "focus-visible:outline-hidden!");
     expect(link.firstElementChild).toHaveAttribute("data-surface", "paper");
     expect(link).toHaveTextContent("Save");
   });
@@ -277,7 +277,7 @@ describe("SaveButton — focus on a photo (overlay)", () => {
   it("rings the 32px mark, black on a white gap, instead of the outline that can vanish into dark art; never orange; the page's outline is dropped (!important beats the unlayered rule), so there's one ring", async () => {
     const button = await readyHeart();
     const mark = button.firstElementChild as HTMLElement;
-    expect(button).toHaveClass("group/save", "focus-visible:outline-none!");
+    expect(button).toHaveClass("group/save", "focus-visible:outline-hidden!");
     // A 48px target on phones and 40px from 768px (the rules' icon button), around a white 32px mark.
     expect(button).toHaveClass("size-12", "md:size-10");
     expect(mark).toHaveClass("bg-paper", "text-ink", "rounded-control");
@@ -294,13 +294,13 @@ describe("SaveButton — focus on a photo (overlay)", () => {
   it("does the same when it's the sign-in link (signed out)", () => {
     renderHeart(signedOut());
     const link = screen.getByRole("link", { name: "Sign in to save Night Market" });
-    expect(link).toHaveClass("focus-visible:outline-none!");
+    expect(link).toHaveClass("focus-visible:outline-hidden!");
     expect(link.firstElementChild).toHaveClass("group-focus-visible/save:ring-ink", "group-focus-visible/save:ring-offset-paper");
   });
 
   it("other variants keep the page's own outline", async () => {
     const button = await readyHeart([], undefined, "plain");
-    expect(button.className).not.toMatch(/outline-none/);
+    expect(button.className).not.toMatch(/outline-(none|hidden)/);
   });
 });
 
