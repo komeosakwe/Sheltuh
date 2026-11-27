@@ -253,7 +253,7 @@ for (const [width, cardWidth] of [
 test.describe("Who's going? on the event page at 390×844", () => {
   test.use({ viewport: { width: 390, height: 844 } });
 
-  test("signed in: the count and the faces after Save/Share and Hosted by (before the tickets); View attendees goes to the panel", async ({ page }) => {
+  test("signed in: the count and the faces after Save/Share (before the tickets); View attendees goes to the panel", async ({ page }) => {
     await signedIn(page);
     await mockApi(page);
     await page.goto("/events/here-and-now");
@@ -270,14 +270,15 @@ test.describe("Who's going? on the event page at 390×844", () => {
     // A face with a visible profile links to it.
     await expect(card.getByRole("link", { name: "Kofi A.’s profile" })).toHaveAttribute("href", "/members/p1");
 
-    // Below lg, under Save and Share (so they stay above the bar), then Hosted by (12px under them since Round 2), then
-    // this row (12px under it, the column's gap: no extra margin since Round 2 Part 2), inside the page's 16px margins.
+    // Below lg, Hosted by is the title's byline, above the facts (owner, 27 Nov 2026); this row comes under Save and
+    // Share (so they stay above the bar), 12px under them (the column's gap: no extra margin since Round 2 Part 2),
+    // inside the page's 16px margins.
     const box = await card.boundingBox();
     const actions = await page.locator("[data-event-actions]").boundingBox();
     const organiser = await page.locator("[data-event-organiser]").boundingBox();
     if (!box || !actions || !organiser) throw new Error("not laid out");
-    expect(Math.round(organiser.y - (actions.y + actions.height))).toBe(12);
-    expect(Math.round(box.y - (organiser.y + organiser.height))).toBe(12);
+    expect(actions.y).toBeGreaterThanOrEqual(organiser.y + organiser.height);
+    expect(Math.round(box.y - (actions.y + actions.height))).toBe(12);
     expect(Math.round(box.x)).toBe(16);
     expect(Math.round(box.width)).toBe(358);
 

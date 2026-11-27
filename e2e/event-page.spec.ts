@@ -241,8 +241,8 @@ for (const vp of [
 // Owner request (26 Oct 2026): on a phone, Save and Share are on the first screen too, above the buy bar, with a
 // two-line title (the redesign's title is 32px on phones, so the longest sample title still takes two lines).
 // Since the owner's event reference (13 Nov 2026) the details are two icon groups (the venue with its address and
-// Get directions on lines of their own). "Hosted by" had its own row above the actions, which pushed them under the
-// bar on a 667px-tall phone (an iPhone SE); since Round 2 it comes after them below 1024px, so this holds there too,
+// Get directions on lines of their own). "Hosted by" is the title's byline, above the facts (owner, 27 Nov 2026; from
+// Round 2 until then it came after the actions below 1024px). This must hold on a 667px-tall phone (an iPhone SE)
 // as on a full-height phone (390×844, 375×812, and 370×812 where a slightly wider font wraps one more line).
 for (const vp of [
   { width: 390, height: 844 },
@@ -317,11 +317,11 @@ test.describe("Save and Share on the first screen with a going count, at 390×84
     }
     const actionsBox = await actions.boundingBox();
     const rowBox = await row.boundingBox();
-    // Round 2: below 1024px Hosted by comes after the actions, and Who's going after it.
+    // Hosted by is the title's byline, above the actions (owner, 27 Nov 2026), and Who's going comes after them.
     const organiserBox = await page.locator("[data-event-organiser]").boundingBox();
     if (!actionsBox || !rowBox || !organiserBox) throw new Error("not laid out");
-    expect(organiserBox.y).toBeGreaterThanOrEqual(actionsBox.y + actionsBox.height);
-    expect(rowBox.y).toBeGreaterThanOrEqual(organiserBox.y + organiserBox.height);
+    expect(actionsBox.y).toBeGreaterThanOrEqual(organiserBox.y + organiserBox.height);
+    expect(rowBox.y).toBeGreaterThanOrEqual(actionsBox.y + actionsBox.height);
     // Its button is the rules' Secondary M: 48px.
     expect((await row.getByRole("link").last().boundingBox())?.height).toBe(48);
     await noSidewaysScroll(page);
@@ -535,12 +535,13 @@ for (const width of [375, 1280]) {
       // The zone in effect at the start (a week out from now: AEST or AEDT).
       await expect(page.getByText(/^Melbourne time \((AEST|AEDT)\)$/)).toBeVisible();
 
-      // View organiser links to their profile; there's no separate More from link.
-      await expect(page.getByRole("link", { name: `View organiser ${event.organiserName}`, exact: true })).toHaveAttribute(
+      // The organiser's name links to their profile; there's no View organiser or separate More from link.
+      await expect(page.getByRole("link", { name: event.organiserName, exact: true })).toHaveAttribute(
         "href",
         "/organisers/org-demo",
       );
       await expect(page.getByRole("link", { name: /^More from/ })).toHaveCount(0);
+      await expect(page.getByText(/View organiser/)).toHaveCount(0);
 
       // Who's Going, signed out: the count, no names or faces, and no list to open.
       const going = page.getByRole("region", { name: "Who's going" });
@@ -889,7 +890,7 @@ for (const vp of [
 }
 
 // The owner's event reference (13 Nov 2026), at the three phone widths: the details as two icon groups, "Hosted by"
-// with View organiser, Save / Share / Calendar as equal 48px one-line controls, ticket rows each with their own stepper,
+// as the title's byline with the name the link (owner, 27 Nov 2026), Save / Share / Calendar as equal 48px one-line controls, ticket rows each with their own stepper,
 // and the sticky bar's starting price before a choice and the total after. Edge cases: a long title, venue and
 // address, several long-named tiers, and a sold-out event. Fixtures live here only (never in the sample data).
 // EVENT_SHOTS=<dir> saves screenshots of each for visual review.
@@ -916,6 +917,44 @@ async function mockEvent(page: Page, event: PublicEvent) {
     // The organiser's profile and the rest: not part of these checks.
     return route.fulfill({ status: 404, json: { error: "not mocked in e2e" } });
   });
+}
+
+/**
+ * "Hosted by {name}", the title's byline (owner, 27 Nov 2026): the element straight after the h1 and before the
+ * facts, the name the one link (no View organiser), a 44px target on phones whose text never overlaps the title or
+ * the facts, and never wider than the row however the name wraps.
+ */
+async function expectByline(page: Page, name: string) {
+  const organiser = page.locator("[data-event-organiser]");
+  expect(await organiser.evaluate((el) => el.previousElementSibling?.tagName)).toBe("H1");
+  expect(await organiser.evaluate((el) => el.nextElementSibling?.hasAttribute("data-event-facts"))).toBe(true);
+  await expect(organiser).toContainText(`Hosted by ${name}`);
+  await expect(organiser).not.toContainText("View organiser");
+  const link = organiser.getByRole("link", { name, exact: true });
+  await expect(link).toHaveAttribute("href", "/organisers/org-demo");
+  await expect(organiser.getByRole("link")).toHaveCount(1);
+  // Mid-screen, clear of the header and the buy bar (with large text the bar can reach up to it).
+  await link.evaluate((el) => el.scrollIntoView({ block: "center", behavior: "instant" }));
+  const [h1, row, facts, target] = await Promise.all([
+    page.getByRole("heading", { level: 1 }).boundingBox(),
+    organiser.boundingBox(),
+    page.locator("[data-event-facts]").boundingBox(),
+    link.boundingBox(),
+  ]);
+  if (!h1 || !row || !facts || !target) throw new Error("byline not laid out");
+  expect(row.y).toBeGreaterThanOrEqual(h1.y + h1.height);
+  expect(facts.y).toBeGreaterThanOrEqual(row.y + row.height);
+  expect(target.height).toBeGreaterThanOrEqual(44);
+  expect(target.x + target.width).toBeLessThanOrEqual(row.x + row.width + 1);
+  // The name's text (the target less its padding above and below: 10px, more with larger text) stays between the title
+  // and the facts.
+  const pad = await link.evaluate((el) => parseFloat(getComputedStyle(el).paddingTop));
+  expect(pad).toBeGreaterThanOrEqual(10);
+  expect(target.y + pad).toBeGreaterThanOrEqual(h1.y + h1.height - 1);
+  expect(target.y + target.height - pad).toBeLessThanOrEqual(facts.y + 1);
+  // The whole target is the link: a tap at its top edge, above the text, still lands on it.
+  const hit = await page.evaluate(([x, y]) => document.elementFromPoint(x, y)?.closest("a")?.getAttribute("href"), [target.x + 4, target.y + 2]);
+  expect(hit).toBe("/organisers/org-demo");
 }
 
 async function shoot(page: Page, name: string) {
@@ -949,10 +988,8 @@ for (const width of [320, 390, 430]) {
       await expect(page.locator("[data-event-where] [data-venue-address]")).toBeVisible();
       await expect(page.locator("[data-event-where] [data-directions]")).toHaveText("Get directions");
 
-      // Hosted by, with View organiser to the profile.
-      const organiser = page.locator("[data-event-organiser]");
-      await expect(organiser).toContainText("Hosted by Static Collective");
-      await expect(organiser.getByRole("link", { name: "View organiser Static Collective" })).toHaveAttribute("href", "/organisers/org-demo");
+      // Hosted by, the title's byline, with the name the link to the profile.
+      await expectByline(page, "Static Collective");
 
       // Save, Share and Calendar: equal 48px controls, each label on one line.
       const actions = page.locator("[data-event-actions]");
@@ -1018,6 +1055,8 @@ for (const width of [320, 390, 430]) {
       await page.evaluate(() => document.fonts.ready);
       // Long names and addresses wrap: nothing scrolls sideways.
       await noSidewaysScroll(page);
+      // The long organiser name wraps under "Hosted by", all of it still the link.
+      await expectByline(page, LONG_EVENT.organiserName);
       const where = page.locator("[data-event-where]");
       await expect(where).toContainText(LONG_EVENT.venueName);
       await expect(where).toContainText(LONG_EVENT.venueAddress);
@@ -1090,6 +1129,9 @@ for (const width of [320, 390]) {
           expect(box.height).toBeGreaterThanOrEqual(48);
         }
         if (process.env.EVENT_SHOTS) await actions.screenshot({ path: `${process.env.EVENT_SHOTS}/event-after2-text${scale}-${width}-actions.png` });
+
+        // The byline wraps inside its row with larger text, between the title and the facts.
+        await expectByline(page, "Static Collective");
 
         const tickets = page.locator("#tickets");
         for (const row of await tickets.locator("[data-ticket-card]").all()) {

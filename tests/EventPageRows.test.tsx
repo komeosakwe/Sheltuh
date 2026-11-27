@@ -83,8 +83,8 @@ describe("the organiser's profile read (live)", () => {
 
     const host = screen.getByRole("region", { name: "Organiser" });
     await waitFor(() => expect(within(host).getByText("1.2K followers · ✓ Checked")).toBeInTheDocument());
-    // The row under the title is just "Hosted by {name}" and View organiser (owner's event reference, 13 Nov 2026):
-    // no upcoming count crowding it.
+    // The byline under the title is just "Hosted by {name}", the name the link (owner, 27 Nov 2026): no upcoming
+    // count crowding it.
     expect(document.querySelector("[data-event-organiser]")).not.toHaveTextContent(/upcoming/);
     expect(api.getOrganiserProfile).toHaveBeenCalledTimes(1);
     expect(api.getOrganiserProfile).toHaveBeenCalledWith("org-1");

@@ -14,7 +14,7 @@ import SimilarNearby from "@/components/events/SimilarNearby";
 import ExternalTicketLink from "@/components/ExternalTicketLink";
 import OrganiserLogo from "@/components/organisers/OrganiserLogo";
 import SaveButton from "@/components/favourites/SaveButton";
-import { ArrowRightIcon, ArrowUpRightIcon, CalendarIcon, PinIcon } from "@/components/home/icons";
+import { ArrowUpRightIcon, CalendarIcon, PinIcon } from "@/components/home/icons";
 import SaveOnReturn from "@/components/favourites/SaveOnReturn";
 import { BarPrice, BuyArrow, BuyBarProvider, GaBuyBar, GaBuyPanel, PanelPrice, TICKETS_HEADING_ID } from "@/components/checkout/BuyBar";
 import SeatedTicketsPanel from "@/components/seating/SeatedTicketsPanel";
@@ -205,18 +205,18 @@ function whenLabel(startsAt: string, endsAt: string | undefined, timeZone: strin
  *
  * From 1024px: the photo (radius 16, with the date chip) on the left; on the right the tags (the
  * category, and a short age tag only when the organiser gave an age restriction), the title in display
- * type, the date and the venue as two groups with an icon each (the venue with Get directions), "Hosted by
- * {organiser}" with View organiser, the Who's going row, and the ticket panel: the all-inclusive "From A$X incl. booking
- * fee", the one orange action (Buy tickets, Free tickets, Join waitlist, Choose seats, or the outside
- * ticket link) and Save, Share and Add to calendar as Secondary buttons. The panel sticks under the header
- * while the details scroll by. Below the photo: the tickets (#tickets: the selector, seats, outside link
+ * type, "Hosted by {organiser}" as a byline under it (the name the link to their profile), the date and
+ * the venue as two groups with an icon each (the venue with Get directions), the Who's going row, and the
+ * ticket panel: the all-inclusive "From A$X incl. booking fee", the one orange action (Buy tickets, Free
+ * tickets, Join waitlist, Choose seats, or the outside ticket link) and Save, Share and Add to calendar as
+ * Secondary buttons. The panel sticks under the header while the details scroll by. Below the photo: the tickets (#tickets: the selector, seats, outside link
  * or waitlist), About, Who's Going, Before you go (the organiser's note, when there is one), Location,
  * Refunds, Good to know, the Organiser card and Report this event; then "More from {organiser}" and
  * "Similar nearby", each the one EventCard, loaded after the first paint.
  *
  * Phones and tablets: one column in the same reading order, with the panel's price and action in the
  * sticky bottom buy bar instead (one orange action in view), so the panel is just Save, Share and Add to
- * calendar under the title. The bar sticks to the bottom of the screen all the way down and settles under
+ * calendar under the facts. The bar sticks to the bottom of the screen all the way down and settles under
  * the content at the very end; once the event has ended there's no bar (nothing's for sale, and the
  * tickets section says so).
  *
@@ -390,6 +390,40 @@ export default function EventDetailsView({
             <h1 className="event-title break-words">
               {missing?.title ? <Placeholder>Untitled event</Placeholder> : event.title}
             </h1>
+            {/* Who's hosting, as a byline straight under the title at every width (owner, 27 Nov 2026: no View
+                organiser, "the name should just be clickable", under the event's name): their mark, then "Hosted by
+                {name}" with the name itself the link to their profile (plain text with no profile). 8px under the
+                title. The name is an inline-block, so a long name (or 200% text) drops under "Hosted by" and wraps
+                there; below lg its 10px padding, cancelled by an equal negative margin, makes a 44px target on one
+                line (as min-h-11 does for Get directions) that grows with the name, never overlapping the lines
+                around it. */}
+            <div data-event-organiser="" className="-mt-1 flex items-center gap-2">
+              {/* Their profile mark (32px): their logo in the avatar square, or their initials (no logo, the demo, or
+                  it didn't load). Decorative and out of the tab order: the name is the link. */}
+              {organiserHref ? (
+                <Link href={organiserHref} aria-hidden="true" tabIndex={-1} data-organiser-avatar="" className="flex shrink-0">
+                  <OrganiserLogo name={event.organiserName} url={event.organiserLogoThumbUrl} size="md" fallback="initials" />
+                </Link>
+              ) : (
+                <span data-organiser-avatar="" className="flex shrink-0">
+                  <OrganiserLogo name={event.organiserName} url={event.organiserLogoThumbUrl} size="md" fallback="initials" />
+                </span>
+              )}
+              <p className="body-m min-w-0 break-words">
+                Hosted by{" "}
+                {/* A live event's organiser profile, or in the demo the sample organiser's. */}
+                {organiserHref ? (
+                  <Link
+                    href={organiserHref}
+                    className="inline-block max-w-full font-semibold underline underline-offset-4 hover:decoration-2 max-lg:-my-2.5 max-lg:py-2.5"
+                  >
+                    {event.organiserName}
+                  </Link>
+                ) : (
+                  <span className="font-semibold">{event.organiserName}</span>
+                )}
+              </p>
+            </div>
             {/* The one date/time and venue block (no second copy further down), as two groups with an icon each (the
                 owner's event reference, 13 Nov 2026), in Instrument Sans as written: when (16px 500), its zone under it
                 (14px, muted); where: the venue (16px 500), its full address under it, and a separate Get directions
@@ -485,46 +519,6 @@ export default function EventDetailsView({
                   <ShareButton slug={event.slug} title={event.title} text={shareText} fill />
                   {!missing?.when && <AddToCalendar event={event} look="button" />}
                 </div>
-              </div>
-            </div>
-            {/* Who's hosting (the owner's event reference): their mark, "Hosted by {name}", and View organiser → to their
-                profile at the right, or under the name where the row is too narrow for both. (Their upcoming count is
-                gone from here: beside the link it crowded the row.) After the ticket panel in the DOM (Round 2): below
-                lg that puts it under Save, Share and Calendar, just above Who's going; from lg the panel is order-last,
-                so it still shows straight under the facts. */}
-            <div data-event-organiser="" className="flex items-center gap-3">
-              {/* Their profile mark: their logo in the avatar square, or their initials (no logo, the demo, or it didn't
-                  load). Decorative and out of the tab order: View organiser is the link. */}
-              {organiserHref ? (
-                <Link href={organiserHref} aria-hidden="true" tabIndex={-1} data-organiser-avatar="" className="flex shrink-0">
-                  <OrganiserLogo name={event.organiserName} url={event.organiserLogoThumbUrl} size="md" fallback="initials" />
-                </Link>
-              ) : (
-                <span data-organiser-avatar="" className="flex shrink-0">
-                  <OrganiserLogo name={event.organiserName} url={event.organiserLogoThumbUrl} size="md" fallback="initials" />
-                </span>
-              )}
-              <div className="flex min-w-0 flex-1 flex-wrap items-center justify-between gap-x-3">
-                {/* Wraps beside the link while it has 160px; below that the link drops under it. */}
-                <p className="body-m min-w-0 flex-1 basis-40 break-words">
-                  Hosted by <span className="font-semibold">{event.organiserName}</span>
-                </p>
-                {/* A live event's organiser profile, or in the demo the sample organiser's. */}
-                {organiserHref && (
-                  <Link
-                    href={organiserHref}
-                    // Never wider than the row: with very large text its words wrap, the arrow beside them.
-                    className="group/link body-s inline-flex min-h-11 max-w-full min-w-0 items-center gap-1 font-medium underline underline-offset-4 hover:decoration-2 lg:min-h-6"
-                  >
-                    {/* The whole name in one span: a leading space in a separate sr-only suffix can be dropped inside a
-                        flex link. */}
-                    <span className="sr-only">View organiser {event.organiserName}</span>
-                    <span aria-hidden="true" className="min-w-0">
-                      View organiser
-                    </span>
-                    <ArrowRightIcon className="size-4 shrink-0 motion-safe:transition-transform motion-safe:duration-150 motion-safe:group-hover/link:translate-x-0.5" />
-                  </Link>
-                )}
               </div>
             </div>
             {/* Who's going (the owner's event mock): the count, a few faces and I'm going (or See who's going, View

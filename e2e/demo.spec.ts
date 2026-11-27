@@ -36,11 +36,12 @@ for (const vp of [
   test.describe(`demo at ${vp.width}×${vp.height}`, () => {
     test.use({ viewport: vp });
 
-    test("an event's View organiser opens the sample organiser's page, with their events", async ({ page }) => {
+    test("an event's organiser name (the title's byline) opens the sample organiser's page, with their events", async ({ page }) => {
       const checkNoApiCalls = noApiCalls(page);
       await page.goto("/events/dead-letter-office");
-      const link = page.getByRole("link", { name: "View organiser Small Hours Theatre", exact: true });
+      const link = page.locator("[data-event-organiser]").getByRole("link", { name: "Small Hours Theatre", exact: true });
       await expect(link).toBeVisible({ timeout: 60_000 });
+      await expect(page.getByText(/View organiser/)).toHaveCount(0);
       await link.click();
 
       await expect(page).toHaveURL(/\/organisers\/small-hours-theatre$/);

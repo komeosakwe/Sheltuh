@@ -180,12 +180,14 @@ describe("EventDetailsView key facts under the title (Refinement, 22 Oct 2026)",
     expect(screen.queryByText(`${event.venueName} · ${event.suburb}`)).toBeNull();
     // The street address is said once on the page above Location (which has its own copy further down).
     expect(within(facts).getAllByText(event.venueAddress)).toHaveLength(1);
-    // The time zone and directions stay (Add to calendar is in the ticket panel's row; the organiser is the row after).
+    // The time zone and directions stay (Add to calendar is in the ticket panel's row; the organiser is the byline
+    // between the title and these).
     expect(within(facts).getByText(/^Melbourne time/)).toBeInTheDocument();
     expect(within(facts).getByRole("link", { name: /^Get directions to / })).toBeInTheDocument();
     const organiser = container.querySelector<HTMLElement>("[data-event-organiser]");
     if (!organiser) throw new Error("organiser row not rendered");
-    expect(facts.compareDocumentPosition(organiser) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(organiser.previousElementSibling).toBe(heading);
+    expect(organiser.nextElementSibling).toBe(facts);
     expect(organiser).toHaveTextContent(`Hosted by ${event.organiserName}`);
     // Instrument Sans as written: the zone a 14px muted line, never in capitals or mono.
     expect(within(facts).getByText(/^Melbourne time/)).toHaveClass("body-s", "text-muted");
@@ -297,25 +299,32 @@ describe("EventDetailsView key facts under the title (Refinement, 22 Oct 2026)",
 });
 
 describe("EventDetailsView organiser", () => {
-  it("says 'Hosted by {name}' with View organiser → to their profile for a live event", () => {
+  it("says 'Hosted by {name}' straight under the title, the name itself the link to their profile for a live event", () => {
     const event = { ...findEvent("neon-static"), organiserId: "org 1", organiserName: "Northside Noise" };
     const { container } = render(<EventDetailsView event={event} demo={false} />);
     const row = container.querySelector<HTMLElement>("[data-event-organiser]");
     if (!row) throw new Error("organiser row not rendered");
-    expect(within(row).getByText("Northside Noise")).toHaveClass("font-semibold");
+    // A byline: the element right after the h1 (owner, 27 Nov 2026).
+    expect(row.previousElementSibling).toBe(screen.getByRole("heading", { level: 1 }));
     expect(within(row).getByText(/^Hosted by/)).toHaveTextContent("Hosted by Northside Noise");
-    // Named for who it's for, starting with the words shown.
-    const link = within(row).getByRole("link", { name: "View organiser Northside Noise" });
+    // The name is the link (its text all of the link's name), underlined and semibold like the page's other text links.
+    const link = within(row).getByRole("link", { name: "Northside Noise" });
     expect(link).toHaveAttribute("href", "/organisers/org%201");
-    expect(link).toHaveTextContent("View organiser");
-    expect(link.querySelector("svg")).toHaveAttribute("aria-hidden", "true");
+    expect(link).toHaveTextContent(/^Northside Noise$/);
+    expect(link).toHaveClass("font-semibold", "underline", "underline-offset-4", "hover:decoration-2");
+    // A 44px target on phones (10px above and below its 24px line, cancelled in the layout), and it can wrap.
+    expect(link).toHaveClass("inline-block", "max-w-full", "max-lg:py-2.5", "max-lg:-my-2.5");
+    // No separate View organiser link any more.
+    expect(row).not.toHaveTextContent(/View organiser/);
+    expect(screen.queryByText(/View organiser/)).toBeNull();
+    expect(screen.queryByRole("link", { name: /View organiser/ })).toBeNull();
   });
 
   it("in the demo, links a sample event's organiser to the sample organiser's profile", () => {
     const event = findEvent("dead-letter-office");
     expect(event.organiserId).toBeUndefined();
     render(<EventDetailsView event={event} demo />);
-    const link = screen.getByRole("link", { name: "View organiser Small Hours Theatre" });
+    const link = screen.getByRole("link", { name: "Small Hours Theatre" });
     expect(link).toHaveAttribute("href", "/organisers/small-hours-theatre");
   });
 
@@ -326,8 +335,8 @@ describe("EventDetailsView organiser", () => {
     expect(avatar).toHaveAttribute("href", "/organisers/small-hours-theatre");
     expect(avatar).toHaveAttribute("aria-hidden", "true");
     expect(avatar).toHaveAttribute("tabindex", "-1");
-    // View organiser stays the one link people reach.
-    expect(screen.getAllByRole("link", { name: "View organiser Small Hours Theatre" })).toHaveLength(1);
+    // The name stays the one link people reach.
+    expect(screen.getAllByRole("link", { name: "Small Hours Theatre" })).toHaveLength(1);
   });
 
   it("shows the avatar without a link when there's no profile", () => {
@@ -355,9 +364,9 @@ describe("EventDetailsView organiser", () => {
     expect(img).toHaveAttribute("width", "32");
     expect(img).toHaveAttribute("height", "32");
     expect(avatar).not.toHaveTextContent(/\S/); // no initials beside it
-    // Decorative: it adds nothing to the accessibility tree, and View organiser stays the one link.
+    // Decorative: it adds nothing to the accessibility tree, and the name stays the one link.
     expect(screen.queryByRole("img")).toBeNull();
-    expect(screen.getAllByRole("link", { name: `View organiser ${event.organiserName}` })).toHaveLength(1);
+    expect(screen.getAllByRole("link", { name: event.organiserName })).toHaveLength(1);
   });
 
   it("falls back to the organiser's initials when the logo fails to load", () => {
@@ -387,9 +396,13 @@ describe("EventDetailsView organiser", () => {
   it("keeps the organiser as plain text when there's no profile to link to", () => {
     const event = { ...findEvent("neon-static"), organiserName: "Nobody In The Samples" };
     const { container } = render(<EventDetailsView event={event} demo />);
-    expect(container.querySelector("[data-event-organiser]")).toHaveTextContent("Hosted by Nobody In The Samples");
+    const row = container.querySelector<HTMLElement>("[data-event-organiser]");
+    if (!row) throw new Error("organiser row not rendered");
+    expect(row).toHaveTextContent("Hosted by Nobody In The Samples");
+    expect(within(row).getByText("Nobody In The Samples")).toHaveClass("font-semibold");
+    expect(within(row).queryByRole("link")).toBeNull();
     expect(screen.queryByRole("link", { name: /Nobody In The Samples/ })).not.toBeInTheDocument();
-    expect(screen.queryByRole("link", { name: /^View organiser/ })).not.toBeInTheDocument();
+    expect(screen.queryByText(/View organiser/)).toBeNull();
   });
 });
 
@@ -540,10 +553,10 @@ describe("EventDetailsView Where: Get directions", () => {
 });
 
 describe("EventDetailsView organiser row", () => {
-  it("links to the organiser's profile with View organiser, with no separate More from link", () => {
+  it("links to the organiser's profile from their name, with no separate More from link", () => {
     const event = { ...findEvent("neon-static"), organiserId: "org 1", organiserName: "Northside Noise" };
     render(<EventDetailsView event={event} demo={false} />);
-    expect(screen.getByRole("link", { name: "View organiser Northside Noise" })).toHaveAttribute("href", "/organisers/org%201");
+    expect(screen.getByRole("link", { name: "Northside Noise" })).toHaveAttribute("href", "/organisers/org%201");
     expect(screen.queryByRole("link", { name: /^More from/ })).toBeNull();
   });
 });

@@ -122,15 +122,14 @@ describe("Who's going? card", () => {
     expect(region).toHaveClass("bg-hover");
     expect(region.querySelector("img")).toBeNull();
 
-    // Reading order (Round 2): Save and Share (so they stay above the phone's bar), then Hosted by, then this row,
-    // then the tickets. From lg the panel is drawn after this row (CSS order), as in the mock, so there the organiser
-    // still shows straight under the facts.
+    // Reading order: Hosted by as the title's byline (owner, 27 Nov 2026), then Save and Share (Round 2), then this
+    // row, then the tickets. From lg the panel is drawn after this row (CSS order), as in the mock.
     const organiser = document.querySelector("[data-organiser-avatar]");
     const actions = document.querySelector("[data-event-actions]");
     const tickets = screen.getByRole("heading", { name: "Choose your tickets" });
     if (!actions || !organiser) throw new Error("no actions row or organiser");
-    expect(actions.compareDocumentPosition(organiser) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(organiser.compareDocumentPosition(region) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(organiser.compareDocumentPosition(actions) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(actions.compareDocumentPosition(region) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(region.compareDocumentPosition(tickets) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(document.querySelector("[data-ticket-panel]")).toHaveClass("lg:order-last");
   });
