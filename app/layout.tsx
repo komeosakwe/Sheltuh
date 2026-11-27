@@ -49,6 +49,10 @@ export const metadata: Metadata = {
   // Home-screen app on iOS (the manifest is app/manifest.ts). "black": a black status bar with
   // white text, running into the black header (both themes); see docs/pwa.md.
   appleWebApp: { title: "Sheltüh", statusBarStyle: "black" },
+  // No phone-made links (owner, 27 Nov 2026: the event page's declutter, S3): iOS Safari otherwise turns addresses,
+  // phone numbers and emails it finds in text into its own unlabelled links (a dotted underline), a second maps link
+  // beside our own directions link. Our own links stay the only links.
+  formatDetection: { telephone: false, address: false, email: false },
   // Site ownership check for Ticketmaster's affiliate programme (run on impact.com):
   // a public token, safe in the page.
   other: { "impact-site-verification": "95a574c6-fd1e-4531-b8e2-4b86a313eba5" },
