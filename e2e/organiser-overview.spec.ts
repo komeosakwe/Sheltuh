@@ -223,15 +223,25 @@ test("keyboard: Share event, each card's Manage, Continue, in order, with a visi
 // Enlarged text: the browser's default font size doubled (32px, as a "very large" text setting does), so
 // rem sizes and the rem breakpoints grow together, as they do for a person with that setting. Nothing in
 // the Overview reaches past its own column, and no heading, line or control's words spill out of it.
+// The banner's line ends with the event's day ("… left before Wednesday."), so the clock is pinned: a Saturday in
+// Melbourne with the event four days on, a Wednesday, the longest weekday and so the line's longest word.
+const TEXT200_NOW = Date.parse("2026-11-28T03:20:00+11:00");
+const TEXT200_HERE = summary("evt-here", "Here & Now", {
+  imageUrl: "/events/record-shop-dj.jpg",
+  startsAt: new Date(TEXT200_NOW + 4 * DAY).toISOString(),
+  endsAt: new Date(TEXT200_NOW + 4 * DAY + 4 * 3_600_000).toISOString(),
+});
 for (const width of [320, 390, 768, 1440]) {
   test(`200% text at ${width}: everything stays inside the Overview`, async ({ page }) => {
     await page.setViewportSize({ width, height: 1100 });
     const cdp = await page.context().newCDPSession(page);
     await cdp.send("Page.enable");
     await cdp.send("Page.setFontSizes", { fontSizes: { standard: 32, fixed: 26 } });
-    await signedInOrganiser(page);
+    await page.clock.setFixedTime(TEXT200_NOW);
+    await signedInOrganiser(page, { ...OVERVIEW, highlight: TEXT200_HERE, upcoming: [TEXT200_HERE, OPEN] });
     await page.goto("/dashboard");
     await expect(page.getByRole("heading", { name: "Upcoming events" })).toBeVisible({ timeout: 30_000 });
+    await expect(page.locator("[data-highlight-banner]")).toContainText("34 tickets left before Wednesday.");
     expect(await page.evaluate(() => getComputedStyle(document.documentElement).fontSize)).toBe("32px");
     await page.evaluate(() => document.fonts.ready);
     // Nothing outside the site footer reaches past the screen's edge. (The footer's theme switch does at 320px with
@@ -255,6 +265,20 @@ for (const width of [320, 390, 768, 1440]) {
         .map((el) => `${el.tagName} ${(el.textContent ?? "").slice(0, 30)}`);
     });
     expect(spills).toEqual([]);
+    // The banner's words and Share chip stay on the orange.
+    const offBanner = await page.evaluate(() => {
+      const banner = document.querySelector("[data-highlight-banner]");
+      if (!banner) return ["no banner"];
+      const edge = banner.getBoundingClientRect();
+      return [...banner.querySelectorAll("*")]
+        .filter((el) => !el.closest(".sr-only"))
+        .filter((el) => {
+          const box = el.getBoundingClientRect();
+          return box.width > 0 && (box.left < edge.left - 1 || box.right > edge.right + 1);
+        })
+        .map((el) => `${el.tagName} ${(el.textContent ?? "").slice(0, 30)}`);
+    });
+    expect(offBanner).toEqual([]);
     if (process.env.OVERVIEW_SHOTS) await page.screenshot({ path: `${process.env.OVERVIEW_SHOTS}/overview-${width}-text200.png`, fullPage: true });
   });
 }
