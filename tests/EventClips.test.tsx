@@ -153,7 +153,7 @@ describe("the Play button (§5.1)", () => {
     // At the image's bottom-right, 8px in (visual QA, PR 1), clear of the date chip and Save.
     expect(button).toHaveClass("pointer-events-auto", "absolute", "bottom-2", "right-2", "min-h-11", "min-w-11");
     // One ring only: the page's own focus outline is dropped (!important beats the unlayered rule).
-    expect(button).toHaveClass("focus-visible:outline-none!");
+    expect(button).toHaveClass("focus-visible:outline-hidden!");
   });
 
   it("an ended event's chip keeps its colour (only the image is greyed)", () => {
@@ -292,13 +292,19 @@ describe("the event page's photo (§5.3)", () => {
     const { container } = withProviders(<EventDetailsView event={{ ...event, slug: "neon-static" }} demo />);
     const button = playButton();
     expect(button).toHaveTextContent("Play clip0:12");
-    expect(button).toHaveClass("focus-visible:outline-none!");
+    // Its words go where the photo (a container) is too narrow for the whole chip (200% text at 320px); the glyph and
+    // the length stay, and the name is unchanged.
+    expect(within(button).getByText("Play clip")).toHaveClass("@max-[9rem]:hidden");
+    expect(button.parentElement).toHaveClass("@container");
+    expect(button).toHaveClass("focus-visible:outline-hidden!");
     expect(button).toHaveClass("absolute", "bottom-2", "left-2", "sm:bottom-4", "sm:left-4", "h-11");
     const wrapper = button.parentElement as HTMLElement;
     expect(wrapper).toHaveClass("relative");
     const art = wrapper.firstElementChild as HTMLElement;
     expect(art).toHaveAttribute("aria-hidden", "true");
-    expect(art).toHaveClass("aspect-[4/3]", "max-h-[22svh]", "w-full", "rounded-card", "lg:aspect-[3/2]");
+    // At most 22% of the screen's height, but never under 7rem, so with large text the Play and the marks (in rem)
+    // still fit one over the other (review, PR 113).
+    expect(art).toHaveClass("aspect-[4/3]", "max-h-[22svh]", "min-h-28", "w-full", "rounded-card", "lg:aspect-[3/2]");
     // On a short phone (an iPhone SE), 8px less: what the 64px phone header took (e2e/event-page.spec.ts).
     expect(art).toHaveClass("max-sm:[@media(max-height:700px)]:max-h-[calc(22svh-0.5rem)]");
     expect(container.querySelector("video")).toBeNull();
@@ -309,7 +315,7 @@ describe("the event page's photo (§5.3)", () => {
   it("an event without a clip keeps the same box and has no Play", () => {
     const { container } = withProviders(<EventDetailsView event={{ ...event, clip: undefined }} demo />);
     expect(screen.queryByRole("button", { name: /^Play clip/ })).toBeNull();
-    const art = container.querySelector("[data-date-chip]")?.parentElement?.firstElementChild;
+    const art = container.querySelector("[data-event-actions]")?.parentElement?.firstElementChild;
     expect(art).toHaveClass("aspect-[4/3]", "w-full");
   });
 });

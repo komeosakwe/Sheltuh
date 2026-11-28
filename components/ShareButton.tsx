@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
-import { actionRowClass, actionRowLabelClass, buttonClass, secondaryActionClass } from "@/components/ui/Button";
+import { buttonClass, photoMarkClass, photoMarkLabelClass, photoMarkTargetClass, secondaryActionClass } from "@/components/ui/Button";
 import { PHONE_QUERY } from "@/components/ui/useIsPhone";
 import { publicEventUrl } from "@/lib/event-url";
 import { absoluteUrl } from "@/lib/share-metadata";
@@ -10,7 +10,11 @@ const COPIED_FOR_MS = 4000;
 /** The popover's gap below the button on phones, matching `sm:mt-2`. */
 const POPOVER_GAP_PX = 8;
 
-function ShareIcon() {
+/** 16px beside a word; on the event page's photo mark, 20px alone below 640px and 16px with its word from 640px. */
+const ICON_CLASS = "size-4 shrink-0";
+const PHOTO_ICON_CLASS = "size-5 shrink-0 sm:size-4";
+
+function ShareIcon({ className }: { className: string }) {
   return (
     <svg
       aria-hidden="true"
@@ -20,7 +24,7 @@ function ShareIcon() {
       strokeWidth={1.75}
       strokeLinecap="round"
       strokeLinejoin="round"
-      className="size-4 shrink-0"
+      className={className}
     >
       <path d="M12 3v12" />
       <path d="m8 7 4-4 4 4" />
@@ -29,9 +33,9 @@ function ShareIcon() {
   );
 }
 
-function CopiedIcon() {
+function CopiedIcon({ className }: { className: string }) {
   return (
-    <svg aria-hidden="true" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth={2} className="size-4 shrink-0">
+    <svg aria-hidden="true" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth={2} className={className}>
       <path d="M3 8.5l3.5 3.5L13 4.5" />
     </svg>
   );
@@ -46,6 +50,23 @@ function shareUrl(target: ShareTarget, origin: string): string {
   return absoluteUrl((target.path ?? "/").split(/[?#]/, 1)[0], origin);
 }
 
+/**
+ * "Share", and "Copied" for a few seconds after a copy: both in one grid cell, the one not showing invisible, so the
+ * button is always as wide as the wider ("Copied") and the row it shares never shifts.
+ */
+function swapLabel(copied: boolean) {
+  return (
+    <span className="grid justify-items-center">
+      <span data-share-label="share" className={`col-start-1 row-start-1 ${copied ? "invisible" : ""}`.trim()}>
+        Share
+      </span>
+      <span data-share-label="copied" className={`col-start-1 row-start-1 ${copied ? "" : "invisible"}`.trim()}>
+        Copied
+      </span>
+    </span>
+  );
+}
+
 function isAbort(err: unknown): boolean {
   return err instanceof DOMException && err.name === "AbortError";
 }
@@ -58,43 +79,67 @@ function isAbort(err: unknown): boolean {
  * copy by hand. The link is the page alone, never the address bar's query
  * (so a tracking `?ref=` isn't passed on).
  */
+/**
+ * How the button looks: the event page's photo mark (`look="photo"`), or the Secondary button, optionally with its
+ * own words (`label`) and look (`buttonClassName`) or "Copied" in its label (`copiedInLabel`). One or the other: the
+ * photo mark has its own words, look and copied state, so it takes none of those.
+ */
+type ShareLook =
+  | {
+      /**
+       * The event page's mark on its photo, beside Save (owner, 27 Nov 2026: Option A; components/ui/Button.tsx
+       * photoMarkClass). The icon alone below 640px, with "Share" from 640px; after a copy, the check for a few
+       * seconds, and "Copied" in place of "Share" from 640px, as `copiedInLabel` does (which it implies). "Link
+       * copied" is said, never shown, so nothing is drawn over the photo.
+       */
+      look: "photo";
+      /** The event has no photo, just the generated poster: the white mark gets a faint edge (photoMarkClass). */
+      onPoster?: boolean;
+      copiedInLabel?: never;
+      label?: never;
+      buttonClassName?: never;
+    }
+  | {
+      look?: undefined;
+      onPoster?: never;
+      /**
+       * After a copy, the button itself reads "Copied" (with a check) for a few seconds, and is named "Copied. Share
+       * {title}" meanwhile; "Link copied" is said but not shown. The button is always as wide as "Copied", so a row
+       * it shares (the organiser profile's Follow and Share) never changes.
+       */
+      copiedInLabel?: boolean;
+      /**
+       * Other words on the button, with no icon and an arrow after them (the organiser Overview's
+       * "Share event →" chip): it's then named "{label}: {title}", so the name starts with what's shown.
+       */
+      label?: string;
+      /** The button's look in place of the Secondary button's (with `label`). */
+      buttonClassName?: string;
+    };
+
+export type ShareButtonProps = ShareTarget &
+  ShareLook & {
+    title: string;
+    /** The copy-by-hand popover's field label. */
+    copyLabel?: string;
+    /** The share sheet's message, e.g. "{title} · {Sat 24 Oct, 7:00 pm} · {venue}". */
+    text?: string;
+    className?: string;
+  };
+
 export default function ShareButton({
   slug,
   path,
   title,
   text,
   className = "",
-  fill = false,
+  look,
+  onPoster = false,
   copyLabel = "Link to this event",
   copiedInLabel = false,
   label,
   buttonClassName,
-}: ShareTarget & {
-  title: string;
-  /** The copy-by-hand popover's field label. */
-  copyLabel?: string;
-  /**
-   * After a copy, the button itself reads "Copied" (with a check) for a few seconds, and is named "Copied. Share
-   * {title}" meanwhile; "Link copied" is said but not shown. The button is always as wide as "Copied", so a row it
-   * shares (the organiser profile's Follow and Share) never changes.
-   */
-  copiedInLabel?: boolean;
-  /**
-   * The button fills the box it's given (the event page's ticket panel, in a row with Save and Add to
-   * calendar), and "Link copied" shows just under it rather than beside it, so the row never gets wider.
-   */
-  fill?: boolean;
-  /** The share sheet's message, e.g. "{title} · {Sat 24 Oct, 7:00 pm} · {venue}". */
-  text?: string;
-  className?: string;
-  /**
-   * Other words on the button, with no icon and an arrow after them (the organiser Overview's
-   * "Share event →" chip): it's then named "{label}: {title}", so the name starts with what's shown.
-   */
-  label?: string;
-  /** The button's look in place of the Secondary button's (with `label`). */
-  buttonClassName?: string;
-}) {
+}: ShareButtonProps) {
   const [status, setStatus] = useState("");
   const [manualUrl, setManualUrl] = useState<string | null>(null);
   const [manualHint, setManualHint] = useState("");
@@ -109,7 +154,10 @@ export default function ShareButton({
   useEffect(() => () => clearTimeout(clearTimer.current), []);
 
   const open = manualUrl !== null;
-  const copied = copiedInLabel && status !== "";
+  const photo = look === "photo";
+  const labelSwaps = copiedInLabel || photo;
+  const copied = labelSwaps && status !== "";
+  const iconClass = photo ? PHOTO_ICON_CLASS : ICON_CLASS;
 
   // Below sm the popover spans the viewport inside its gutters (`fixed
   // inset-x-5`), just under the button, following it as the page scrolls; a
@@ -212,7 +260,7 @@ export default function ShareButton({
   return (
     <div
       ref={rootRef}
-      className={`relative flex ${fill ? "flex-col" : "items-center gap-2"} ${className}`.trim()}
+      className={`relative flex ${photo ? "" : "items-center gap-2"} ${className}`.replace(/\s+/g, " ").trim()}
       onKeyDown={(event) => {
         if (event.key === "Escape" && open) {
           event.stopPropagation();
@@ -238,39 +286,28 @@ export default function ShareButton({
         aria-label={copied ? `Copied. Share ${title}` : label ? `${label}: ${title}` : `Share ${title}`}
         aria-expanded={open ? true : undefined}
         aria-controls={open ? popoverId : undefined}
-        className={buttonClassName ?? (fill ? actionRowClass : secondaryActionClass)}
+        data-share-look={photo ? "photo" : undefined}
+        className={photo ? `group/share ${photoMarkTargetClass}` : (buttonClassName ?? secondaryActionClass)}
       >
-        {label ? (
+        {photo ? (
+          <span className={photoMarkClass("share", onPoster)} data-surface="paper">
+            {copied ? <CopiedIcon className={iconClass} /> : <ShareIcon className={iconClass} />}
+            <span className={photoMarkLabelClass}>{swapLabel(copied)}</span>
+          </span>
+        ) : label ? (
           <>
             {label}
             <span aria-hidden="true">→</span>
           </>
-        ) : copied ? (
-          <CopiedIcon />
         ) : (
-          <ShareIcon />
-        )}
-        {label ? null : copiedInLabel ? (
-          // Both labels in one grid cell, the one not showing invisible, so the button is always as wide as
-          // the wider ("Copied") and the row it shares never shifts.
-          <span className="grid justify-items-center">
-            <span data-share-label="share" className={`col-start-1 row-start-1 ${copied ? "invisible" : ""}`.trim()}>
-              Share
-            </span>
-            <span data-share-label="copied" className={`col-start-1 row-start-1 ${copied ? "" : "invisible"}`.trim()}>
-              Copied
-            </span>
-          </span>
-        ) : (
-          <span className={fill ? actionRowLabelClass : undefined}>Share</span>
+          <>
+            {copied ? <CopiedIcon className={iconClass} /> : <ShareIcon className={iconClass} />}
+            {copiedInLabel ? swapLabel(copied) : <span>Share</span>}
+          </>
         )}
       </button>
-      {/* Beside the button, and always in the page so the change is announced. */}
-      {/* Filling a row: under the button, in the flow, so it pushes the page down rather than covering anything. */}
-      <p
-        role="status"
-        className={copiedInLabel ? "sr-only" : fill ? "text-xs leading-4 not-empty:mt-2" : "text-sm whitespace-nowrap"}
-      >
+      {/* Beside the button, and always in the page so the change is announced (said only, when the button shows it). */}
+      <p role="status" className={labelSwaps ? "sr-only" : "text-sm whitespace-nowrap"}>
         {status}
       </p>
       {manualUrl !== null && (

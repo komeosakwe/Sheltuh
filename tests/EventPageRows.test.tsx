@@ -83,8 +83,8 @@ describe("the organiser's profile read (live)", () => {
 
     const host = screen.getByRole("region", { name: "Organiser" });
     await waitFor(() => expect(within(host).getByText("1.2K followers · ✓ Checked")).toBeInTheDocument());
-    // The row under the title is just "Hosted by {name}" and View organiser (owner's event reference, 13 Nov 2026):
-    // no upcoming count crowding it.
+    // The byline under the title is just "Hosted by {name}", the name the link (owner, 27 Nov 2026): no upcoming
+    // count crowding it.
     expect(document.querySelector("[data-event-organiser]")).not.toHaveTextContent(/upcoming/);
     expect(api.getOrganiserProfile).toHaveBeenCalledTimes(1);
     expect(api.getOrganiserProfile).toHaveBeenCalledWith("org-1");
@@ -256,18 +256,22 @@ describe("the ticket panel's price and action (from 1024px)", () => {
     expect(container.querySelector("#tickets")).toBeNull();
   });
 
-  it("sold out: Join waitlist; ended: no price or action, Save and Share stay", () => {
+  it("sold out: Join waitlist; ended: no price or action, so no panel (Save and Share stay on the photo)", () => {
     const soldOut = sample("dead-letter-office");
     const { container, unmount } = render(<EventDetailsView event={soldOut} demo />);
-    let panel = container.querySelector<HTMLElement>("[data-ticket-panel]") as HTMLElement;
+    const panel = container.querySelector<HTMLElement>("[data-ticket-panel]") as HTMLElement;
     expect(within(panel).getByText("Sold out")).toBeInTheDocument();
     expect(within(panel).getByRole("link", { name: "Join waitlist" })).toHaveAttribute("href", "#tickets");
     unmount();
     vi.setSystemTime(new Date("2026-12-01T00:00:00.000Z"));
     const ended = render(<EventDetailsView event={sample("neon-static")} demo />);
-    panel = ended.container.querySelector<HTMLElement>("[data-ticket-panel]") as HTMLElement;
-    expect(panel.querySelector("[data-buy-panel], .btn-signal")).toBeNull();
-    expect(within(panel).getByRole("button", { name: "Add to calendar" })).toBeInTheDocument();
+    // Nothing to buy: no panel at all (owner, 27 Nov 2026: Option A, the panel is only the price and the action).
+    expect(ended.container.querySelector("[data-ticket-panel]")).toBeNull();
+    expect(ended.container.querySelector("[data-buy-panel], .btn-signal")).toBeNull();
+    // Share stays on the photo, and Add to calendar under the date.
+    const onPhoto = ended.container.querySelector<HTMLElement>("[data-event-actions]") as HTMLElement;
+    expect(within(onPhoto).getByRole("button", { name: /^Share / })).toBeInTheDocument();
+    expect(within(ended.container.querySelector<HTMLElement>("[data-event-when]") as HTMLElement).getByRole("button", { name: "Add to calendar" })).toBeInTheDocument();
   });
 });
 

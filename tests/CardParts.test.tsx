@@ -2,18 +2,16 @@
 import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 import CategoryTag from "@/components/ui/CategoryTag";
-import DateChip from "@/components/ui/DateChip";
 import GoingRow from "@/components/ui/GoingRow";
 import PriceTag from "@/components/ui/PriceTag";
-import { cardDateChip, cardMetaParts, cardWhenParts, cardWhereLabel } from "@/lib/event-card";
+import { cardMetaParts, cardWhenParts, cardWhereLabel } from "@/lib/event-card";
 import { formatEventTimeCompact, formatEventWeekday } from "@/lib/format";
 import { FREE_AND_PAID_LABEL, formatCardPriceLabel } from "@/lib/pricing";
 import type { SheltuhEvent } from "@/lib/types";
 
 /*
- * The event card's parts (the rules' Cards and Tags & chips boards): the date
- * chip in the event's own zone, the compact time, the tag, the price label
- * and the going row.
+ * The event card's parts (the rules' Cards and Tags & chips boards): the
+ * compact time, the tag, the price label and the going row.
  */
 afterEach(cleanup);
 
@@ -37,30 +35,6 @@ describe("the compact card time", () => {
   it("is in the zone given", () => {
     expect(formatEventTimeCompact("2026-11-14T06:00:00.000Z", "Australia/Perth")).toBe("2pm");
     expect(formatEventWeekday("2026-11-14T06:00:00.000Z", "Australia/Perth")).toBe("Sat");
-  });
-});
-
-describe("DateChip", () => {
-  it("shows the weekday, day and month of the start as written, and is hidden from screen readers (the meta line says it)", () => {
-    const { container } = render(<DateChip event={event} />);
-    const chip = container.firstElementChild as HTMLElement;
-    expect(chip).toHaveAttribute("aria-hidden", "true");
-    expect(Array.from(chip.children).map((el) => el.textContent)).toEqual(["Sat", "14", "Nov"]);
-    expect(chip.querySelector(".uppercase")).toBeNull();
-  });
-
-  it("dates it in the event's own zone, not Melbourne's", () => {
-    // 12:30 am on Sun 15 Nov in Melbourne is still Sat 14 Nov in Perth.
-    const late = { startsAt: "2026-11-14T13:30:00.000Z", timeZone: "Australia/Perth" as const, state: "WA" as const };
-    expect(cardDateChip(late)).toEqual({ weekday: "Sat", day: "14", month: "Nov" });
-    expect(cardDateChip({ ...late, timeZone: undefined, state: "VIC" })).toEqual({ weekday: "Sun", day: "15", month: "Nov" });
-  });
-
-  it("is white with black text in both themes (it sits on a photo), never orange text", () => {
-    const { container } = render(<DateChip event={event} />);
-    const chip = container.firstElementChild as HTMLElement;
-    expect(chip).toHaveClass("bg-paper", "text-ink", "rounded-badge");
-    expect(chip.innerHTML).not.toMatch(/text-signal/);
   });
 });
 

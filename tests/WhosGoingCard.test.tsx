@@ -102,7 +102,7 @@ async function card() {
 }
 
 describe("Who's going? card", () => {
-  it("is a labelled section after the ticket panel's actions and the organiser (before the tickets), with View attendees to the panel", async () => {
+  it("is a labelled section after Save and Share (on the photo) and the organiser (before the tickets), with View attendees to the panel", async () => {
     member({ count: 42, attendees: people(5) });
     renderEvent(LIVE_EVENT);
     const region = await card();
@@ -122,9 +122,8 @@ describe("Who's going? card", () => {
     expect(region).toHaveClass("bg-hover");
     expect(region.querySelector("img")).toBeNull();
 
-    // Reading order (Round 2): Save and Share (so they stay above the phone's bar), then Hosted by, then this row,
-    // then the tickets. From lg the panel is drawn after this row (CSS order), as in the mock, so there the organiser
-    // still shows straight under the facts.
+    // Reading order: Save and Share on the photo (owner, 27 Nov 2026: Option A), Hosted by as the title's byline (owner,
+    // 27 Nov 2026), then this row, then the tickets. From lg the panel is drawn after this row (CSS order), as in the mock.
     const organiser = document.querySelector("[data-organiser-avatar]");
     const actions = document.querySelector("[data-event-actions]");
     const tickets = screen.getByRole("heading", { name: "Choose your tickets" });

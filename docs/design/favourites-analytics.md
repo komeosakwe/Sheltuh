@@ -123,6 +123,11 @@ string }; variant: "overlay" | "plain" | "onDark" | "pill"; className?: string }
 | `onDark` | Phone buy bar | `size-11` | Disc `size-9 border border-background text-background` → `bg-background text-foreground` with a filled heart; `focus-visible:outline-background` |
 | `pill` | Event page title row | `Button variant="outline" size="md"` + `min-h-11 gap-2` | 16px heart + the label "Save". The label never changes (it must stay in the accessible name). Saved fills the heart and the pill stays outline, so it never competes with Checkout |
 
+*Since the owner chose Option A on 27 Nov 2026, the event page's one Save is `SaveButton variant="photo"` on the photo's
+top-right corner, beside Share (a 40px white mark in a 48px target below 640px; a 44px chip with the word "Save" from
+640px); `pill`, `onDark` and the later `action` are gone. The fixed name, `aria-pressed`, the sign-in link and `save=1`
+(§5.3) are unchanged. See `mobile-redesign.md`, the Option A note at the Refinement.*
+
 | State | Rule |
 | --- | --- |
 | Hover (hover devices only) | Unsaved: disc `ring-1 ring-foreground` (a 2px edge). Saved: `bg-accent-strong`. `pill`: the `.btn-outline` hover |

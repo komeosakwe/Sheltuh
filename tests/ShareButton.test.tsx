@@ -1,8 +1,8 @@
 // @vitest-environment jsdom
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, expectTypeOf, it, vi } from "vitest";
 import AddToCalendar from "@/components/AddToCalendar";
-import ShareButton from "@/components/ShareButton";
+import ShareButton, { type ShareButtonProps } from "@/components/ShareButton";
 import { sampleEvents } from "@/lib/sample-events";
 
 type Nav = { share?: unknown; canShare?: unknown; clipboard?: unknown };
@@ -269,7 +269,7 @@ describe("ShareButton with a path (an organiser's profile)", () => {
     expect(label("copied")).toHaveClass("invisible");
   });
 
-  it("without copiedInLabel the label stays Share and Link copied shows beside it (the event page)", async () => {
+  it("without copiedInLabel the label stays Share and Link copied shows beside it", async () => {
     const writeText = vi.fn().mockResolvedValue(undefined);
     setNavigator({ clipboard: { writeText } });
     renderShare();
@@ -279,6 +279,68 @@ describe("ShareButton with a path (an organiser's profile)", () => {
     expect(button).not.toHaveTextContent("Copied");
     expect(button).toHaveAccessibleName("Share Neon Static");
     expect(screen.getByRole("status")).not.toHaveClass("sr-only");
+  });
+
+  // The event page's photo mark (owner, 27 Nov 2026: Option A): Save's mark, with the share icon.
+  it("look=photo: the photo mark (icon alone below 640px, 'Share' from 640px), the check and 'Copied' after a copy, nothing shown over the photo", async () => {
+    vi.useFakeTimers();
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    setNavigator({ clipboard: { writeText } });
+    const { container } = render(<ShareButton slug="neon-static" title="Neon Static" look="photo" />);
+    const button = screen.getByRole("button", { name: "Share Neon Static" });
+    expect(button).toHaveAttribute("data-share-look", "photo");
+    // The target: 48px below 640px, 44px tall from 640px; the page's outline gives way to the mark's ring.
+    expect(button).toHaveClass("group/share", "size-12", "sm:size-auto", "sm:min-h-11", "focus-visible:outline-hidden!");
+    const mark = button.firstElementChild as HTMLElement;
+    expect(mark).toHaveAttribute("data-surface", "paper");
+    expect(mark).toHaveClass(
+      "size-10",
+      "bg-paper",
+      "text-ink",
+      "sm:h-11",
+      "group-hover/share:bg-hover!",
+      "group-focus-visible/share:ring-paper",
+      "group-focus-visible/share:ring-offset-ink",
+      "motion-safe:group-active/share:scale-90",
+    );
+    expect(button.querySelector("svg")).toHaveClass("size-5", "sm:size-4");
+    const label = (which: "share" | "copied") => container.querySelector(`[data-share-label="${which}"]`);
+    // The word only from 640px, in one grid cell with "Copied" so the chip never changes width.
+    expect(label("share")?.parentElement?.parentElement).toHaveClass("hidden", "sm:inline");
+    expect(label("copied")).toHaveClass("invisible");
+    const before = button.querySelector("svg")?.innerHTML;
+
+    await act(async () => fireEvent.click(button));
+    expect(writeText).toHaveBeenCalledWith(SHARED);
+    // The check in place of the share icon, at every width, and "Copied" from 640px.
+    expect(button.querySelector("svg")?.innerHTML).not.toBe(before);
+    expect(button.querySelector("svg")).toHaveClass("size-5", "sm:size-4");
+    expect(label("copied")).not.toHaveClass("invisible");
+    expect(button).toHaveAccessibleName("Copied. Share Neon Static");
+    // Said, never drawn over the photo.
+    const status = screen.getByRole("status");
+    expect(status).toHaveTextContent("Link copied");
+    expect(status).toHaveClass("sr-only");
+    act(() => vi.advanceTimersByTime(4000));
+    expect(button).toHaveAccessibleName("Share Neon Static");
+    expect(button.querySelector("svg")?.innerHTML).toBe(before);
+  });
+});
+
+// The photo mark has its own words, look and copied state: `look="photo"` takes no `label`, `buttonClassName` or
+// `copiedInLabel` (checked by tsc).
+describe("ShareButton props", () => {
+  it("won't combine look=photo with a label, a button look or copiedInLabel", () => {
+    const base = { slug: "neon-static", title: "Neon Static" } as const;
+    expectTypeOf({ ...base, look: "photo" as const }).toExtend<ShareButtonProps>();
+    expectTypeOf({ ...base, label: "Share event", buttonClassName: "chip" }).toExtend<ShareButtonProps>();
+    expectTypeOf({ ...base, copiedInLabel: true }).toExtend<ShareButtonProps>();
+    expectTypeOf({ ...base, look: "photo" as const, label: "Share event" }).not.toExtend<ShareButtonProps>();
+    expectTypeOf({ ...base, look: "photo" as const, buttonClassName: "chip" }).not.toExtend<ShareButtonProps>();
+    expectTypeOf({ ...base, look: "photo" as const, copiedInLabel: true }).not.toExtend<ShareButtonProps>();
+    // The poster edge is the photo mark's alone.
+    expectTypeOf({ ...base, look: "photo" as const, onPoster: true }).toExtend<ShareButtonProps>();
+    expectTypeOf({ ...base, onPoster: true }).not.toExtend<ShareButtonProps>();
   });
 });
 
@@ -343,6 +405,47 @@ describe("AddToCalendar", () => {
     expect(screen.queryByRole("link")).toBeNull();
     expect(trigger).toHaveFocus();
     expect(nav.share).toBeUndefined();
+  });
+
+  // The one look (the event page's line under the date since 27 Nov 2026, Option A): underlined words and a chevron in a
+  // 44px target; the list opens under it from its left edge, inside the screen.
+  it("is underlined words with a chevron, a 44px target, and the list hangs from its left edge", () => {
+    const { container } = render(<AddToCalendar event={event} className="-my-2.5" />);
+    const trigger = screen.getByRole("button", { name: "Add to calendar" });
+    expect(trigger).toHaveTextContent(/^Add to calendar$/);
+    expect(trigger).not.toHaveAttribute("aria-label");
+    expect(trigger).toHaveClass("min-h-11", "underline", "font-semibold", "text-sm");
+    expect(trigger.querySelector("svg")).toHaveAttribute("aria-hidden", "true");
+    expect(container.firstElementChild).toHaveClass("relative", "w-fit", "-my-2.5");
+    fireEvent.click(trigger);
+    expect(screen.getByRole("list")).toHaveClass("absolute", "top-full", "left-0", "max-w-[calc(100vw-2rem)]");
+    expect(trigger.querySelector("svg")).toHaveClass("rotate-180", "motion-safe:transition-transform");
+  });
+
+  // Large text and a link an icon's width in (the event page at 320px with 200% text) used to push the list past the
+  // right edge. It's measured as it opens: at most the screen less a 1rem gutter each side, moved left to fit.
+  it("keeps the open list on screen: narrowed to the screen less its gutters, and moved left as far as it must", () => {
+    const width = Object.getOwnPropertyDescriptor(Element.prototype, "clientWidth");
+    Object.defineProperty(document.documentElement, "clientWidth", { configurable: true, value: 320 });
+    const rect = vi.spyOn(HTMLUListElement.prototype, "getBoundingClientRect").mockReturnValue(
+      { left: 96, right: 400, width: 304, top: 0, bottom: 200, height: 200, x: 96, y: 0, toJSON: () => ({}) } as DOMRect,
+    );
+    try {
+      render(<AddToCalendar event={event} />);
+      fireEvent.click(screen.getByRole("button", { name: "Add to calendar" }));
+      const list = screen.getByRole("list");
+      // 320 less 16px a side; its right edge (400) moved in to 304.
+      expect(list.style.maxWidth).toBe("288px");
+      expect(list.style.left).toBe("-96px");
+      // Already inside: it stays at the link's left edge.
+      rect.mockReturnValue({ left: 16, right: 272, width: 256, top: 0, bottom: 200, height: 200, x: 16, y: 0, toJSON: () => ({}) } as DOMRect);
+      fireEvent(window, new Event("resize"));
+      expect(list.style.left).toBe("0px");
+    } finally {
+      rect.mockRestore();
+      if (width) Object.defineProperty(document.documentElement, "clientWidth", width);
+      else Reflect.deleteProperty(document.documentElement, "clientWidth");
+    }
   });
 
   it("puts Google first on Android", () => {

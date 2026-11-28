@@ -31,7 +31,7 @@ export function buttonClass(
 }
 
 /**
- * A secondary action with an icon (the event page's Save and Share row), as
+ * A secondary action with an icon (the organiser profile's Share), as
  * the rules' Secondary button: the 1.5px foreground stroke on the page
  * colour, black with a white label on hover (white with black in Dark), 48px
  * tall, Label/Button. Never a purchase.
@@ -40,21 +40,37 @@ export const secondaryActionClass =
   "label-button inline-flex min-h-12 items-center gap-2 rounded-control border-control border-foreground px-4 text-foreground motion-safe:transition-colors motion-safe:duration-200 motion-safe:ease-out hover:bg-foreground hover:text-background";
 
 /**
- * Save, Share and Calendar in the event page's action row (the owner's event reference, 13 Nov 2026): the Secondary
- * button filling a third of the row, at least 48px tall, in Instrument Sans 500 (14px; 16px on tablets, where a third
- * of the row is wide). At the default text size each one-word label fits a third of a 320px screen beside its icon, on
- * one line. With larger text the row (the `@container` around it, measured in rem, so it follows the text size) gets
- * too narrow for that: under 18rem the icon goes over the label, and under 16rem (actionRowGridClass) the buttons stack
- * one per line at full width, icon beside label again. The label itself (actionRowLabelClass) may still break rather
- * than spill out. (`!` where it overrides secondaryActionClass's own gap, padding, size and weight.)
+ * The event page's photo marks (SaveButton's `variant="photo"` and ShareButton's `look="photo"`; owner, 27 Nov
+ * 2026: Option A): a 40px white rounded square with a black 20px icon in a 48px target below 640px; from 640px a
+ * 44px chip, as tall as its target, with a 16px icon and its word. Paper and
+ * ink in both themes, as the card overlay is (they sit on a photo): `data-surface="paper"` on
+ * the mark pins its tokens to Light, so its cream hover (`--hover`) is cream in Dark too. That rule is unlayered
+ * (globals.css) and paints the mark white, so the hover fill needs `!` to win over it. Keyboard focus: the target's
+ * own outline gives way (`outline-hidden`, which forced colours still paint, as the ring there is gone) to a two-tone
+ * ring on the mark, black against the white mark and white outside that, so it
+ * shows on any photo, dark or light (never orange). Pressed, the mark shrinks a little (motion-safe only).
  */
-export const actionRowClass = `${secondaryActionClass} w-full min-w-0 justify-center gap-1.5! px-1! text-center font-medium! text-sm! sm:text-base! lg:text-sm! @3xs:@max-2xs:flex-col @3xs:@max-2xs:gap-1! @3xs:@max-2xs:py-2`;
+export const photoMarkTargetClass =
+  "flex size-12 items-center justify-center rounded-control focus-visible:outline-hidden! sm:size-auto sm:min-h-11";
 
-/** The action row's grid (inside an `@container`): three columns, one per line under 16rem (large text). */
-export const actionRowGridClass = "grid grid-cols-3 items-start gap-2 @max-3xs:grid-cols-1";
+/**
+ * The photo mark itself, inside its target (see photoMarkTargetClass). `group` is the target's group name. `onPoster`:
+ * there's no photo, only the generated poster (EventArt), which can be paper-toned, so the white mark gets a faint ink
+ * edge of its own (keyboard focus still draws its two-tone ring over it).
+ */
+export function photoMarkClass(group: "save" | "share", onPoster = false) {
+  const hover = group === "save" ? "group-hover/save:bg-hover!" : "group-hover/share:bg-hover!";
+  const focus =
+    group === "save"
+      ? "group-focus-visible/save:ring-2 group-focus-visible/save:ring-paper group-focus-visible/save:ring-offset-2 group-focus-visible/save:ring-offset-ink"
+      : "group-focus-visible/share:ring-2 group-focus-visible/share:ring-paper group-focus-visible/share:ring-offset-2 group-focus-visible/share:ring-offset-ink";
+  const press = group === "save" ? "motion-safe:group-active/save:scale-90" : "motion-safe:group-active/share:scale-90";
+  const edge = onPoster ? "ring-1 ring-ink/10" : "";
+  return `flex size-10 items-center justify-center rounded-control bg-paper text-ink ${edge} motion-safe:transition motion-safe:duration-150 motion-safe:ease-out ${press} ${hover} ${focus} sm:h-11 sm:w-auto sm:gap-1.5 sm:px-3`.replace(/\s+/g, " ");
+}
 
-/** An action row button's label: shrinks with its column and breaks rather than overflowing (very large text only). */
-export const actionRowLabelClass = "min-w-0 break-words";
+/** The photo mark's word, from 640px ("Save", "Share"): 14/20, 600. */
+export const photoMarkLabelClass = "hidden text-sm leading-5 font-semibold sm:inline";
 
 interface StyleProps {
   variant?: ButtonVariant;

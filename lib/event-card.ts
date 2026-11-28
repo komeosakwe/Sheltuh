@@ -1,11 +1,9 @@
 import {
   eventZone,
-  formatDateBadge,
   formatEventDateKey,
   formatEventDateShort,
   formatEventTime,
   formatEventTimeCompact,
-  formatEventWeekday,
   zoneSuffix,
 } from "./format";
 import type { TrendingSignal } from "./home-sections";
@@ -154,13 +152,6 @@ export function cardWhenParts(event: SheltuhEvent, now: Date): string[] {
  */
 export function cardWhereLabel(event: SheltuhEvent): string {
   return [eventPlaceName(event), event.venueName.trim()].filter(Boolean).join(" · ");
-}
-
-/** The card's date chip: `{ weekday: "Sat", day: "14", month: "Nov" }`, the start in the event's own zone. */
-export function cardDateChip(event: EventStartFields): { weekday: string; day: string; month: string } {
-  const zone = eventZone(event.timeZone);
-  const { range, month } = formatDateBadge(event.startsAt, undefined, zone);
-  return { weekday: formatEventWeekday(event.startsAt, zone), day: range, month };
 }
 
 /** Whether `event` has ended by `now` (an event with no end time ends when it starts). */

@@ -2,27 +2,27 @@
 
 import Link from "next/link";
 import type { MouseEvent } from "react";
-import { actionRowClass, actionRowLabelClass } from "@/components/ui/Button";
+import { photoMarkClass, photoMarkLabelClass, photoMarkTargetClass } from "@/components/ui/Button";
 import { withNext } from "@/lib/safe-next-path";
 import type { SaveTarget } from "./favourites-store";
 import { useFavourites } from "./FavouritesProvider";
 import HeartIcon from "./HeartIcon";
 
-export type SaveButtonVariant = "overlay" | "glass" | "plain" | "action";
+export type SaveButtonVariant = "overlay" | "glass" | "plain" | "photo";
 
 /**
  * The 44px+ hit area and the visible mark, per variant and state. Saved, the heart fills Signal
  * Orange (the rules' card anatomy: "outline → filled orange"; a non-text mark, 3.4:1 on white).
  */
-function classes(variant: SaveButtonVariant, saved: boolean) {
+function classes(variant: SaveButtonVariant, saved: boolean, onPoster: boolean) {
   const heart = saved ? "text-signal" : "";
   switch (variant) {
-    // The event page's action row, beside Share and Calendar: the page's one Save.
-    case "action":
+    // The event page's photo, in its top-right corner beside Share (owner, 27 Nov 2026: Option A): the page's one Save.
+    case "photo":
       return {
-        target: `group/save ${actionRowClass}`,
-        mark: null,
-        icon: `size-4 shrink-0 motion-safe:transition-transform motion-safe:duration-150 motion-safe:group-active/save:scale-90 ${heart}`.trim(),
+        target: `group/save ${photoMarkTargetClass}`,
+        mark: photoMarkClass("save", onPoster),
+        icon: `size-5 shrink-0 sm:size-4 ${heart}`.trim(),
       };
     case "plain":
       return {
@@ -32,19 +32,22 @@ function classes(variant: SaveButtonVariant, saved: boolean) {
       };
     // An event card's photo corner (the rules' card anatomy and icon button): a 32px white
     // rounded square with a black heart, in a 48px target on phones and a 40px one from 768px.
-    // White and black in both themes (it sits on a photo, which can be dark or light). Keyboard
-    // focus rings the mark, black on a white gap that shows on any photo (never orange).
+    // White and black in both themes (it sits on a photo, which can be dark or light): the mark pins
+    // its tokens to Light (data-surface="paper", below), so its cream hover is cream in Dark too, not
+    // Dark's near-black under the black heart; `!` because that unlayered rule paints the mark white.
+    // Keyboard focus rings the mark, black on a white gap that shows on any photo (never orange); the
+    // target's outline is `outline-hidden`, which forced colours still paint (the ring isn't drawn there).
     case "overlay":
       return {
-        target: "group/save flex size-12 items-center justify-center rounded-control focus-visible:outline-none! md:size-10",
-        mark: "flex size-8 items-center justify-center rounded-control bg-paper text-ink motion-safe:transition-transform motion-safe:duration-150 motion-safe:group-active/save:scale-90 group-hover/save:bg-hover group-focus-visible/save:ring-2 group-focus-visible/save:ring-ink group-focus-visible/save:ring-offset-2 group-focus-visible/save:ring-offset-paper",
+        target: "group/save flex size-12 items-center justify-center rounded-control focus-visible:outline-hidden! md:size-10",
+        mark: "flex size-8 items-center justify-center rounded-control bg-paper text-ink motion-safe:transition-transform motion-safe:duration-150 motion-safe:group-active/save:scale-90 group-hover/save:bg-hover! group-focus-visible/save:ring-2 group-focus-visible/save:ring-ink group-focus-visible/save:ring-offset-2 group-focus-visible/save:ring-offset-paper",
         icon: `size-5 ${heart}`.trim(),
       };
     // The This weekend card's photo corner (owner's mockup, 8 Nov 2026): a 32px rounded square of
     // dimmed glass with a white edge and heart, in the same 44px target, with the overlay's focus ring.
     case "glass":
       return {
-        target: "group/save flex size-11 items-center justify-center rounded-control focus-visible:outline-none!",
+        target: "group/save flex size-11 items-center justify-center rounded-control focus-visible:outline-hidden!",
         mark: `flex size-8 items-center justify-center rounded-control border border-paper/90 text-paper backdrop-blur-sm motion-safe:transition-transform motion-safe:duration-150 motion-safe:group-active/save:scale-90 group-focus-visible/save:ring-2 group-focus-visible/save:ring-ink group-focus-visible/save:ring-offset-2 group-focus-visible/save:ring-offset-paper ${
           // At least 45% ink, so the white heart and edge keep 3.3:1 even over a white poster (WCAG 1.4.11).
           saved ? "bg-ink/65" : "bg-ink/45 group-hover/save:bg-ink/60"
@@ -66,27 +69,28 @@ export default function SaveButton({
   event,
   variant,
   className = "",
+  onPoster = false,
 }: {
   event: SaveTarget;
   variant: SaveButtonVariant;
   className?: string;
+  /** `photo` only: the event has no photo, just the generated poster, so the white mark gets a faint edge. */
+  onPoster?: boolean;
 }) {
   const favourites = useFavourites();
   if (!favourites) return null;
 
   const saved = favourites.status === "ready" && favourites.isSaved(event.id);
-  const c = classes(variant, saved);
-  const content = (
-    <>
-      {c.mark ? (
-        <span className={c.mark}>
-          <HeartIcon filled={saved} className={c.icon} />
-        </span>
-      ) : (
-        <HeartIcon filled={saved} className={c.icon} />
-      )}
-      {variant === "action" && <span className={actionRowLabelClass}>Save</span>}
-    </>
+  const c = classes(variant, saved, onPoster);
+  // The photo's mark carries its word from 640px; "Save" whether or not it's saved (the fixed name, §5.2).
+  const content = c.mark ? (
+    // Paper and ink in both themes for the white marks (not the glass one, which paints its own dim fill).
+    <span className={c.mark} data-surface={variant === "photo" || variant === "overlay" ? "paper" : undefined}>
+      <HeartIcon filled={saved} className={c.icon} />
+      {variant === "photo" && <span className={photoMarkLabelClass}>Save</span>}
+    </span>
+  ) : (
+    <HeartIcon filled={saved} className={c.icon} />
   );
 
   if (favourites.signedOut) {
